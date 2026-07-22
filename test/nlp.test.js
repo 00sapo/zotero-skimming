@@ -116,16 +116,19 @@ describe("FastKeySentenceNLP", () => {
   it("uses all model stages and relays progress", async () => {
     const progress = vi.fn();
     const classify = vi.fn(async (texts, multilingual, callback) => { callback({ stage: "inference" }); return texts.map(() => ({ role: "result", score: 0.9 })); });
+    const summarize = vi.fn(async (_text, callback) => { callback({ stage: "inference" }); return "A compact paper synopsis."; });
     const models = {
       supportsInference: () => true,
+      summarize,
       embeddings: async (texts, multilingual, callback) => { callback({ stage: "inference" }); return texts.map((_, i) => [i + 1, 1]); },
       classify,
       rerank: async (query, texts, multilingual, callback) => { callback({ stage: "inference" }); return texts.map((_, i) => i); }
     };
     const selected = await nlp(models).analyzeAsync(prose.map((text, order) => sentence(text, order, order < 2 ? "abstract" : "results")), 3, {
-      llmEmbeddings: true, llmClassification: true, llmRerankings: true, classificationBatchSize: 12, multilingual: true, documentTitle: "A study", onModelProgress: progress
+      llmSummarization: true, llmEmbeddings: true, llmClassification: true, llmRerankings: true, classificationBatchSize: 12, multilingual: true, documentTitle: "A study", onModelProgress: progress
     });
     expect(selected).toHaveLength(3);
+    expect(summarize).toHaveBeenCalledWith(expect.stringContaining("A study"), expect.any(Function));
     expect(classify).toHaveBeenCalledWith(expect.any(Array), true, expect.any(Function), 12);
     expect(progress).toHaveBeenCalled();
   });

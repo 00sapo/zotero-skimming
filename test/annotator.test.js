@@ -140,8 +140,8 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(api.isValidDensity({ perPage: 1, minimum: 0, maximum: 1 })).toBe(true);
     expect(api.isValidDensity({ perPage: 0, minimum: 2, maximum: 1 })).toBe(false);
     expect(api.getConfiguredSettings()).toEqual({ ...api.settingsDefaults });
-    api.saveSettings({ perPage: 2, minimum: 1, maximum: 3, llmEmbeddings: true, llmClassification: false, llmRerankings: true, classificationBatchSize: 12, multilingual: true });
-    expect(api.getConfiguredSettings()).toMatchObject({ perPage: 2, classificationBatchSize: 12 });
+    api.saveSettings({ perPage: 2, minimum: 1, maximum: 3, llmSummarization: true, llmEmbeddings: true, llmClassification: false, llmRerankings: true, classificationBatchSize: 12, multilingual: true });
+    expect(api.getConfiguredSettings()).toMatchObject({ perPage: 2, llmSummarization: true, classificationBatchSize: 12 });
     expect(api.calculateAnnotationTarget(3, { perPage: 2, minimum: 1, maximum: 4 })).toBe(4);
 
     const window = fakeWindow([{ isPDFAttachment: () => true }]);
@@ -166,6 +166,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(window.document.documentElement.children[0].tag).toBe("div");
     expect(byId(window, "per-page").value).toBe("1.9");
     expect(byId(window, "classification-batch-size").value).toBe("8");
+    expect(byId(window, "llm-summarization")).toBeDefined();
     await byText(window, "Update models").listeners.click[0]();
     expect(descendants(window.document.documentElement).find(x => x.role === "alert").textContent).toContain("Use valid density");
     api.isValidSettings = settings => settings.perPage > 0;

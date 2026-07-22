@@ -424,6 +424,21 @@ var FastKeySentenceModels = (() => {
     return results;
   }
 
+  async function summarize(text, callback) {
+    if (!text) return "";
+    const generator = await getPipeline("text-generation", "summarization", false, callback);
+    const prompt = "Summarize the following academic paper in a compact factual paragraph. Preserve its objective, method, main findings, and limitations.\n\nPaper:\n" + text;
+    const output = await generator(prompt, {
+      max_new_tokens: 180,
+      do_sample: false,
+      return_full_text: false
+    });
+    const generated = Array.isArray(output) ? output[0]?.generated_text : output?.generated_text;
+    const summary = String(generated || "").replace(prompt, "").replace(/\s+/g, " ").trim();
+    callback?.({ stage: "inference", model: modelName("summarization", false), progress: 100 });
+    return summary;
+  }
+
   async function rerank(query, texts, multilingual, callback) {
     if (!texts.length) return [];
     const { tokenizer, model, name } = await getPairModel(multilingual, callback);
@@ -459,6 +474,7 @@ var FastKeySentenceModels = (() => {
 
   function selectedModelNames(settings) {
     const names = [];
+    if (settings.llmSummarization) names.push(modelName("summarization", false));
     if (settings.llmEmbeddings) names.push(modelName("embeddings", settings.multilingual));
     if (settings.llmClassification) names.push(modelName("classification", settings.multilingual));
     if (settings.llmRerankings) names.push(modelName("reranking", settings.multilingual));
@@ -468,7 +484,7 @@ var FastKeySentenceModels = (() => {
   function wantedModelFiles(siblings) {
     const names = siblings.map(item => item.rfilename || item.path || "").filter(Boolean);
     const rootFiles = new Set([
-      "config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json",
+      "config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json",
       "added_tokens.json", "vocab.txt", "vocab.json", "merges.txt", "modules.json",
       "sentence_bert_config.json", "sentencepiece.bpe.model", "tokenizer.model"
     ]);
@@ -563,6 +579,7 @@ var FastKeySentenceModels = (() => {
     shutdown,
     embeddings,
     classify,
+    summarize,
     rerank,
     updateModels,
     ensureRuntimeDownloaded,

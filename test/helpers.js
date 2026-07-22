@@ -16,7 +16,8 @@ export function loadScript(file, globals = {}) {
     FastKeySentenceModelIdentifiers: {
       embeddings: { en: "Xenova/all-MiniLM-L6-v2", multilingual: "Xenova/multilingual-e5-small" },
       classification: { en: "Xenova/distilbert-base-uncased-mnli", multilingual: "onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX" },
-      reranking: { en: "Xenova/ms-marco-MiniLM-L-6-v2", multilingual: "SugoLabs/mmarco-mMiniLMv2-L12-H384-v1" }
+      reranking: { en: "Xenova/ms-marco-MiniLM-L-6-v2", multilingual: "SugoLabs/mmarco-mMiniLMv2-L12-H384-v1" },
+      summarization: { en: "onnx-community/Llama-3.2-1B-Instruct-ONNX", multilingual: "onnx-community/Llama-3.2-1B-Instruct-ONNX" }
     },
     ...globals
   });

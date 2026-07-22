@@ -416,14 +416,18 @@ var FastKeySentenceNLP = (() => {
       .map(entry => entry.index);
   }
 
-  function rerankingQuery(sentences, documentTitle = "") {
+  function summarizationInput(sentences, documentTitle = "") {
+    return normalizeText([documentTitle, ...sentences.map(sentence => sentence.text)].filter(Boolean).join(" ")).slice(0, 120000);
+  }
+
+  function rerankingQuery(sentences, documentTitle = "", summary = "") {
     const abstract = sentences
       .filter(sentence => /abstract/.test(sentence.section || ""))
       .slice(0, 6)
       .map(sentence => sentence.text)
       .join(" ");
     const fallback = sentences.slice(0, 4).map(sentence => sentence.text).join(" ");
-    return normalizeText([documentTitle, abstract || fallback].filter(Boolean).join(". ")).slice(0, 1800);
+    return normalizeText([documentTitle, summary, abstract || fallback].filter(Boolean).join(". ")).slice(0, 1800);
   }
 
   function analyze(sentences, count) {
@@ -436,7 +440,7 @@ var FastKeySentenceNLP = (() => {
     const filtered = sentences.filter(sentence => !isNoise(sentence));
     if (!filtered.length) return [];
 
-    const useModels = options.llmEmbeddings || options.llmClassification || options.llmRerankings;
+    const useModels = options.llmSummarization || options.llmEmbeddings || options.llmClassification || options.llmRerankings;
     if (useModels && typeof FastKeySentenceModels === "undefined") {
       throw new Error("The transformer model manager was not loaded.");
     }
@@ -448,6 +452,24 @@ var FastKeySentenceNLP = (() => {
         operation: "runtime",
         message: "Transformer inference is unavailable. Using the baseline ranker."
       });
+    }
+
+    let summary = "";
+    if (options.llmSummarization && inferenceAvailable) {
+      try {
+        options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
+        summary = await FastKeySentenceModels.summarize(
+          summarizationInput(filtered, options.documentTitle || ""),
+          event => options.onModelProgress?.({ ...event, operation: "summarization" })
+        );
+      }
+      catch (error) {
+        options.onModelProgress?.({
+          stage: "fallback",
+          operation: "summarization",
+          message: `Summarization failed; using title and abstract only: ${error?.message || error}`
+        });
+      }
     }
 
     let scored;
@@ -509,7 +531,7 @@ var FastKeySentenceNLP = (() => {
 
     if (options.llmRerankings && inferenceAvailable && shortlist.length) {
       try {
-        const query = rerankingQuery(filtered, options.documentTitle || "");
+        const query = rerankingQuery(filtered, options.documentTitle || "", summary);
         options.onModelProgress?.({ stage: "preparing", operation: "reranking" });
         const scores = await FastKeySentenceModels.rerank(
           query,

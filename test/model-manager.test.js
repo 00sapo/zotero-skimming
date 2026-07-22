@@ -78,7 +78,7 @@ function manager({ module = hostModule(), fetchImpl, owner = true, existingHost 
   return { api: context.FastKeySentenceModels, Zotero, IOUtils, files, fetch, module, frame, frameWindow, document };
 }
 
-const settings = { llmEmbeddings: true, llmClassification: true, llmRerankings: true, multilingual: false };
+const settings = { llmSummarization: false, llmEmbeddings: true, llmClassification: true, llmRerankings: true, multilingual: false };
 
 describe("FastKeySentenceModels", () => {
   it("exposes its pinned local-inference contract", () => {
@@ -150,6 +150,14 @@ describe("FastKeySentenceModels", () => {
     ]);
     expect(classifier.mock.calls.map(([batch]) => batch.length)).toEqual([2, 2, 1]);
     expect(Zotero.Promise.delay).toHaveBeenCalledTimes(3);
+  });
+
+  it("generates a compact summary", async () => {
+    const generator = vi.fn(async () => [{ generated_text: "A compact paper synopsis." }]);
+    const { api } = manager({ module: hostModule({ pipeline: vi.fn(async () => generator) }) });
+    expect(await api.summarize("")).toBe("");
+    expect(await api.summarize("Paper content.")).toBe("A compact paper synopsis.");
+    expect(generator).toHaveBeenCalledWith(expect.stringContaining("Paper content."), expect.objectContaining({ max_new_tokens: 180, do_sample: false }));
   });
 
   it("reranks direct and multi-logit batches and supports multilingual batching", async () => {

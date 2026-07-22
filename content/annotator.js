@@ -85,6 +85,7 @@ FastOfflineKeySentenceAnnotator = {
     perPage: 1.9,
     minimum: 12,
     maximum: 80,
+    llmSummarization: false,
     llmEmbeddings: false,
     llmClassification: false,
     llmRerankings: false,
@@ -101,12 +102,14 @@ FastOfflineKeySentenceAnnotator = {
       perPage: Number.isFinite(perPage) ? perPage : defaults.perPage,
       minimum: Number.isInteger(minimum) ? minimum : defaults.minimum,
       maximum: Number.isInteger(maximum) ? maximum : defaults.maximum,
+      llmSummarization: Zotero.Prefs.get(this.prefBranch + "llmSummarization", true) ?? defaults.llmSummarization,
       llmEmbeddings: Zotero.Prefs.get(this.prefBranch + "llmEmbeddings", true) ?? defaults.llmEmbeddings,
       llmClassification: Zotero.Prefs.get(this.prefBranch + "llmClassification", true) ?? defaults.llmClassification,
       llmRerankings: Zotero.Prefs.get(this.prefBranch + "llmRerankings", true) ?? defaults.llmRerankings,
       classificationBatchSize: Number(Zotero.Prefs.get(this.prefBranch + "classificationBatchSize", true)) || defaults.classificationBatchSize,
       multilingual: Zotero.Prefs.get(this.prefBranch + "multilingual", true) ?? defaults.multilingual
     };
+    settings.llmSummarization = settings.llmSummarization === true;
     settings.llmEmbeddings = settings.llmEmbeddings === true;
     settings.llmClassification = settings.llmClassification === true;
     settings.llmRerankings = settings.llmRerankings === true;
@@ -131,7 +134,7 @@ FastOfflineKeySentenceAnnotator = {
       && Number.isInteger(settings.classificationBatchSize)
       && settings.classificationBatchSize >= 1
       && settings.classificationBatchSize <= 32
-      && ["llmEmbeddings", "llmClassification", "llmRerankings", "multilingual"]
+      && ["llmSummarization", "llmEmbeddings", "llmClassification", "llmRerankings", "multilingual"]
         .every(key => typeof settings[key] === "boolean");
   },
 
@@ -139,6 +142,7 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "annotationsPerPage", settings.perPage, true);
     Zotero.Prefs.set(this.prefBranch + "minimumAnnotations", settings.minimum, true);
     Zotero.Prefs.set(this.prefBranch + "maximumAnnotations", settings.maximum, true);
+    Zotero.Prefs.set(this.prefBranch + "llmSummarization", settings.llmSummarization, true);
     Zotero.Prefs.set(this.prefBranch + "llmEmbeddings", settings.llmEmbeddings, true);
     Zotero.Prefs.set(this.prefBranch + "llmClassification", settings.llmClassification, true);
     Zotero.Prefs.set(this.prefBranch + "llmRerankings", settings.llmRerankings, true);
@@ -263,6 +267,7 @@ FastOfflineKeySentenceAnnotator = {
 
     const stages = makeFieldset("Optional transformer stages");
     const options = [
+      ["llm-summarization", "LLM summarization", "Generate a paper synopsis with Llama 3.2 1B (about 1.2 GB) and add it to the re-ranking context.", initialSettings.llmSummarization],
       ["llm-embeddings", "LLM embeddings", "Use semantic sentence vectors instead of TF-IDF for relevance, TextRank, and MMR diversity.", initialSettings.llmEmbeddings],
       ["llm-classification", "LLM classification", "Classify shortlisted sentences by scholarly discourse role.", initialSettings.llmClassification],
       ["llm-rerankings", "LLM re-rankings", "Re-rank shortlisted sentences against the paper context.", initialSettings.llmRerankings],
@@ -364,6 +369,7 @@ FastOfflineKeySentenceAnnotator = {
       perPage: Number(inputs["per-page"].value),
       minimum: Number(inputs.minimum.value),
       maximum: Number(inputs.maximum.value),
+      llmSummarization: checks["llm-summarization"].checked,
       llmEmbeddings: checks["llm-embeddings"].checked,
       llmClassification: checks["llm-classification"].checked,
       llmRerankings: checks["llm-rerankings"].checked,
@@ -659,6 +665,7 @@ FastOfflineKeySentenceAnnotator = {
       );
       const documentTitle = await this.getDocumentTitle(attachment);
       const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
+        llmSummarization: configuredSettings.llmSummarization,
         llmEmbeddings: configuredSettings.llmEmbeddings,
         llmClassification: configuredSettings.llmClassification,
         llmRerankings: configuredSettings.llmRerankings,
