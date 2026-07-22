@@ -13,6 +13,7 @@ mkdir -p dist
 zip -r -9 "$OUTPUT" \
   manifest.json \
   bootstrap.js \
+  model-identifiers.json \
   content
 
 echo "Built: $OUTPUT"
