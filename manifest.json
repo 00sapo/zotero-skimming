@@ -1,14 +1,14 @@
 {
   "manifest_version": 2,
-  "name": "Fast Offline Key-Sentence Annotator",
+  "name": "Zotero Skimming",
   "version": "1.7.0",
-  "description": "Creates Zotero-native key-sentence highlights with full-PDF parsing and optional locally cached quantized transformer inference for embeddings, classification, and reranking.",
-  "author": "OpenAI",
-  "homepage_url": "https://example.org/fast-offline-key-sentence-annotator",
+  "description": "Automatic annotations of PDF inside Zotero for skimming academic literature",
+  "author": "00sapo",
+  "homepage_url": "https://codeberg.org/00sapo/zotero-skimming",
   "applications": {
     "zotero": {
       "id": "fast-offline-key-sentence-annotator@example.org",
-      "update_url": "https://example.org/fast-offline-key-sentence-annotator/updates.json",
+      "update_url": "https://codeberg.org/00sapo/zotero-skimming/updates.json",
       "strict_min_version": "9.0",
       "strict_max_version": "9.*"
     }

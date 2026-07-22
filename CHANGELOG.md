@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Renamed the project to **Zotero Skimming**.
+- Updated the project description and Codeberg metadata.
+
 ## 1.7.0
 
 - Enables local q8 transformer inference after **Update models**.

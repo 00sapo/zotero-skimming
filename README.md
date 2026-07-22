@@ -1,5 +1,19 @@
-# Fast Offline Key-Sentence Annotator 1.7.0
+# Zotero Skimming
 
-This safety release separates model download from model execution. **Update models** downloads the selected q8 ONNX models and their tokenizer/configuration assets into the Zotero profile without loading ONNX Runtime. This prevents the segmentation fault observed when WebAssembly inference was initialized inside Zotero's main process.
+Automatic annotations of PDF inside Zotero for skimming academic literature.
 
-The existing non-transformer ranking pipeline remains operational. Transformer inference is intentionally disabled until it can be moved to a process boundary that cannot terminate Zotero.
+## Current version
+
+Version 1.7.0 provides full-PDF parsing, Zotero-native highlights, configurable annotation density, filtering of references and tables, and optional locally cached quantized transformer stages for embeddings, classification, and reranking.
+
+## Installation
+
+Build or install the XPI in Zotero 9, then right-click a PDF attachment and choose **Annotate key sentences…**. The settings dialog controls annotation density and the optional transformer stages.
+
+## Model handling
+
+**Update models** downloads the selected quantized model assets into the Zotero profile and reports progress. Model-free TF-IDF/TextRank scoring remains available as the baseline mode.
+
+## Repository
+
+https://codeberg.org/00sapo/zotero-skimming
