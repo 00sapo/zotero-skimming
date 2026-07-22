@@ -10,7 +10,7 @@ var FastKeySentenceModels = (() => {
   const RUNTIME_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TRANSFORMERS_VERSION}`;
   const DTYPE = "q8";
   const IN_PROCESS_INFERENCE_ENABLED = true;
-  const WASM_FILENAME = "ort-wasm-simd-threaded.wasm";
+  const WASM_FILENAME = "ort-wasm-simd-threaded.jsep.wasm";
 
   const MODELS = Object.freeze({
     embeddings: {
