@@ -423,7 +423,8 @@ var FastKeySentenceNLP = (() => {
         const predictions = await FastKeySentenceModels.classify(
           shortlist.map(index => filtered[index].text),
           !!options.multilingual,
-          event => options.onModelProgress?.({ ...event, operation: "classification" })
+          event => options.onModelProgress?.({ ...event, operation: "classification" }),
+          options.classificationBatchSize
         );
         const rawScores = predictions.map(prediction => {
           const salience = ROLE_SALIENCE[prediction.role] ?? ROLE_SALIENCE.context;
@@ -460,7 +461,7 @@ var FastKeySentenceNLP = (() => {
         const normalized = minMax(scores);
         shortlist.forEach((index, position) => {
           filtered[index].rerankingScore = Number(scores[position]) || 0;
-          filtered[index].importance = 0.75 * filtered[index].importance + 0.25 * normalized[position];
+          filtered[index].importance = 0.65 * filtered[index].importance + 0.35 * normalized[position];
         });
       }
       catch (error) {
