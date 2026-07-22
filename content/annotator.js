@@ -549,6 +549,7 @@ FastOfflineKeySentenceAnnotator = {
 
   modelProgressHandler(line, settings) {
     const enabled = [
+      settings.llmSummarization && "summarization",
       settings.llmEmbeddings && "embeddings",
       settings.llmClassification && "classification",
       settings.llmRerankings && "reranking"
@@ -559,6 +560,7 @@ FastOfflineKeySentenceAnnotator = {
       ranges.set(operation, [45 + index * width, 45 + (index + 1) * width]);
     });
     const names = {
+      summarization: "LLM summarization",
       embeddings: "LLM embeddings",
       classification: "LLM classification",
       reranking: "LLM re-ranking"
@@ -602,6 +604,9 @@ FastOfflineKeySentenceAnnotator = {
       }
       else if (event.stage === "inference") {
         line.setText(`${label}: analysing sentences (${Math.round(percentage)}%)`);
+      }
+      else if (event.stage === "fallback") {
+        line.setText(`${label}: ${event.message || "fallback activated"}`);
       }
       else {
         line.setText(`${label}: loading ${event.model || "model"}${file}`);
@@ -653,6 +658,7 @@ FastOfflineKeySentenceAnnotator = {
       ).size || pages.length;
       const count = this.calculateAnnotationTarget(eligiblePages, configuredSettings);
       const enabledStages = [
+        configuredSettings.llmSummarization && "summarization",
         configuredSettings.llmEmbeddings && "embeddings",
         configuredSettings.llmClassification && "classification",
         configuredSettings.llmRerankings && "re-ranking"
@@ -665,6 +671,7 @@ FastOfflineKeySentenceAnnotator = {
       );
       const documentTitle = await this.getDocumentTitle(attachment);
       const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
+        llmSummarization: configuredSettings.llmSummarization,
         llmSummarization: configuredSettings.llmSummarization,
         llmEmbeddings: configuredSettings.llmEmbeddings,
         llmClassification: configuredSettings.llmClassification,
@@ -695,6 +702,14 @@ FastOfflineKeySentenceAnnotator = {
       progress.startCloseTimer(3000);
     }
     catch (error) {
+      const e = error || "";
+      const msg = typeof e === "object" && e !== null ? (e.message || String(e)) : String(e);
+      const stack = typeof e === "object" && e !== null ? e.stack : "";
+      const detail = `${msg} (type: ${typeof e})${stack ? `\n${stack}` : ""}`;
+      Zotero.debug(`FastOfflineKeySentenceAnnotator annotation failed: ${detail}`);
+      if (typeof FastKeySentenceModels !== "undefined" && FastKeySentenceModels.appendToLog) {
+        void FastKeySentenceModels.appendToLog(`annotation failed: ${detail}`);
+      }
       line.setError();
       line.setText("Annotation failed");
       progress.startCloseTimer(8000);

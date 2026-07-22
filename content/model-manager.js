@@ -16,21 +16,51 @@ var FastKeySentenceModels = (() => {
 
   let rootURI = null;
   let cacheDir = null;
+  let logFile = null;
   let runtimeFile = null;
   let runtimePromise = null;
   let wasmBlobURL = null;
   let gpuAvailablePromise = null;
+  let gpuDisabled = false;
   let hostPromise = null;
   let hostFrame = null;
   const objectCache = new Map();
 
+  function errorDetail(error) {
+    const e = error || "";
+    const msg = typeof e === "object" && e !== null ? (e.message || String(e)) : String(e);
+    const stack = typeof e === "object" && e !== null ? e.stack : "";
+    return `${msg} (type: ${typeof e})${stack ? `\n${stack}` : ""}`;
+  }
+
+  async function appendToLog(message) {
+    const line = `[${new Date().toISOString()}] ${message}`;
+    try {
+      if (!logFile) init({});
+      await IOUtils.makeDirectory(PathUtils.parent(logFile), { ignoreExisting: true });
+      const previous = await IOUtils.exists(logFile) ? new TextDecoder().decode(await IOUtils.read(logFile)) : "";
+      const content = (previous + line + "\n").slice(-2 * 1024 * 1024);
+      await IOUtils.write(logFile, new TextEncoder().encode(content));
+    }
+    catch (error) {
+      Zotero.debug("Fast Offline Key-Sentence Annotator models: Could not write inference log: " + (error?.message || error));
+    }
+  }
+
   function log(message) {
     Zotero.debug("Fast Offline Key-Sentence Annotator models: " + message);
+    if (typeof IOUtils !== "undefined") void appendToLog(message);
+  }
+
+  function logRuntimeError(error) {
+    const detail = errorDetail(error);
+    log(`Runtime initialization error: ${detail}`);
   }
 
   function init(options = {}) {
     rootURI = options.rootURI || rootURI;
     cacheDir = PathUtils.join(PathUtils.profileDir, "fast-key-sentence-annotator");
+    logFile = PathUtils.join(cacheDir, "logs", "inference.log");
     runtimeFile = PathUtils.join(cacheDir, "runtime", `transformers-${TRANSFORMERS_VERSION}.min.mjs`);
   }
 
@@ -193,7 +223,9 @@ var FastKeySentenceModels = (() => {
         globalThis.dispatchEvent(new CustomEvent("fast-key-sentence-transformers-ready"));
       }
       catch (error) {
-        globalThis.dispatchEvent(new CustomEvent("fast-key-sentence-transformers-error", { detail: error?.message || String(error) }));
+        const detail = errorDetail(error);
+        globalThis.dispatchEvent(new CustomEvent("fast-key-sentence-transformers-error", { detail }));
+        globalThis.console?.error?.("Transformers.js runtime failed to load:", detail);
       }
     `;
     const wrapperURL = hostWindow.URL.createObjectURL(new hostWindow.Blob([wrapper], { type: "text/javascript" }));
@@ -271,9 +303,10 @@ var FastKeySentenceModels = (() => {
       }).catch(error => {
         runtimePromise = null;
         hostPromise = null;
+        logRuntimeError(error);
         throw new Error(
           "Could not initialize the locally downloaded Transformers.js runtime. "
-          + (error?.message || error)
+          + errorDetail(error)
         );
       });
     }
@@ -306,7 +339,7 @@ var FastKeySentenceModels = (() => {
         ? gpu.requestAdapter().then(adapter => !!adapter).catch(() => false)
         : Promise.resolve(false);
     }
-    return await gpuAvailablePromise ? "webgpu" : "wasm";
+    return !gpuDisabled && await gpuAvailablePromise ? "webgpu" : "wasm";
   }
 
   function inferenceOptions(name, callback, device) {
@@ -326,12 +359,16 @@ var FastKeySentenceModels = (() => {
       const load = selectedDevice => mod.pipeline(task, name, inferenceOptions(name, callback, selectedDevice));
       const pending = load(device).catch(async error => {
         if (device === "webgpu") {
-          callback?.({ stage: "fallback", model: name, message: `WebGPU failed; using WASM: ${error?.message || error}` });
+          gpuDisabled = true;
+          const detail = errorDetail(error);
+          log(`WebGPU pipeline failed for ${name}; disabling WebGPU and retrying with WASM: ${detail}`);
+          callback?.({ stage: "fallback", model: name, device, message: `WebGPU failed; using WASM: ${detail}` });
           return load("wasm");
         }
         throw error;
       }).catch(error => {
         objectCache.delete(key);
+        log(`Pipeline failed for ${name}: ${errorDetail(error)}`);
         throw new Error(`Could not load ${name}: ${error?.message || error}`);
       });
       objectCache.set(key, pending);
@@ -353,12 +390,16 @@ var FastKeySentenceModels = (() => {
       ]).then(([tokenizer, model]) => ({ tokenizer, model, name }));
       const pending = load(device).catch(async error => {
         if (device === "webgpu") {
-          callback?.({ stage: "fallback", model: name, message: `WebGPU failed; using WASM: ${error?.message || error}` });
+          gpuDisabled = true;
+          const detail = errorDetail(error);
+          log(`WebGPU pair model failed for ${name}; disabling WebGPU and retrying with WASM: ${detail}`);
+          callback?.({ stage: "fallback", model: name, device, message: `WebGPU failed; using WASM: ${detail}` });
           return load("wasm");
         }
         throw error;
       }).catch(error => {
         objectCache.delete(key);
+        log(`Pair model failed for ${name}: ${errorDetail(error)}`);
         throw new Error(`Could not load ${name}: ${error?.message || error}`);
       });
       objectCache.set(key, pending);
@@ -374,14 +415,18 @@ var FastKeySentenceModels = (() => {
 
     for (let start = 0; start < texts.length; start += batchSize) {
       let batch = texts.slice(start, start + batchSize);
-      // E5 was trained with task prefixes. The same prefix is used on every
-      // sentence because this plugin performs symmetric, same-language
-      // similarity rather than cross-language retrieval.
       if (multilingual) batch = batch.map(text => `passage: ${text}`);
-      const output = await extractor(batch, {
-        pooling: "mean",
-        normalize: true
-      });
+      let output;
+      try {
+        output = await extractor(batch, {
+          pooling: "mean",
+          normalize: true
+        });
+      }
+      catch (error) {
+        log(`Inference call failed in embeddings batch ${start / batchSize}: ${errorDetail(error)}`);
+        throw error;
+      }
       const rows = output.tolist();
       if (batch.length === 1 && typeof rows[0] === "number") vectors.push(rows);
       else vectors.push(...rows);
@@ -594,7 +639,9 @@ var FastKeySentenceModels = (() => {
       try { hostFrame.contentWindow.URL.revokeObjectURL(wasmBlobURL); } catch (_) {}
     }
     wasmBlobURL = null;
+    logFile = null;
     gpuAvailablePromise = null;
+    gpuDisabled = false;
     hostFrame?.remove();
     hostFrame = null;
     hostPromise = null;
@@ -615,6 +662,7 @@ var FastKeySentenceModels = (() => {
     ensureRuntimeDownloaded,
     modelName,
     supportsInference,
-    log
+    log,
+    appendToLog
   };
 })();

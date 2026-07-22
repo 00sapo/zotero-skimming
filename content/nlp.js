@@ -6,6 +6,19 @@ var FastKeySentenceNLP = (() => {
   const STOP_WORDS = new Set(`a an and are as at be been being but by can could did do does doing for from had has have having he her hers herself him himself his how i if in into is it its itself may might more most must my myself no nor not of off on once only or other our ours ourselves out over own same she should so some such than that the their theirs them themselves then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yourself yourselves`.split(/\s+/));
   const SCORING = Object.freeze(FastKeySentenceScoringConfig);
 
+  function logFallback(operation, error) {
+    const e = error || "";
+    const msg = typeof e === "object" && e !== null ? (e.message || String(e)) : String(e);
+    const stack = typeof e === "object" && e !== null ? e.stack : "";
+    const detail = `${msg} (type: ${typeof e})${stack ? `\n${stack}` : ""}`;
+    const line = `FastKeySentenceNLP ${operation} fallback: ${detail}`;
+    if (typeof Zotero !== "undefined") Zotero.debug(line);
+    if (typeof FastKeySentenceModels !== "undefined" && FastKeySentenceModels.appendToLog) {
+      void FastKeySentenceModels.appendToLog(line);
+    }
+    return detail;
+  }
+
   const ROLE_RULES = [
     { role: "contribution", score: SCORING.roleScores.contribution, re: /\b(we (propose|present|introduce|develop|contribute)|our (main )?contribution|this paper (proposes|presents|introduces))\b/i },
     { role: "result", score: SCORING.roleScores.result, re: /\b(results? (show|demonstrate|indicate|suggest)|we (achieve|obtain|find|observe)|achiev(?:e|ed|es)|improv(?:e|ed|ement)|accuracy|outperform(?:s|ed)?)\b/i },
@@ -450,10 +463,11 @@ var FastKeySentenceNLP = (() => {
         );
       }
       catch (error) {
+        const detail = logFallback("summarization", error);
         options.onModelProgress?.({
           stage: "fallback",
           operation: "summarization",
-          message: `Summarization failed; using title and abstract only: ${error?.message || error}`
+          message: `Summarization failed; using title and abstract only: ${detail}`
         });
       }
     }
@@ -470,10 +484,11 @@ var FastKeySentenceNLP = (() => {
         scored = scoreDense(filtered, embeddings, count);
       }
       catch (error) {
+        const detail = logFallback("embeddings", error);
         options.onModelProgress?.({
           stage: "fallback",
           operation: "embeddings",
-          message: `Embedding inference failed; using TF-IDF instead: ${error?.message || error}`
+          message: `Embedding inference failed; using TF-IDF instead: ${detail}`
         });
         scored = scoreSparse(filtered, count);
       }
@@ -509,10 +524,11 @@ var FastKeySentenceNLP = (() => {
         shortlist = shortlistIndexes(filtered, count);
       }
       catch (error) {
+        const detail = logFallback("classification", error);
         options.onModelProgress?.({
           stage: "fallback",
           operation: "classification",
-          message: `Classification failed; retaining heuristic roles: ${error?.message || error}`
+          message: `Classification failed; retaining heuristic roles: ${detail}`
         });
       }
     }
@@ -535,10 +551,11 @@ var FastKeySentenceNLP = (() => {
         });
       }
       catch (error) {
+        const detail = logFallback("reranking", error);
         options.onModelProgress?.({
           stage: "fallback",
           operation: "reranking",
-          message: `Re-ranking failed; retaining the first-stage scores: ${error?.message || error}`
+          message: `Re-ranking failed; retaining the first-stage scores: ${detail}`
         });
       }
     }
