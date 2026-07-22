@@ -4,16 +4,17 @@ var FastKeySentenceNLP = (() => {
   "use strict";
 
   const STOP_WORDS = new Set(`a an and are as at be been being but by can could did do does doing for from had has have having he her hers herself him himself his how i if in into is it its itself may might more most must my myself no nor not of off on once only or other our ours ourselves out over own same she should so some such than that the their theirs them themselves then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yourself yourselves`.split(/\s+/));
+  const SCORING = Object.freeze(FastKeySentenceScoringConfig);
 
   const ROLE_RULES = [
-    { role: "contribution", score: 1.00, re: /\b(we (propose|present|introduce|develop|contribute)|our (main )?contribution|this paper (proposes|presents|introduces))\b/i },
-    { role: "result", score: 1.00, re: /\b(results? (show|demonstrate|indicate|suggest)|we (achieve|obtain|find|observe)|achiev(?:e|ed|es)|improv(?:e|ed|ement)|accuracy|outperform(?:s|ed)?)\b/i },
-    { role: "method", score: 0.75, re: /\b(method|approach|pipeline|algorithm|architecture|model|framework|we (train|use|apply|compute|construct|evaluate))\b/i },
-    { role: "objective", score: 0.80, re: /\b(aim|objective|goal|focus(?:es)? on|we (study|investigate|evaluate|examine))\b/i },
-    { role: "limitation", score: 0.90, re: /\b(however|limitation|challenge|drawback|error|fails?|difficult|cannot|future work is needed)\b/i },
-    { role: "conclusion", score: 0.90, re: /\b(we conclude|in conclusion|overall|this (shows|demonstrates|indicates)|therefore)\b/i },
-    { role: "future", score: 0.90, re: /\b(future work|could be extended|we plan|further research|in future)\b/i },
-    { role: "dataset", score: 0.55, re: /\b(dataset|corpus|training set|test set|validation set|cross[- ]validation|pages?|samples?|instances?)\b/i }
+    { role: "contribution", score: SCORING.roleScores.contribution, re: /\b(we (propose|present|introduce|develop|contribute)|our (main )?contribution|this paper (proposes|presents|introduces))\b/i },
+    { role: "result", score: SCORING.roleScores.result, re: /\b(results? (show|demonstrate|indicate|suggest)|we (achieve|obtain|find|observe)|achiev(?:e|ed|es)|improv(?:e|ed|ement)|accuracy|outperform(?:s|ed)?)\b/i },
+    { role: "method", score: SCORING.roleScores.method, re: /\b(method|approach|pipeline|algorithm|architecture|model|framework|we (train|use|apply|compute|construct|evaluate))\b/i },
+    { role: "objective", score: SCORING.roleScores.objective, re: /\b(aim|objective|goal|focus(?:es)? on|we (study|investigate|evaluate|examine))\b/i },
+    { role: "limitation", score: SCORING.roleScores.limitation, re: /\b(however|limitation|challenge|drawback|error|fails?|difficult|cannot|future work is needed)\b/i },
+    { role: "conclusion", score: SCORING.roleScores.conclusion, re: /\b(we conclude|in conclusion|overall|this (shows|demonstrates|indicates)|therefore)\b/i },
+    { role: "future", score: SCORING.roleScores.future, re: /\b(future work|could be extended|we plan|further research|in future)\b/i },
+    { role: "dataset", score: SCORING.roleScores.dataset, re: /\b(dataset|corpus|training set|test set|validation set|cross[- ]validation|pages?|samples?|instances?)\b/i }
   ];
 
   function normalizeText(text) {
@@ -215,7 +216,7 @@ var FastKeySentenceNLP = (() => {
     return centroid;
   }
 
-  function textRank(vectors, norms, windowSize = 240, overlap = 40) {
+  function textRank(vectors, norms, windowSize = SCORING.textRank.windowSize, overlap = SCORING.textRank.overlap) {
     const n = vectors.length;
     const global = new Array(n).fill(0);
     const step = Math.max(1, windowSize - overlap);
@@ -226,19 +227,19 @@ var FastKeySentenceNLP = (() => {
       for (let i = 0; i < m; i++) {
         for (let j = i + 1; j < m; j++) {
           const w = vectorCosine(vectors[start + i], vectors[start + j], norms[start + i], norms[start + j]);
-          if (w >= 0.08) {
+          if (w >= SCORING.textRank.similarityThreshold) {
             graph[i].push([j, w]);
             graph[j].push([i, w]);
           }
         }
       }
       let rank = new Array(m).fill(1 / Math.max(1, m));
-      for (let iter = 0; iter < 50; iter++) {
-        const next = new Array(m).fill((1 - 0.85) / Math.max(1, m));
+      for (let iter = 0; iter < SCORING.textRank.maxIterations; iter++) {
+        const next = new Array(m).fill((1 - SCORING.textRank.damping) / Math.max(1, m));
         for (let i = 0; i < m; i++) {
           const sum = graph[i].reduce((total, [, weight]) => total + weight, 0);
           if (!sum) continue;
-          for (const [j, weight] of graph[i]) next[j] += 0.85 * rank[i] * weight / sum;
+          for (const [j, weight] of graph[i]) next[j] += SCORING.textRank.damping * rank[i] * weight / sum;
         }
         const delta = next.reduce((total, value, i) => total + Math.abs(value - rank[i]), 0);
         rank = next;
@@ -262,17 +263,7 @@ var FastKeySentenceNLP = (() => {
     return { role: "context", score: 0.25 };
   }
 
-  const ROLE_SALIENCE = Object.freeze({
-    contribution: 1.00,
-    result: 1.00,
-    limitation: 0.90,
-    conclusion: 0.90,
-    future: 0.90,
-    objective: 0.80,
-    method: 0.75,
-    dataset: 0.55,
-    context: 0.25
-  });
+  const ROLE_SALIENCE = Object.freeze(SCORING.roleScores);
 
   function sparseCentroid(vectors, indexes) {
     const centroid = new Map();
@@ -361,7 +352,10 @@ var FastKeySentenceNLP = (() => {
     const Q = minMax(cues);
     const L = minMax(lengths);
     sentences.forEach((sentence, i) => {
-      sentence.importance = 0.38 * R[i] + 0.35 * C[i] + 0.10 * Q[i] + 0.17 * L[i];
+      sentence.importance = SCORING.initial.clusterDispersion * R[i]
+        + SCORING.initial.textRank * C[i]
+        + SCORING.initial.scholarlyCues * Q[i]
+        + SCORING.initial.sentenceLength * L[i];
       sentence.baseImportance = sentence.importance;
     });
   }
@@ -391,8 +385,9 @@ var FastKeySentenceNLP = (() => {
         for (const j of selected) {
           redundancy = Math.max(redundancy, vectorCosine(vectors[i], vectors[j], norms[i], norms[j]));
         }
-        const sectionPenalty = 0.055 * (sectionCounts.get(sentences[i].section || "") || 0);
-        const value = 0.72 * sentences[i].importance - 0.28 * redundancy - sectionPenalty;
+        const sectionPenalty = SCORING.selection.sectionPenalty * (sectionCounts.get(sentences[i].section || "") || 0);
+        const value = SCORING.selection.importance * sentences[i].importance
+          - SCORING.selection.redundancy * redundancy - sectionPenalty;
         if (value > bestScore) {
           bestScore = value;
           best = i;
@@ -509,14 +504,16 @@ var FastKeySentenceNLP = (() => {
         );
         const rawScores = predictions.map(prediction => {
           const salience = ROLE_SALIENCE[prediction.role] ?? ROLE_SALIENCE.context;
-          return 0.65 * Math.max(0, Math.min(1, prediction.score || 0)) + 0.35 * salience;
+          return SCORING.classification.confidence * Math.max(0, Math.min(1, prediction.score || 0))
+            + SCORING.classification.roleSalience * salience;
         });
         const normalized = minMax(rawScores);
         shortlist.forEach((index, position) => {
           const prediction = predictions[position] || { role: "context", score: 0 };
           filtered[index].role = prediction.role || "context";
           filtered[index].classificationConfidence = Number(prediction.score) || 0;
-          filtered[index].importance = 0.78 * filtered[index].importance + 0.22 * normalized[position];
+          filtered[index].importance = SCORING.classification.priorImportance * filtered[index].importance
+            + SCORING.classification.classificationScore * normalized[position];
         });
         shortlist = shortlistIndexes(filtered, count);
       }
@@ -542,7 +539,8 @@ var FastKeySentenceNLP = (() => {
         const normalized = minMax(scores);
         shortlist.forEach((index, position) => {
           filtered[index].rerankingScore = Number(scores[position]) || 0;
-          filtered[index].importance = 0.65 * filtered[index].importance + 0.35 * normalized[position];
+          filtered[index].importance = SCORING.reranking.priorImportance * filtered[index].importance
+            + SCORING.reranking.rerankingScore * normalized[position];
         });
       }
       catch (error) {

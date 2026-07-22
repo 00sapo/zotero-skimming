@@ -1,0 +1,41 @@
+{
+  "initial": {
+    "clusterDispersion": 0.38,
+    "textRank": 0.35,
+    "scholarlyCues": 0.1,
+    "sentenceLength": 0.17
+  },
+  "roleScores": {
+    "contribution": 1,
+    "result": 1,
+    "method": 0.75,
+    "objective": 0.8,
+    "limitation": 0.9,
+    "conclusion": 0.9,
+    "future": 0.9,
+    "dataset": 0.55,
+    "context": 0.25
+  },
+  "textRank": {
+    "similarityThreshold": 0.08,
+    "damping": 0.85,
+    "maxIterations": 50,
+    "windowSize": 240,
+    "overlap": 40
+  },
+  "classification": {
+    "confidence": 0.65,
+    "roleSalience": 0.35,
+    "priorImportance": 0.78,
+    "classificationScore": 0.22
+  },
+  "reranking": {
+    "priorImportance": 0.65,
+    "rerankingScore": 0.35
+  },
+  "selection": {
+    "importance": 0.72,
+    "redundancy": 0.28,
+    "sectionPenalty": 0.055
+  }
+}
