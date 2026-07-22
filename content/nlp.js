@@ -274,50 +274,109 @@ var FastKeySentenceNLP = (() => {
     context: 0.25
   });
 
-  function scoreWithVectors(sentences, vectors, norms, centroid, centroidNorm) {
+  function sparseCentroid(vectors, indexes) {
+    const centroid = new Map();
+    for (const index of indexes) {
+      for (const [key, value] of vectors[index]) centroid.set(key, (centroid.get(key) || 0) + value / indexes.length);
+    }
+    return centroid;
+  }
+
+  function clusterCentroid(vectors, indexes) {
+    return isSparseVector(vectors[0])
+      ? sparseCentroid(vectors, indexes)
+      : denseCentroid(indexes.map(index => vectors[index]));
+  }
+
+  function kMeans(vectors, norms, count) {
+    const clusters = Math.min(vectors.length, Math.max(1, Math.floor(Number(count) || 1)));
+    let centroids = Array.from({ length: clusters }, (_, i) => clusterCentroid(vectors, [Math.floor(i * vectors.length / clusters)]));
+    let assignments = new Array(vectors.length).fill(-1);
+    for (let iteration = 0; iteration < 20; iteration++) {
+      const centroidNorms = centroids.map(vectorNorm);
+      const next = vectors.map((vector, i) => {
+        let best = 0, similarity = -Infinity;
+        for (let cluster = 0; cluster < clusters; cluster++) {
+          const value = vectorCosine(vector, centroids[cluster], norms[i], centroidNorms[cluster]);
+          if (value > similarity) {
+            similarity = value;
+            best = cluster;
+          }
+        }
+        return best;
+      });
+      const unchanged = next.every((cluster, i) => cluster === assignments[i]);
+      assignments = next;
+      const members = Array.from({ length: clusters }, () => []);
+      assignments.forEach((cluster, i) => members[cluster].push(i));
+      centroids = centroids.map((centroid, cluster) => members[cluster].length ? clusterCentroid(vectors, members[cluster]) : centroid);
+      if (unchanged) break;
+    }
+    return assignments;
+  }
+
+  function clusterDispersionRelevance(vectors, norms, count) {
+    if (!vectors.length) return [];
+    const assignments = kMeans(vectors, norms, count);
+    const clusterCount = Math.min(vectors.length, Math.max(1, Math.floor(Number(count) || 1)));
+    const candidates = new Array(clusterCount).fill(-1);
+    const distances = new Array(clusterCount).fill(-Infinity);
+    for (let i = 0; i < vectors.length; i++) {
+      let minimum = Infinity;
+      for (let j = 0; j < vectors.length; j++) {
+        if (assignments[i] === assignments[j]) continue;
+        minimum = Math.min(minimum, 1 - vectorCosine(vectors[i], vectors[j], norms[i], norms[j]));
+      }
+      if (!Number.isFinite(minimum)) minimum = 1;
+      const cluster = assignments[i];
+      if (minimum > distances[cluster]) {
+        distances[cluster] = minimum;
+        candidates[cluster] = i;
+      }
+    }
+    const selectedDistances = minMax(distances);
+    const relevance = new Array(vectors.length).fill(0);
+    candidates.forEach((index, cluster) => {
+      relevance[index] = candidates.length === 1 ? 1 : selectedDistances[cluster];
+    });
+    return relevance;
+  }
+
+  function scoreWithVectors(sentences, vectors, norms, clusterCount) {
     if (!sentences.length) return;
-    const relevance = vectors.map((vector, i) => vectorCosine(vector, centroid, norms[i], centroidNorm));
+    const relevance = clusterDispersionRelevance(vectors, norms, clusterCount);
     const centrality = textRank(vectors, norms);
     const cues = [];
-    const structures = [];
     const lengths = [];
     for (let i = 0; i < sentences.length; i++) {
       const sentence = sentences[i];
       const role = roleFor(sentence.text);
       sentence.role = role.role;
       cues.push(role.score + (/\b\d+(?:\.\d+)?%\b/.test(sentence.text) ? 0.25 : 0));
-      let structural = 0;
-      if (/abstract|introduction|result|discussion|conclusion/.test(sentence.section || "")) structural += 0.65;
-      if (/method|workflow|architecture|dataset|experiment/.test(sentence.section || "")) structural += 0.35;
-      if (sentence.sectionStart) structural += 0.45;
-      structures.push(structural);
       const wordCount = sentence.text.split(/\s+/).length;
       lengths.push(Math.exp(-Math.pow(wordCount - 27, 2) / (2 * Math.pow(18, 2))));
     }
     const R = minMax(relevance);
     const C = minMax(centrality);
     const Q = minMax(cues);
-    const U = minMax(structures);
     const L = minMax(lengths);
     sentences.forEach((sentence, i) => {
-      sentence.importance = 0.33 * R[i] + 0.29 * C[i] + 0.20 * Q[i] + 0.11 * U[i] + 0.07 * L[i];
+      sentence.importance = 0.38 * R[i] + 0.35 * C[i] + 0.10 * Q[i] + 0.17 * L[i];
       sentence.baseImportance = sentence.importance;
     });
   }
 
-  function scoreSparse(sentences) {
+  function scoreSparse(sentences, clusterCount) {
     if (!sentences.length) return { vectors: [], norms: [] };
-    const { vectors, norms, centroid, centroidNorm } = buildFeatures(sentences);
-    scoreWithVectors(sentences, vectors, norms, centroid, centroidNorm);
+    const { vectors, norms } = buildFeatures(sentences);
+    scoreWithVectors(sentences, vectors, norms, clusterCount);
     return { vectors, norms };
   }
 
-  function scoreDense(sentences, vectors) {
+  function scoreDense(sentences, vectors, clusterCount) {
     const normalizedVectors = vectors.map(vector => Array.from(vector || [], Number));
     const norms = normalizedVectors.map(denseNorm);
-    const centroid = denseCentroid(normalizedVectors);
-    const centroidNorm = denseNorm(centroid);
-    scoreWithVectors(sentences, normalizedVectors, norms, centroid, centroidNorm);
+    scoreWithVectors(sentences, normalizedVectors, norms, clusterCount);
     return { vectors: normalizedVectors, norms };
   }
 
@@ -369,7 +428,7 @@ var FastKeySentenceNLP = (() => {
 
   function analyze(sentences, count) {
     const filtered = sentences.filter(sentence => !isNoise(sentence));
-    const { vectors, norms } = scoreSparse(filtered);
+    const { vectors, norms } = scoreSparse(filtered, count);
     return selectMMR(filtered, vectors, norms, Math.min(count, filtered.length));
   }
 
@@ -400,7 +459,7 @@ var FastKeySentenceNLP = (() => {
           !!options.multilingual,
           event => options.onModelProgress?.({ ...event, operation: "embeddings" })
         );
-        scored = scoreDense(filtered, embeddings);
+        scored = scoreDense(filtered, embeddings, count);
       }
       catch (error) {
         options.onModelProgress?.({
@@ -408,11 +467,11 @@ var FastKeySentenceNLP = (() => {
           operation: "embeddings",
           message: `Embedding inference failed; using TF-IDF instead: ${error?.message || error}`
         });
-        scored = scoreSparse(filtered);
+        scored = scoreSparse(filtered, count);
       }
     }
     else {
-      scored = scoreSparse(filtered);
+      scored = scoreSparse(filtered, count);
     }
 
     let shortlist = shortlistIndexes(filtered, count);

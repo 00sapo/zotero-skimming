@@ -1,42 +1,19 @@
-# Task Plan: Automated test coverage
+# Task Plan: Classification batching
 
 ## Goal
-Add a Vitest suite with v8-enforced ≥90% coverage for the add-on JavaScript.
-
-## Current Phase
-Phase 1 — discovery
+Make local zero-shot classification faster with a persisted, user-configurable batch size.
 
 ## Phases
-### Phase 1: Requirements & Discovery
-- [x] Confirm test-stack decision
-- [x] Map public seams and Zotero/Gecko dependencies
-- **Status:** complete
+### Implementation
+- [x] Add a `classificationBatchSize` setting with a 1–32 validation range and default of 8.
+- [x] Add dialog input and RAM-speed explanation.
+- [x] Batch zero-shot pipeline calls and retain fallback output handling.
+- [x] Pass the setting through ranking to the model manager.
 
-### Phase 2: Test Design
-- [x] Define coverage scope and thresholds
-- [ ] Define reusable mocks and test fixtures
-- **Status:** in_progress
+### Verification
+- [x] Update unit tests.
+- [x] Run `yarn test`, `yarn coverage`, syntax checks, and `git diff --check`.
 
-### Phase 3: Implementation
-- [ ] Add Yarn/Vitest tooling
-- [ ] Add tests and minimal testability seams
-- **Status:** pending
-
-### Phase 4: Verification
-- [ ] Run coverage and meet thresholds
-- [ ] Run syntax checks
-- **Status:** pending
-
-### Phase 5: Delivery
-- [ ] Review changed files and report results
-- **Status:** pending
-
-## Decisions Made
-| Decision | Rationale |
-|---|---|
-| Vitest with v8 coverage | User-approved; supports mock-heavy isolated execution and CI thresholds. |
-
-## Errors Encountered
-| Error | Attempt | Resolution |
-|---|---:|---|
-| None | — | — |
+## Deferred
+| Item | Reason |
+| Qwen synopsis | The selected official Qwen2.5 ONNX repository has no q8 artifact; user retained q8-only operation. |

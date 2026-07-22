@@ -402,7 +402,7 @@ var FastKeySentenceModels = (() => {
     "background context": "context"
   });
 
-  async function classify(texts, multilingual, callback) {
+  async function classify(texts, multilingual, callback, batchSize = 8) {
     if (!texts.length) return [];
     const classifier = await getPipeline(
       "zero-shot-classification",
@@ -411,22 +411,28 @@ var FastKeySentenceModels = (() => {
       callback
     );
     const results = [];
-    for (let i = 0; i < texts.length; i++) {
-      const output = await classifier(texts[i], ROLE_LABELS, {
+    const size = Math.max(1, Math.min(32, Math.floor(Number(batchSize) || 8)));
+    for (let start = 0; start < texts.length; start += size) {
+      const batch = texts.slice(start, start + size);
+      const output = await classifier(batch, ROLE_LABELS, {
         multi_label: false,
         hypothesis_template: "This sentence is about {}."
       });
-      const label = output.labels?.[0] || "background context";
-      results.push({
-        role: ROLE_MAP[label] || "context",
-        score: Number(output.scores?.[0]) || 0
-      });
+      const predictions = Array.isArray(output) ? output : [output];
+      for (let i = 0; i < batch.length; i++) {
+        const prediction = predictions[i] || {};
+        const label = prediction.labels?.[0] || "background context";
+        results.push({
+          role: ROLE_MAP[label] || "context",
+          score: Number(prediction.scores?.[0]) || 0
+        });
+      }
       callback?.({
         stage: "inference",
         model: modelName("classification", multilingual),
-        progress: 100 * (i + 1) / texts.length
+        progress: 100 * Math.min(1, (start + batch.length) / texts.length)
       });
-      if (i % 4 === 0) await Zotero.Promise.delay(0);
+      await Zotero.Promise.delay(0);
     }
     return results;
   }

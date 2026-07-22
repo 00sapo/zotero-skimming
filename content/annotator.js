@@ -88,6 +88,7 @@ FastOfflineKeySentenceAnnotator = {
     llmEmbeddings: false,
     llmClassification: false,
     llmRerankings: false,
+    classificationBatchSize: 8,
     multilingual: false
   }),
 
@@ -103,6 +104,7 @@ FastOfflineKeySentenceAnnotator = {
       llmEmbeddings: Zotero.Prefs.get(this.prefBranch + "llmEmbeddings", true) ?? defaults.llmEmbeddings,
       llmClassification: Zotero.Prefs.get(this.prefBranch + "llmClassification", true) ?? defaults.llmClassification,
       llmRerankings: Zotero.Prefs.get(this.prefBranch + "llmRerankings", true) ?? defaults.llmRerankings,
+      classificationBatchSize: Number(Zotero.Prefs.get(this.prefBranch + "classificationBatchSize", true)) || defaults.classificationBatchSize,
       multilingual: Zotero.Prefs.get(this.prefBranch + "multilingual", true) ?? defaults.multilingual
     };
     settings.llmEmbeddings = settings.llmEmbeddings === true;
@@ -126,6 +128,9 @@ FastOfflineKeySentenceAnnotator = {
 
   isValidSettings(settings) {
     return this.isValidDensity(settings)
+      && Number.isInteger(settings.classificationBatchSize)
+      && settings.classificationBatchSize >= 1
+      && settings.classificationBatchSize <= 32
       && ["llmEmbeddings", "llmClassification", "llmRerankings", "multilingual"]
         .every(key => typeof settings[key] === "boolean");
   },
@@ -137,6 +142,7 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "llmEmbeddings", settings.llmEmbeddings, true);
     Zotero.Prefs.set(this.prefBranch + "llmClassification", settings.llmClassification, true);
     Zotero.Prefs.set(this.prefBranch + "llmRerankings", settings.llmRerankings, true);
+    Zotero.Prefs.set(this.prefBranch + "classificationBatchSize", settings.classificationBatchSize, true);
     Zotero.Prefs.set(this.prefBranch + "multilingual", settings.multilingual, true);
   },
 
@@ -284,9 +290,27 @@ FastOfflineKeySentenceAnnotator = {
       row.append(check, label, help);
       stages.appendChild(row);
     }
+    const batchSizeRow = create("div", {
+      style: "display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 10px 18px; align-items: center; margin: 0 0 12px"
+    });
+    const batchSizeInput = create("input", {
+      id: "classification-batch-size",
+      type: "number",
+      value: String(initialSettings.classificationBatchSize),
+      min: "1",
+      max: "32",
+      step: "1",
+      style: "width: 72px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
+    });
+    batchSizeRow.append(
+      create("label", { htmlFor: "classification-batch-size" }, "Classification batch size"),
+      batchSizeInput
+    );
+    inputs["classification-batch-size"] = batchSizeInput;
+    stages.appendChild(batchSizeRow);
     stages.appendChild(create("p", {
       style: "margin: 3px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Settings are remembered. Quantized models are downloaded on first use and reused from the local cache."));
+    }, "Larger classification batches are faster but require more RAM. Settings are remembered. Quantized models are downloaded on first use and reused from the local cache."));
     form.appendChild(stages);
 
     const error = create("p", {
@@ -343,6 +367,7 @@ FastOfflineKeySentenceAnnotator = {
       llmEmbeddings: checks["llm-embeddings"].checked,
       llmClassification: checks["llm-classification"].checked,
       llmRerankings: checks["llm-rerankings"].checked,
+      classificationBatchSize: Number(inputs["classification-batch-size"].value),
       multilingual: checks.multilingual.checked
     });
 
@@ -637,6 +662,7 @@ FastOfflineKeySentenceAnnotator = {
         llmEmbeddings: configuredSettings.llmEmbeddings,
         llmClassification: configuredSettings.llmClassification,
         llmRerankings: configuredSettings.llmRerankings,
+        classificationBatchSize: configuredSettings.classificationBatchSize,
         multilingual: configuredSettings.multilingual,
         documentTitle,
         onModelProgress: this.modelProgressHandler(line, configuredSettings)

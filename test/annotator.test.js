@@ -140,8 +140,8 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(api.isValidDensity({ perPage: 1, minimum: 0, maximum: 1 })).toBe(true);
     expect(api.isValidDensity({ perPage: 0, minimum: 2, maximum: 1 })).toBe(false);
     expect(api.getConfiguredSettings()).toEqual({ ...api.settingsDefaults });
-    api.saveSettings({ perPage: 2, minimum: 1, maximum: 3, llmEmbeddings: true, llmClassification: false, llmRerankings: true, multilingual: true });
-    expect(api.getConfiguredSettings().perPage).toBe(2);
+    api.saveSettings({ perPage: 2, minimum: 1, maximum: 3, llmEmbeddings: true, llmClassification: false, llmRerankings: true, classificationBatchSize: 12, multilingual: true });
+    expect(api.getConfiguredSettings()).toMatchObject({ perPage: 2, classificationBatchSize: 12 });
     expect(api.calculateAnnotationTarget(3, { perPage: 2, minimum: 1, maximum: 4 })).toBe(4);
 
     const window = fakeWindow([{ isPDFAttachment: () => true }]);
@@ -165,6 +165,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     const result = api.showSettingsOverlay(window, api.settingsDefaults);
     expect(window.document.documentElement.children[0].tag).toBe("div");
     expect(byId(window, "per-page").value).toBe("1.9");
+    expect(byId(window, "classification-batch-size").value).toBe("8");
     await byText(window, "Update models").listeners.click[0]();
     expect(descendants(window.document.documentElement).find(x => x.role === "alert").textContent).toContain("Use valid density");
     api.isValidSettings = settings => settings.perPage > 0;
@@ -178,8 +179,9 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     byId(window, "per-page").value = "2";
     byId(window, "minimum").value = "1";
     byId(window, "maximum").value = "3";
+    byId(window, "classification-batch-size").value = "12";
     submit();
-    await expect(result).resolves.toMatchObject({ perPage: 2, llmEmbeddings: true });
+    await expect(result).resolves.toMatchObject({ perPage: 2, llmEmbeddings: true, classificationBatchSize: 12 });
 
     const cancelled = api.showSettingsOverlay(window, api.settingsDefaults);
     window.document.documentElement.children.at(-1).listeners.keydown?.[0]?.({ key: "Escape", preventDefault: vi.fn(), stopPropagation: vi.fn() });

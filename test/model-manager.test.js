@@ -136,17 +136,20 @@ describe("FastKeySentenceModels", () => {
     await multilingualCall;
   });
 
-  it("classifies labels, defaults unknown output, and reports inference", async () => {
+  it("classifies sentence batches, defaults missing outputs, and reports inference", async () => {
     const classifier = vi.fn()
-      .mockResolvedValueOnce({ labels: ["method"], scores: ["0.4"] })
-      .mockResolvedValueOnce({ labels: [], scores: [] })
-      .mockResolvedValue({ labels: ["unknown"], scores: [0] });
+      .mockResolvedValueOnce([
+        { labels: ["method"], scores: ["0.4"] },
+        { labels: [], scores: [] }
+      ])
+      .mockResolvedValueOnce([{ labels: ["unknown"], scores: [0] }]);
     const { api, Zotero } = manager({ module: hostModule({ pipeline: vi.fn(async () => classifier) }) });
     expect(await api.classify([])).toEqual([]);
-    expect(await api.classify(["a", "b", "c", "d", "e"], false, vi.fn())).toEqual([
+    expect(await api.classify(["a", "b", "c", "d", "e"], false, vi.fn(), 2)).toEqual([
       { role: "method", score: 0.4 }, { role: "context", score: 0 }, { role: "context", score: 0 }, { role: "context", score: 0 }, { role: "context", score: 0 }
     ]);
-    expect(Zotero.Promise.delay).toHaveBeenCalledTimes(2);
+    expect(classifier.mock.calls.map(([batch]) => batch.length)).toEqual([2, 2, 1]);
+    expect(Zotero.Promise.delay).toHaveBeenCalledTimes(3);
   });
 
   it("reranks direct and multi-logit batches and supports multilingual batching", async () => {
