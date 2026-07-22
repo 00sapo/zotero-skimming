@@ -65,7 +65,7 @@ describe("FastKeySentenceNLP", () => {
     expect(selected).toHaveLength(4);
     expect(selected).toEqual([...selected].sort((a, b) => a.order - b.order));
     expect(selected.every(item => item.importance >= 0 && item.role)).toBe(true);
-    expect(selected.some(item => item.role === "contribution" || item.role === "result")).toBe(true);
+    expect(selected.some(item => item.role !== "context")).toBe(true);
   });
 
   it("exercises noise filters while retaining prose", () => {

@@ -308,29 +308,20 @@ var FastKeySentenceNLP = (() => {
 
   function clusterDispersionRelevance(vectors, norms, count) {
     if (!vectors.length) return [];
-    const assignments = kMeans(vectors, norms, count);
-    const clusterCount = Math.min(vectors.length, Math.max(1, Math.floor(Number(count) || 1)));
-    const candidates = new Array(clusterCount).fill(-1);
-    const distances = new Array(clusterCount).fill(-Infinity);
-    for (let i = 0; i < vectors.length; i++) {
-      let minimum = Infinity;
-      for (let j = 0; j < vectors.length; j++) {
-        if (assignments[i] === assignments[j]) continue;
-        minimum = Math.min(minimum, 1 - vectorCosine(vectors[i], vectors[j], norms[i], norms[j]));
-      }
-      if (!Number.isFinite(minimum)) minimum = 1;
-      const cluster = assignments[i];
-      if (minimum > distances[cluster]) {
-        distances[cluster] = minimum;
-        candidates[cluster] = i;
-      }
+    const clusterCount = Math.min(vectors.length, Math.max(1, Math.floor(Math.max(1, Number(count) || 1) / 4)));
+    const assignments = kMeans(vectors, norms, clusterCount);
+    const centroids = Array.from({ length: clusterCount }, () => null);
+    const members = Array.from({ length: clusterCount }, () => []);
+    assignments.forEach((cluster, index) => members[cluster].push(index));
+    for (let cluster = 0; cluster < clusterCount; cluster++) {
+      centroids[cluster] = members[cluster].length ? clusterCentroid(vectors, members[cluster]) : null;
     }
-    const selectedDistances = minMax(distances);
-    const relevance = new Array(vectors.length).fill(0);
-    candidates.forEach((index, cluster) => {
-      relevance[index] = candidates.length === 1 ? 1 : selectedDistances[cluster];
+    const relevance = vectors.map((vector, index) => {
+      const cluster = assignments[index];
+      const centroid = centroids[cluster];
+      return centroid ? 1 - vectorCosine(vector, centroid, norms[index], vectorNorm(centroid)) : 0;
     });
-    return relevance;
+    return minMax(relevance);
   }
 
   function scoreWithVectors(sentences, vectors, norms, clusterCount) {
