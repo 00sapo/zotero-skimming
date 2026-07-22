@@ -19,6 +19,7 @@ var FastKeySentenceModels = (() => {
   let runtimeFile = null;
   let runtimePromise = null;
   let wasmBlobURL = null;
+  let gpuAvailablePromise = null;
   let hostPromise = null;
   let hostFrame = null;
   const objectCache = new Map();
@@ -298,14 +299,37 @@ var FastKeySentenceModels = (() => {
     });
   }
 
+  async function preferredDevice() {
+    if (!gpuAvailablePromise) {
+      const gpu = hostFrame?.contentWindow?.navigator?.gpu;
+      gpuAvailablePromise = gpu?.requestAdapter
+        ? gpu.requestAdapter().then(adapter => !!adapter).catch(() => false)
+        : Promise.resolve(false);
+    }
+    return await gpuAvailablePromise ? "webgpu" : "wasm";
+  }
+
+  function inferenceOptions(name, callback, device) {
+    return {
+      dtype: DTYPE,
+      device,
+      progress_callback: event => report(callback, name, event)
+    };
+  }
+
   async function getPipeline(task, kind, multilingual, callback) {
     const name = modelName(kind, multilingual);
-    const key = `pipeline:${task}:${name}:${DTYPE}`;
+    const mod = await runtime(callback);
+    const device = await preferredDevice();
+    const key = `pipeline:${task}:${name}:${DTYPE}:${device}`;
     if (!objectCache.has(key)) {
-      const mod = await runtime(callback);
-      const pending = mod.pipeline(task, name, {
-        dtype: DTYPE,
-        progress_callback: event => report(callback, name, event)
+      const load = selectedDevice => mod.pipeline(task, name, inferenceOptions(name, callback, selectedDevice));
+      const pending = load(device).catch(async error => {
+        if (device === "webgpu") {
+          callback?.({ stage: "fallback", model: name, message: `WebGPU failed; using WASM: ${error?.message || error}` });
+          return load("wasm");
+        }
+        throw error;
       }).catch(error => {
         objectCache.delete(key);
         throw new Error(`Could not load ${name}: ${error?.message || error}`);
@@ -317,18 +341,23 @@ var FastKeySentenceModels = (() => {
 
   async function getPairModel(multilingual, callback) {
     const name = modelName("reranking", multilingual);
-    const key = `pair:${name}:${DTYPE}`;
+    const mod = await runtime(callback);
+    const device = await preferredDevice();
+    const key = `pair:${name}:${DTYPE}:${device}`;
     if (!objectCache.has(key)) {
-      const mod = await runtime(callback);
-      const pending = Promise.all([
+      const load = selectedDevice => Promise.all([
         mod.AutoTokenizer.from_pretrained(name, {
           progress_callback: event => report(callback, name, event)
         }),
-        mod.AutoModelForSequenceClassification.from_pretrained(name, {
-          dtype: DTYPE,
-          progress_callback: event => report(callback, name, event)
-        })
-      ]).then(([tokenizer, model]) => ({ tokenizer, model, name })).catch(error => {
+        mod.AutoModelForSequenceClassification.from_pretrained(name, inferenceOptions(name, callback, selectedDevice))
+      ]).then(([tokenizer, model]) => ({ tokenizer, model, name }));
+      const pending = load(device).catch(async error => {
+        if (device === "webgpu") {
+          callback?.({ stage: "fallback", model: name, message: `WebGPU failed; using WASM: ${error?.message || error}` });
+          return load("wasm");
+        }
+        throw error;
+      }).catch(error => {
         objectCache.delete(key);
         throw new Error(`Could not load ${name}: ${error?.message || error}`);
       });
@@ -565,6 +594,7 @@ var FastKeySentenceModels = (() => {
       try { hostFrame.contentWindow.URL.revokeObjectURL(wasmBlobURL); } catch (_) {}
     }
     wasmBlobURL = null;
+    gpuAvailablePromise = null;
     hostFrame?.remove();
     hostFrame = null;
     hostPromise = null;

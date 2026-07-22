@@ -38,11 +38,12 @@ function hostModule(overrides = {}) {
   };
 }
 
-function manager({ module = hostModule(), fetchImpl, owner = true, existingHost = true, files: initial = [RUNTIME, WASM] } = {}) {
+function manager({ module = hostModule(), fetchImpl, owner = true, existingHost = true, gpu, files: initial = [RUNTIME, WASM] } = {}) {
   const files = new Map(initial.map(path => [path, bytes(path)]));
   const listeners = new Map();
   const frameWindow = {
     ...(existingHost ? { FastKeySentenceTransformers: module } : {}),
+    ...(gpu ? { navigator: { gpu } } : {}),
     URL: { createObjectURL: vi.fn(() => "blob:asset"), revokeObjectURL: vi.fn() }, Blob, Response,
     addEventListener: vi.fn((name, fn) => listeners.set(name, fn)),
     removeEventListener: vi.fn(name => listeners.delete(name))
@@ -150,6 +151,18 @@ describe("FastKeySentenceModels", () => {
     ]);
     expect(classifier.mock.calls.map(([batch]) => batch.length)).toEqual([2, 2, 1]);
     expect(Zotero.Promise.delay).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses WebGPU when available and falls back to WASM", async () => {
+    const pipeline = vi.fn()
+      .mockRejectedValueOnce(new Error("GPU unavailable"))
+      .mockResolvedValue(async () => ({ labels: ["method"], scores: [0.8] }));
+    const progress = vi.fn();
+    const { api } = manager({ module: hostModule({ pipeline }), gpu: { requestAdapter: vi.fn(async () => ({})) } });
+    await api.classify(["A complete sentence for classification."], false, progress);
+    expect(pipeline).toHaveBeenNthCalledWith(1, "zero-shot-classification", expect.any(String), expect.objectContaining({ device: "webgpu" }));
+    expect(pipeline).toHaveBeenNthCalledWith(2, "zero-shot-classification", expect.any(String), expect.objectContaining({ device: "wasm" }));
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "fallback" }));
   });
 
   it("generates a compact summary", async () => {
