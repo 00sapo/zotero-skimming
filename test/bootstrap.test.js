@@ -10,7 +10,8 @@ function bootstrap({ windows = [] } = {}) {
     Zotero,
     Services,
     FastKeySentenceModels: models,
-    FastOfflineKeySentenceAnnotator: annotator
+    FastOfflineKeySentenceAnnotator: annotator,
+    fetch: vi.fn(async () => ({ ok: true, json: async () => ({}) }))
   });
   return { context, models, annotator, Zotero, Services };
 }
