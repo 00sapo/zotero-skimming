@@ -1,9 +1,9 @@
 {
   "initial": {
-    "clusterDispersion": 0.38,
-    "textRank": 0.35,
-    "scholarlyCues": 0.1,
-    "sentenceLength": 0.17
+    "clusterDispersion": 0.23,
+    "textRank": 0.4,
+    "scholarlyCues": 0.15,
+    "sentenceLength": 0.22
   },
   "roleScores": {
     "contribution": 1,
@@ -26,16 +26,16 @@
   "classification": {
     "confidence": 0.65,
     "roleSalience": 0.35,
-    "priorImportance": 0.78,
-    "classificationScore": 0.22
+    "priorImportance": 0.7,
+    "classificationScore": 0.3
   },
   "reranking": {
-    "priorImportance": 0.65,
-    "rerankingScore": 0.35
+    "priorImportance": 0.6,
+    "rerankingScore": 0.4
   },
   "selection": {
-    "importance": 0.72,
-    "redundancy": 0.28,
-    "sectionPenalty": 0.055
+    "importance": 0.7,
+    "redundancy": 0.3,
+    "sectionPenalty": 0.06
   }
 }
