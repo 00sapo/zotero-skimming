@@ -11,6 +11,7 @@ FastOfflineKeySentenceAnnotator = {
     this.id = id;
     this.version = version;
     this.rootURI = rootURI;
+    this.iconURI = encodeURI(rootURI + "assets/book reader.svg");
   },
 
   log(message) {
@@ -29,6 +30,8 @@ FastOfflineKeySentenceAnnotator = {
 
     const menuitem = doc.createXULElement("menuitem");
     menuitem.id = "fast-offline-key-sentence-annotator-menuitem";
+    menuitem.setAttribute("class", "menuitem-iconic");
+    menuitem.setAttribute("image", this.iconURI);
     menuitem.setAttribute("label", "Skim paper");
 
     // Delay opening the modal until the context menu has closed. Opening a
@@ -601,7 +604,7 @@ FastOfflineKeySentenceAnnotator = {
     const progress = new Zotero.ProgressWindow();
     progress.changeHeadline("Summarizing paper");
     const title = await this.getDocumentTitle(attachment);
-    const line = new progress.ItemProgress("chrome://zotero/skin/treeitem-attachment-pdf.png", title);
+    const line = new progress.ItemProgress(this.iconURI, title);
     line.setProgress(5);
     progress.show();
 
@@ -894,7 +897,7 @@ FastOfflineKeySentenceAnnotator = {
     const progress = new Zotero.ProgressWindow();
     progress.changeHeadline("Zotero-skimming");
     const title = attachment.getField("title") || attachment.attachmentFilename || "PDF";
-    const line = new progress.ItemProgress("chrome://zotero/skin/treeitem-attachment-pdf.png", title);
+    const line = new progress.ItemProgress(this.iconURI, title);
     line.setProgress(5);
     progress.show();
 

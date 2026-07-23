@@ -15,7 +15,8 @@ zip -r -9 "$OUTPUT" \
   bootstrap.js \
   model-identifiers.json \
   scoring-config.json \
-  content
+  content \
+  "assets/book reader.svg"
 
 echo "Built: $OUTPUT"
 unzip -t "$OUTPUT"

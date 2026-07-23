@@ -4,6 +4,10 @@
   "version": "0.0.2",
   "description": "Automatic annotations of PDF inside Zotero for skimming academic literature",
   "author": "00sapo",
+  "icons": {
+    "48": "assets/book reader.svg",
+    "96": "assets/book reader.svg"
+  },
   "homepage_url": "https://codeberg.org/00sapo/zotero-skimming",
   "applications": {
     "zotero": {
