@@ -401,12 +401,13 @@ var FastKeySentenceNLP = (() => {
       .map(entry => entry.index);
   }
 
-  function summarySimilaritySpares(sentences, vectors, norms, summaryText) {
-    if (!summaryText) return new Array(sentences.length).fill(0);
+  function summarySimilaritySpares(sentences, summaryText) {
+    if (!summaryText || !sentences.length) return new Array(sentences.length).fill(0);
+    const { vectors: sentenceVectors, norms: sentenceNorms } = buildFeatures(sentences);
     const { vectors: [summaryVec] } = buildFeatures([{ text: summaryText }]);
-    if (!summaryVec) return new Array(sentences.length).fill(0);
     const summaryNorm = sparseNorm(summaryVec);
-    return vectors.map((vec, i) => vectorCosine(vec, summaryVec, norms[i], summaryNorm));
+    if (!summaryNorm) return new Array(sentences.length).fill(0);
+    return sentenceVectors.map((vec, i) => vectorCosine(vec, summaryVec, sentenceNorms[i], summaryNorm));
   }
 
   function summarySimilarityDense(vectors, norms, summaryEmbedding) {
@@ -475,7 +476,7 @@ var FastKeySentenceNLP = (() => {
       scored = scoreDense(filtered, sentenceEmbeddings, count, summaryScores);
     }
     else {
-      const summaryScores = summarySimilaritySpares(filtered, null, null, summary);
+      const summaryScores = summarySimilaritySpares(filtered, summary);
       scored = scoreSparse(filtered, count, summaryScores);
     }
 

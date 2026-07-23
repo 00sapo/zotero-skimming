@@ -14,11 +14,8 @@ Right-click a PDF attachment and choose **Annotate key sentences…**:
 
 ## Features
 
-- 🧭 Fully local PDF processing
+- 🧭 OpenAI-compatible API for summarization
 - ✨ Native Zotero highlights, not PDF edits
-- 📚 Baseline TF-IDF/TextRank pipeline that works everywhere
-- 🧠 Optional transformer stages for embeddings, classification, re-ranking, and summarization
-- ⚡ WebGPU acceleration when available, with WASM fallback
 - 🎛️ Tune density, batch size, model usage, and scoring weights
 
 ## Installation
