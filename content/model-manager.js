@@ -396,37 +396,6 @@ var FastKeySentenceModels = (() => {
     return objectCache.get(key);
   }
 
-  async function getPairModel(multilingual, callback) {
-    const name = modelName("reranking", multilingual);
-    const mod = await runtime(callback);
-    const device = await preferredDevice();
-    const key = `pair:${name}:${DTYPE}:${device}`;
-    if (!objectCache.has(key)) {
-      const load = selectedDevice => Promise.all([
-        mod.AutoTokenizer.from_pretrained(name, {
-          progress_callback: event => report(callback, name, event)
-        }),
-        mod.AutoModelForSequenceClassification.from_pretrained(name, inferenceOptions(name, callback, selectedDevice))
-      ]).then(([tokenizer, model]) => ({ tokenizer, model, name }));
-      const pending = load(device).catch(async error => {
-        if (device === "webgpu") {
-          gpuDisabled = true;
-          const detail = errorDetail(error);
-          log(`WebGPU pair model failed for ${name}; disabling WebGPU and retrying with WASM: ${detail}`);
-          callback?.({ stage: "fallback", model: name, device, message: `WebGPU failed; using WASM: ${detail}` });
-          return load("wasm");
-        }
-        throw error;
-      }).catch(error => {
-        objectCache.delete(key);
-        log(`Pair model failed for ${name}: ${errorDetail(error)}`);
-        throw new Error(`Could not load ${name}: ${error?.message || error}`);
-      });
-      objectCache.set(key, pending);
-    }
-    return objectCache.get(key);
-  }
-
   async function embeddings(texts, multilingual, callback) {
     if (!texts.length) return [];
     const extractor = await getPipeline("feature-extraction", "embeddings", multilingual, callback);

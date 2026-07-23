@@ -261,8 +261,6 @@ var FastKeySentenceNLP = (() => {
     return { role: "background", score: SCORING.roleScores.background };
   }
 
-  const ROLE_SALIENCE = Object.freeze(SCORING.roleScores);
-
   function sparseCentroid(vectors, indexes) {
     const centroid = new Map();
     for (const index of indexes) {

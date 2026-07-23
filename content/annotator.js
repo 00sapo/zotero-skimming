@@ -480,7 +480,7 @@ FastOfflineKeySentenceAnnotator = {
           error.textContent = "Use valid density values before updating models.";
           return;
         }
-        if (!settings.llmEmbeddings && !settings.llmClassification && !settings.llmRerankings) {
+        if (!settings.llmEmbeddings && !settings.llmClassification) {
           error.textContent = "Select at least one LLM stage to update.";
           return;
         }
@@ -517,8 +517,8 @@ FastOfflineKeySentenceAnnotator = {
           error.textContent = "Use valid density values before summarising.";
           return;
         }
-        if (!settings.llmSummarization) {
-          error.textContent = "Enable LLM summarization to generate a summary.";
+        if (!settings.remoteApiKey) {
+          error.textContent = "Set a remote API key to generate a summary.";
           return;
         }
         finish({ ...settings, action: "summarize" });
@@ -625,7 +625,7 @@ FastOfflineKeySentenceAnnotator = {
       const bodySentences = sentences.filter(
         s => !FastKeySentenceNLP.isNoise(s) && s.section !== "abstract"
       );
-      const inputText = FastKeySentenceNLP.summarizationInput(bodySentences, documentTitle);
+      const inputText = FastKeySentenceNLP.paperTextForSummary(bodySentences, documentTitle);
 
       line.setProgress(45);
       line.setText("Generating summary via remote API…");
@@ -1668,23 +1668,17 @@ FastOfflineKeySentenceAnnotator = {
       contribution: "#ffd400",
       result: "#5fb236",
       method: "#2ea8e5",
-      objective: "#a28ae5",
-      limitation: "#ff6666",
-      conclusion: "#f19837",
-      future: "#aaaaaa",
-      dataset: "#39c5cf",
-      context: "#ffd400"
+      goal: "#a28ae5",
+      background: "#aaaaaa",
+      takeaway: "#f19837"
     };
     const descriptions = {
       contribution: "Main contribution",
       result: "Key empirical result",
       method: "Core method",
-      objective: "Research objective",
-      limitation: "Limitation or challenge",
-      conclusion: "Conclusion",
-      future: "Future work",
-      dataset: "Dataset or evaluation setup",
-      context: "Key contextual statement"
+      goal: "Research objective",
+      background: "Background context",
+      takeaway: "Key takeaway"
     };
     const top = Math.max(...sentence.rects.map(r => r[3]));
     const left = Math.min(...sentence.rects.map(r => r[0]));
@@ -1702,8 +1696,8 @@ FastOfflineKeySentenceAnnotator = {
       sortIndex,
       position: { pageIndex: sentence.pageIndex, rects: sentence.rects },
       text: sentence.text,
-      comment: `${descriptions[sentence.role] || descriptions.context}. Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
-      tags: [{ name: "auto-key-sentence" }, { name: `auto-${sentence.role || "context"}` }]
+      comment: `${descriptions[sentence.role] || descriptions.background}. Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
+      tags: [{ name: "auto-key-sentence" }, { name: `auto-${sentence.role || "background"}` }]
     };
   }
 };
