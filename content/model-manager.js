@@ -461,26 +461,20 @@ var FastKeySentenceModels = (() => {
   }
 
   const ROLE_LABELS = [
-    "main contribution",
-    "research objective",
+    "background",
     "method",
-    "dataset or experimental setup",
-    "empirical result",
-    "limitation",
-    "conclusion",
-    "future work",
-    "background context"
+    "contribution",
+    "result",
+    "take away",
+    "goal"
   ];
   const ROLE_MAP = Object.freeze({
-    "main contribution": "contribution",
-    "research objective": "objective",
+    "background": "background",
     "method": "method",
-    "dataset or experimental setup": "dataset",
-    "empirical result": "result",
-    "limitation": "limitation",
-    "conclusion": "conclusion",
-    "future work": "future",
-    "background context": "context"
+    "contribution": "contribution",
+    "result": "result",
+    "take away": "takeaway",
+    "goal": "goal"
   });
 
   async function classify(texts, multilingual, callback, batchSize = 8) {
@@ -518,68 +512,10 @@ var FastKeySentenceModels = (() => {
     return results;
   }
 
-  async function summarize(text, callback) {
-    if (!text) return "";
-    const generator = await getPipeline("text-generation", "summarization", false, callback);
-    const prompt = [
-      "<|im_start|>system",
-      "You are a research assistant. Summarize the following academic paper in a compact factual paragraph. Cover its objective, method, main findings, and limitations. Be precise and concise.",
-      "<|im_end|>",
-      "<|im_start|>user",
-      text,
-      "<|im_end|>",
-      "<|im_start|>assistant"
-    ].join("\n");
-    const output = await generator(prompt, {
-      max_new_tokens: 240,
-      do_sample: false,
-      return_full_text: false
-    });
-    const generated = Array.isArray(output) ? output[0]?.generated_text : output?.generated_text;
-    const summary = String(generated || "").replace(prompt, "").replace(/\s+/g, " ").trim();
-    callback?.({ stage: "inference", model: modelName("summarization", false), progress: 100 });
-    return summary;
-  }
-
-  async function rerank(query, texts, multilingual, callback) {
-    if (!texts.length) return [];
-    const { tokenizer, model, name } = await getPairModel(multilingual, callback);
-    const scores = [];
-    const batchSize = multilingual ? 6 : 12;
-    for (let start = 0; start < texts.length; start += batchSize) {
-      const batch = texts.slice(start, start + batchSize);
-      const features = await tokenizer(
-        new Array(batch.length).fill(query),
-        { text_pair: batch, padding: true, truncation: true }
-      );
-      const output = await model(features);
-      const logits = output?.logits || output;
-      const data = Array.from(logits?.data || logits || []);
-      if (data.length === batch.length) {
-        scores.push(...data);
-      }
-      else {
-        const width = Math.max(1, Math.floor(data.length / batch.length));
-        for (let i = 0; i < batch.length; i++) {
-          scores.push(data[i * width + width - 1] ?? 0);
-        }
-      }
-      callback?.({
-        stage: "inference",
-        model: name,
-        progress: 100 * Math.min(1, (start + batch.length) / texts.length)
-      });
-      await Zotero.Promise.delay(0);
-    }
-    return scores;
-  }
-
   function selectedModelNames(settings) {
     const names = [];
-    if (settings.llmSummarization) names.push(modelName("summarization", false));
     if (settings.llmEmbeddings) names.push(modelName("embeddings", settings.multilingual));
     if (settings.llmClassification) names.push(modelName("classification", settings.multilingual));
-    if (settings.llmRerankings) names.push(modelName("reranking", settings.multilingual));
     return [...new Set(names)];
   }
 
@@ -685,8 +621,6 @@ var FastKeySentenceModels = (() => {
     shutdown,
     embeddings,
     classify,
-    summarize,
-    rerank,
     updateModels,
     ensureRuntimeDownloaded,
     modelName,

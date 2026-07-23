@@ -7,14 +7,12 @@ var FastKeySentenceNLP = (() => {
   const SCORING = Object.freeze(FastKeySentenceScoringConfig);
 
   const ROLE_RULES = [
-    { role: "contribution", score: SCORING.roleScores.contribution, re: /\b(we (propose|present|introduce|develop|contribute)|our (main )?contribution|this paper (proposes|presents|introduces))\b/i },
-    { role: "result", score: SCORING.roleScores.result, re: /\b(results? (show|demonstrate|indicate|suggest)|we (achieve|obtain|find|observe)|achiev(?:e|ed|es)|improv(?:e|ed|ement)|accuracy|outperform(?:s|ed)?)\b/i },
-    { role: "method", score: SCORING.roleScores.method, re: /\b(method|approach|pipeline|algorithm|architecture|model|framework|we (train|use|apply|compute|construct|evaluate))\b/i },
-    { role: "objective", score: SCORING.roleScores.objective, re: /\b(aim|objective|goal|focus(?:es)? on|we (study|investigate|evaluate|examine))\b/i },
-    { role: "limitation", score: SCORING.roleScores.limitation, re: /\b(however|limitation|challenge|drawback|error|fails?|difficult|cannot|future work is needed)\b/i },
-    { role: "conclusion", score: SCORING.roleScores.conclusion, re: /\b(we conclude|in conclusion|overall|this (shows|demonstrates|indicates)|therefore)\b/i },
-    { role: "future", score: SCORING.roleScores.future, re: /\b(future work|could be extended|we plan|further research|in future)\b/i },
-    { role: "dataset", score: SCORING.roleScores.dataset, re: /\b(dataset|corpus|training set|test set|validation set|cross[- ]validation|pages?|samples?|instances?)\b/i }
+    { role: "contribution", score: SCORING.roleScores.contribution, re: /\b(we (propose|present|introduce|develop|contribute)|our (main )?contribution|this paper (proposes|presents|introduces)|novel|new (method|approach|framework|architecture))\b/i },
+    { role: "result", score: SCORING.roleScores.result, re: /\b(results? (show|demonstrate|indicate|suggest|reveal)|we (achieve|obtain|find|observe|show)|achiev(?:e|ed|es)|improv(?:e|ed|ement)|accuracy of|outperform(?:s|ed)?|state.of.the.art|F1|BLEU|accuracy)\b/i },
+    { role: "method", score: SCORING.roleScores.method, re: /\b(method|approach|pipeline|algorithm|architecture|model|framework|we (train|use|apply|compute|construct|evaluate|implement|design))\b/i },
+    { role: "goal", score: SCORING.roleScores.goal, re: /\b(aim|objective|goal|focus(?:es)? on|we (study|investigate|evaluate|examine|explore|address)|research question|hypothesis)\b/i },
+    { role: "takeaway", score: SCORING.roleScores.takeaway, re: /\b(we conclude|in conclusion|overall|this (shows|demonstrates|indicates)|therefore|thus|these (findings|results) (suggest|indicate|demonstrate)|key (finding|insight|result))\b/i },
+    { role: "background", score: SCORING.roleScores.background, re: /\b(background|related work|previous (work|research|studies)|prior (work|art)|state of the art|existing (methods|approaches|systems))\b/i }
   ];
 
   function normalizeText(text) {
@@ -260,7 +258,7 @@ var FastKeySentenceNLP = (() => {
 
   function roleFor(text) {
     for (const rule of ROLE_RULES) if (rule.re.test(text)) return { role: rule.role, score: rule.score };
-    return { role: "context", score: 0.25 };
+    return { role: "background", score: SCORING.roleScores.background };
   }
 
   const ROLE_SALIENCE = Object.freeze(SCORING.roleScores);
@@ -324,10 +322,11 @@ var FastKeySentenceNLP = (() => {
     return minMax(relevance);
   }
 
-  function scoreWithVectors(sentences, vectors, norms, clusterCount) {
+  function scoreWithVectors(sentences, vectors, norms, clusterCount, summaryScores = null) {
     if (!sentences.length) return;
     const relevance = clusterDispersionRelevance(vectors, norms, clusterCount);
     const centrality = textRank(vectors, norms);
+    const summarySim = summaryScores || new Array(sentences.length).fill(0);
     const cues = [];
     const lengths = [];
     for (let i = 0; i < sentences.length; i++) {
@@ -340,28 +339,30 @@ var FastKeySentenceNLP = (() => {
     }
     const R = minMax(relevance);
     const C = minMax(centrality);
+    const S = minMax(summarySim);
     const Q = minMax(cues);
     const L = minMax(lengths);
     sentences.forEach((sentence, i) => {
       sentence.importance = SCORING.initial.clusterDispersion * R[i]
         + SCORING.initial.textRank * C[i]
+        + SCORING.initial.summarySimilarity * S[i]
         + SCORING.initial.scholarlyCues * Q[i]
         + SCORING.initial.sentenceLength * L[i];
       sentence.baseImportance = sentence.importance;
     });
   }
 
-  function scoreSparse(sentences, clusterCount) {
+  function scoreSparse(sentences, clusterCount, summaryScores = null) {
     if (!sentences.length) return { vectors: [], norms: [] };
     const { vectors, norms } = buildFeatures(sentences);
-    scoreWithVectors(sentences, vectors, norms, clusterCount);
+    scoreWithVectors(sentences, vectors, norms, clusterCount, summaryScores);
     return { vectors, norms };
   }
 
-  function scoreDense(sentences, vectors, clusterCount) {
+  function scoreDense(sentences, vectors, clusterCount, summaryScores = null) {
     const normalizedVectors = vectors.map(vector => Array.from(vector || [], Number));
     const norms = normalizedVectors.map(denseNorm);
-    scoreWithVectors(sentences, normalizedVectors, norms, clusterCount);
+    scoreWithVectors(sentences, normalizedVectors, norms, clusterCount, summaryScores);
     return { vectors: normalizedVectors, norms };
   }
 
@@ -402,24 +403,18 @@ var FastKeySentenceNLP = (() => {
       .map(entry => entry.index);
   }
 
-  function summarizationInput(sentences, documentTitle = "") {
-    const body = sentences
-      .filter(s => normalizeText(s.section || "") !== "abstract")
-      .map(s => s.text)
-      .filter(Boolean)
-      .join(" ");
-    // Cap at ~15K tokens (≈ 60K chars) to keep KV cache within WASM limits
-    return normalizeText([documentTitle, body].filter(Boolean).join(" ")).slice(0, 60000);
+  function summarySimilaritySpares(sentences, vectors, norms, summaryText) {
+    if (!summaryText) return new Array(sentences.length).fill(0);
+    const { vectors: [summaryVec] } = buildFeatures([{ text: summaryText }]);
+    if (!summaryVec) return new Array(sentences.length).fill(0);
+    const summaryNorm = sparseNorm(summaryVec);
+    return vectors.map((vec, i) => vectorCosine(vec, summaryVec, norms[i], summaryNorm));
   }
 
-  function rerankingQuery(sentences, documentTitle = "", summary = "") {
-    const abstract = sentences
-      .filter(sentence => /abstract/.test(sentence.section || ""))
-      .slice(0, 6)
-      .map(sentence => sentence.text)
-      .join(" ");
-    const fallback = sentences.slice(0, 4).map(sentence => sentence.text).join(" ");
-    return normalizeText([documentTitle, summary, abstract || fallback].filter(Boolean).join(". ")).slice(0, 1800);
+  function summarySimilarityDense(vectors, norms, summaryEmbedding) {
+    if (!summaryEmbedding || !summaryEmbedding.length) return new Array(vectors.length).fill(0);
+    const summaryNorm = denseNorm(summaryEmbedding);
+    return vectors.map((vec, i) => vectorCosine(vec, summaryEmbedding, norms[i], summaryNorm));
   }
 
   function analyze(sentences, count) {
@@ -428,17 +423,26 @@ var FastKeySentenceNLP = (() => {
     return selectMMR(filtered, vectors, norms, Math.min(count, filtered.length));
   }
 
+  function paperTextForSummary(sentences, documentTitle = "") {
+    const body = sentences
+      .filter(s => normalizeText(s.section || "") !== "abstract")
+      .map(s => s.text)
+      .filter(Boolean)
+      .join(" ");
+    return normalizeText([documentTitle, body].filter(Boolean).join(" ")).slice(0, 128000);
+  }
+
   async function analyzeAsync(sentences, count, options = {}) {
     const filtered = sentences.filter(sentence => !isNoise(sentence));
     if (!filtered.length) return [];
 
-    const useModels = options.llmSummarization || options.llmEmbeddings || options.llmClassification || options.llmRerankings;
-    if (useModels && typeof FastKeySentenceModels === "undefined") {
+    const useLocalModels = options.llmEmbeddings || options.llmClassification;
+    if (useLocalModels && typeof FastKeySentenceModels === "undefined") {
       throw new Error("The transformer model manager was not loaded.");
     }
 
-    const inferenceAvailable = !useModels || FastKeySentenceModels.supportsInference?.();
-    if (useModels && !inferenceAvailable) {
+    const inferenceAvailable = !useLocalModels || FastKeySentenceModels.supportsInference?.();
+    if (useLocalModels && !inferenceAvailable) {
       options.onModelProgress?.({
         stage: "unavailable",
         operation: "runtime",
@@ -446,31 +450,39 @@ var FastKeySentenceNLP = (() => {
       });
     }
 
-    let summary = "";
-    if (options.llmSummarization && inferenceAvailable) {
-      options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
-      summary = await FastKeySentenceModels.summarize(
-        summarizationInput(filtered, options.documentTitle || ""),
-        event => options.onModelProgress?.({ ...event, operation: "summarization" })
-      );
-    }
+    // 1. Summarize via remote LLM
+    options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
+    const paperText = paperTextForSummary(filtered, options.documentTitle || "");
+    const summary = await FastKeySentenceRemote.summarize(
+      paperText,
+      options.documentTitle || "",
+      event => options.onModelProgress?.({ ...event, operation: "summarization" })
+    );
 
+    // 2. Build embeddings
     let scored;
     if (options.llmEmbeddings && inferenceAvailable) {
       options.onModelProgress?.({ stage: "preparing", operation: "embeddings" });
-      const embeddings = await FastKeySentenceModels.embeddings(
-        filtered.map(sentence => sentence.text),
+      const allTexts = [summary, ...filtered.map(sentence => sentence.text)];
+      const allEmbeddings = await FastKeySentenceModels.embeddings(
+        allTexts,
         !!options.multilingual,
         event => options.onModelProgress?.({ ...event, operation: "embeddings" })
       );
-      scored = scoreDense(filtered, embeddings, count);
+      const summaryEmbedding = allEmbeddings[0];
+      const sentenceEmbeddings = allEmbeddings.slice(1);
+      const summaryScores = summarySimilarityDense(sentenceEmbeddings,
+        sentenceEmbeddings.map(denseNorm), summaryEmbedding);
+      scored = scoreDense(filtered, sentenceEmbeddings, count, summaryScores);
     }
     else {
-      scored = scoreSparse(filtered, count);
+      const summaryScores = summarySimilaritySpares(filtered, null, null, summary);
+      scored = scoreSparse(filtered, count, summaryScores);
     }
 
-    let shortlist = shortlistIndexes(filtered, count);
+    const shortlist = shortlistIndexes(filtered, count);
 
+    // 3. Classify selected sentences (if enabled)
     if (options.llmClassification && inferenceAvailable && shortlist.length) {
       options.onModelProgress?.({ stage: "preparing", operation: "classification" });
       const predictions = await FastKeySentenceModels.classify(
@@ -479,40 +491,17 @@ var FastKeySentenceNLP = (() => {
         event => options.onModelProgress?.({ ...event, operation: "classification" }),
         options.classificationBatchSize
       );
-      const rawScores = predictions.map(prediction => {
-        const salience = ROLE_SALIENCE[prediction.role] ?? ROLE_SALIENCE.context;
-        return SCORING.classification.confidence * Math.max(0, Math.min(1, prediction.score || 0))
-          + SCORING.classification.roleSalience * salience;
-      });
-      const normalized = minMax(rawScores);
       shortlist.forEach((index, position) => {
-        const prediction = predictions[position] || { role: "context", score: 0 };
-        filtered[index].role = prediction.role || "context";
+        const prediction = predictions[position] || { role: "background", score: 0 };
+        filtered[index].role = prediction.role || "background";
         filtered[index].classificationConfidence = Number(prediction.score) || 0;
-        filtered[index].importance = SCORING.classification.priorImportance * filtered[index].importance
-          + SCORING.classification.classificationScore * normalized[position];
-      });
-      shortlist = shortlistIndexes(filtered, count);
-    }
-
-    if (options.llmRerankings && inferenceAvailable && shortlist.length) {
-      const query = rerankingQuery(filtered, options.documentTitle || "", summary);
-      options.onModelProgress?.({ stage: "preparing", operation: "reranking" });
-      const scores = await FastKeySentenceModels.rerank(
-        query,
-        shortlist.map(index => filtered[index].text),
-        !!options.multilingual,
-        event => options.onModelProgress?.({ ...event, operation: "reranking" })
-      );
-      const normalized = minMax(scores);
-      shortlist.forEach((index, position) => {
-        filtered[index].rerankingScore = Number(scores[position]) || 0;
-        filtered[index].importance = SCORING.reranking.priorImportance * filtered[index].importance
-          + SCORING.reranking.rerankingScore * normalized[position];
       });
     }
 
-    return selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
+    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
+    // Attach summary to each selected sentence for downstream use
+    selected.forEach(s => { s._paperSummary = summary; });
+    return selected;
   }
 
   return {
@@ -522,7 +511,7 @@ var FastKeySentenceNLP = (() => {
     isReferenceHeading,
     isReferenceEntry,
     isNoise,
-    summarizationInput,
+    paperTextForSummary,
     analyze,
     analyzeAsync,
     roleFor

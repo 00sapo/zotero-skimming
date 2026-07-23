@@ -6,13 +6,5 @@
   "classification": {
     "en": "Xenova/mobilebert-uncased-mnli",
     "multilingual": "onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX"
-  },
-  "reranking": {
-    "en": "Xenova/ms-marco-MiniLM-L-6-v2",
-    "multilingual": "SugoLabs/mmarco-mMiniLMv2-L12-H384-v1"
-  },
-  "summarization": {
-    "en": "onnx-community/Qwen2.5-0.5B-Instruct",
-    "multilingual": "onnx-community/Qwen2.5-0.5B-Instruct"
   }
 }

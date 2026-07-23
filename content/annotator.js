@@ -85,12 +85,13 @@ FastOfflineKeySentenceAnnotator = {
     perPage: 1.9,
     minimum: 12,
     maximum: 80,
-    llmSummarization: false,
     llmEmbeddings: false,
     llmClassification: false,
-    llmRerankings: false,
     classificationBatchSize: 8,
-    multilingual: false
+    multilingual: false,
+    remoteEndpoint: "",
+    remoteApiKey: "",
+    remoteModel: ""
   }),
 
   getConfiguredSettings() {
@@ -102,17 +103,16 @@ FastOfflineKeySentenceAnnotator = {
       perPage: Number.isFinite(perPage) ? perPage : defaults.perPage,
       minimum: Number.isInteger(minimum) ? minimum : defaults.minimum,
       maximum: Number.isInteger(maximum) ? maximum : defaults.maximum,
-      llmSummarization: Zotero.Prefs.get(this.prefBranch + "llmSummarization", true) ?? defaults.llmSummarization,
       llmEmbeddings: Zotero.Prefs.get(this.prefBranch + "llmEmbeddings", true) ?? defaults.llmEmbeddings,
       llmClassification: Zotero.Prefs.get(this.prefBranch + "llmClassification", true) ?? defaults.llmClassification,
-      llmRerankings: Zotero.Prefs.get(this.prefBranch + "llmRerankings", true) ?? defaults.llmRerankings,
       classificationBatchSize: Number(Zotero.Prefs.get(this.prefBranch + "classificationBatchSize", true)) || defaults.classificationBatchSize,
-      multilingual: Zotero.Prefs.get(this.prefBranch + "multilingual", true) ?? defaults.multilingual
+      multilingual: Zotero.Prefs.get(this.prefBranch + "multilingual", true) ?? defaults.multilingual,
+      remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
+      remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
+      remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel
     };
-    settings.llmSummarization = settings.llmSummarization === true;
     settings.llmEmbeddings = settings.llmEmbeddings === true;
     settings.llmClassification = settings.llmClassification === true;
-    settings.llmRerankings = settings.llmRerankings === true;
     settings.multilingual = settings.multilingual === true;
     return this.isValidSettings(settings) ? settings : { ...defaults };
   },
@@ -134,20 +134,24 @@ FastOfflineKeySentenceAnnotator = {
       && Number.isInteger(settings.classificationBatchSize)
       && settings.classificationBatchSize >= 1
       && settings.classificationBatchSize <= 32
-      && ["llmSummarization", "llmEmbeddings", "llmClassification", "llmRerankings", "multilingual"]
-        .every(key => typeof settings[key] === "boolean");
+      && ["llmEmbeddings", "llmClassification", "multilingual"]
+        .every(key => typeof settings[key] === "boolean")
+      && typeof settings.remoteEndpoint === "string"
+      && typeof settings.remoteApiKey === "string"
+      && typeof settings.remoteModel === "string";
   },
 
   saveSettings(settings) {
     Zotero.Prefs.set(this.prefBranch + "annotationsPerPage", settings.perPage, true);
     Zotero.Prefs.set(this.prefBranch + "minimumAnnotations", settings.minimum, true);
     Zotero.Prefs.set(this.prefBranch + "maximumAnnotations", settings.maximum, true);
-    Zotero.Prefs.set(this.prefBranch + "llmSummarization", settings.llmSummarization, true);
     Zotero.Prefs.set(this.prefBranch + "llmEmbeddings", settings.llmEmbeddings, true);
     Zotero.Prefs.set(this.prefBranch + "llmClassification", settings.llmClassification, true);
-    Zotero.Prefs.set(this.prefBranch + "llmRerankings", settings.llmRerankings, true);
     Zotero.Prefs.set(this.prefBranch + "classificationBatchSize", settings.classificationBatchSize, true);
     Zotero.Prefs.set(this.prefBranch + "multilingual", settings.multilingual, true);
+    Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
+    Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
+    Zotero.Prefs.set(this.prefBranch + "remoteModel", settings.remoteModel || "", true);
   },
 
   calculateAnnotationTarget(pageCount, settings) {
@@ -267,11 +271,9 @@ FastOfflineKeySentenceAnnotator = {
 
     const stages = makeFieldset("Optional transformer stages");
     const options = [
-      ["llm-summarization", "LLM summarization", "Generate a paper synopsis with Qwen2.5-0.5B (about 490 MB) and add it to the re-ranking context.", initialSettings.llmSummarization],
-      ["llm-embeddings", "LLM embeddings", "Use semantic sentence vectors instead of TF-IDF for relevance, TextRank, and MMR diversity.", initialSettings.llmEmbeddings],
-      ["llm-classification", "LLM classification", "Classify shortlisted sentences by scholarly discourse role.", initialSettings.llmClassification],
-      ["llm-rerankings", "LLM re-rankings", "Re-rank shortlisted sentences against the paper context.", initialSettings.llmRerankings],
-      ["multilingual", "Multilingual", "Use multilingual alternatives for enabled stages. Comparisons remain within the document language.", initialSettings.multilingual]
+      ["llm-embeddings", "LLM embeddings", "Use semantic sentence vectors instead of TF-IDF for ranking and MMR diversity.", initialSettings.llmEmbeddings],
+      ["llm-classification", "LLM classification", "Classify selected sentences by scholarly discourse role.", initialSettings.llmClassification],
+      ["multilingual", "Multilingual", "Use multilingual alternatives for enabled stages.", initialSettings.multilingual]
     ];
     const checks = {};
     for (const [id, labelText, helpText, checked] of options) {
@@ -313,10 +315,38 @@ FastOfflineKeySentenceAnnotator = {
     );
     inputs["classification-batch-size"] = batchSizeInput;
     stages.appendChild(batchSizeRow);
-    stages.appendChild(create("p", {
-      style: "margin: 3px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Larger classification batches are faster but require more RAM. Settings are remembered. Quantized models are downloaded on first use and reused from the local cache."));
     form.appendChild(stages);
+
+    const remoteConfig = makeFieldset("Remote summarization (required)");
+    const remoteGrid = create("div", {
+      style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center"
+    });
+    const remoteFields = [
+      ["remote-endpoint", "Endpoint", initialSettings.remoteEndpoint || FastKeySentenceRemote.DEFAULT_ENDPOINT, "https://api.openai.com/v1/chat/completions"],
+      ["remote-model", "Model", initialSettings.remoteModel || FastKeySentenceRemote.DEFAULT_MODEL, "gpt-4o-mini"],
+      ["remote-api-key", "API key", initialSettings.remoteApiKey, "sk-..."]
+    ];
+    let remoteEndpointInput, remoteModelInput, remoteApiKeyInput;
+    for (const [id, labelText, value, placeholder] of remoteFields) {
+      remoteGrid.appendChild(create("label", { htmlFor: id, style: "font-weight: 500" }, labelText));
+      const input = create("input", {
+        id,
+        type: id === "remote-api-key" ? "password" : "text",
+        value: String(value || ""),
+        placeholder,
+        style: "min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
+      });
+      inputs[id] = input;
+      remoteGrid.appendChild(input);
+      if (id === "remote-endpoint") remoteEndpointInput = input;
+      if (id === "remote-model") remoteModelInput = input;
+      if (id === "remote-api-key") remoteApiKeyInput = input;
+    }
+    remoteConfig.appendChild(remoteGrid);
+    remoteConfig.appendChild(create("p", {
+      style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
+    }, "Any OpenAI-compatible endpoint works (OpenAI, Anthropic via proxy, Groq, local vLLM, etc.). The summary guides sentence ranking via semantic similarity."));
+    form.appendChild(remoteConfig);
 
     const error = create("p", {
       role: "alert",
@@ -373,12 +403,13 @@ FastOfflineKeySentenceAnnotator = {
       perPage: Number(inputs["per-page"].value),
       minimum: Number(inputs.minimum.value),
       maximum: Number(inputs.maximum.value),
-      llmSummarization: checks["llm-summarization"].checked,
       llmEmbeddings: checks["llm-embeddings"].checked,
       llmClassification: checks["llm-classification"].checked,
-      llmRerankings: checks["llm-rerankings"].checked,
       classificationBatchSize: Number(inputs["classification-batch-size"].value),
-      multilingual: checks.multilingual.checked
+      multilingual: checks.multilingual.checked,
+      remoteEndpoint: inputs["remote-endpoint"].value.trim(),
+      remoteApiKey: inputs["remote-api-key"].value.trim(),
+      remoteModel: inputs["remote-model"].value.trim()
     });
 
     const setBusy = busy => {
@@ -597,19 +628,18 @@ FastOfflineKeySentenceAnnotator = {
       const inputText = FastKeySentenceNLP.summarizationInput(bodySentences, documentTitle);
 
       line.setProgress(45);
-      line.setText("Generating summary…");
+      line.setText("Generating summary via remote API…");
 
-      const summary = await FastKeySentenceModels.summarize(
+      const summary = await FastKeySentenceRemote.summarize(
         inputText,
+        documentTitle,
         event => {
-          const pct = Number.isFinite(event.progress) ? event.progress : 0;
-          if (["download", "progress", "initiate"].includes(event.stage)) {
-            line.setProgress(5 + Math.round(pct * 0.4));
-            line.setText(`Loading summarization model (${Math.round(pct)}%)`);
+          if (["sending", "retrying"].includes(event.stage)) {
+            line.setText(`Sending to remote API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
           }
-          else if (event.stage === "inference") {
-            line.setProgress(45 + Math.round(pct * 0.5));
-            line.setText("Generating summary…");
+          else if (event.stage === "done") {
+            line.setProgress(100);
+            line.setText("Summary ready");
           }
         }
       );
@@ -789,10 +819,8 @@ FastOfflineKeySentenceAnnotator = {
 
   modelProgressHandler(line, settings) {
     const enabled = [
-      settings.llmSummarization && "summarization",
       settings.llmEmbeddings && "embeddings",
-      settings.llmClassification && "classification",
-      settings.llmRerankings && "reranking"
+      settings.llmClassification && "classification"
     ].filter(Boolean);
     const ranges = new Map();
     const width = enabled.length ? 25 / enabled.length : 25;
@@ -800,10 +828,9 @@ FastOfflineKeySentenceAnnotator = {
       ranges.set(operation, [45 + index * width, 45 + (index + 1) * width]);
     });
     const names = {
-      summarization: "LLM summarization",
+      summarization: "Remote summarization",
       embeddings: "LLM embeddings",
-      classification: "LLM classification",
-      reranking: "LLM re-ranking"
+      classification: "LLM classification"
     };
     const filesByOperation = new Map();
 
@@ -834,22 +861,30 @@ FastOfflineKeySentenceAnnotator = {
       }
       if (!Number.isFinite(percentage)) percentage = 0;
       percentage = Math.max(0, Math.min(100, percentage));
-      line.setProgress(Math.round(start + (end - start) * percentage / 100));
+      if (operation === "summarization") {
+        line.setProgress(Math.round(5 + (event.stage === "done" ? 25 : 15 + percentage * 0.1)));
+      }
+      else {
+        line.setProgress(Math.round(start + (end - start) * percentage / 100));
+      }
 
       const label = names[operation] || "Transformer model";
-      const file = event.file ? ` - ${String(event.file).split("/").pop()}` : "";
-      const byteText = total > 0 ? ` (${formatBytes(loaded)} / ${formatBytes(total)})` : ` (${Math.round(percentage)}%)`;
       if (["download", "progress", "initiate"].includes(event.stage)) {
+        const file = event.file ? ` - ${String(event.file).split("/").pop()}` : "";
+        const byteText = total > 0 ? ` (${formatBytes(loaded)} / ${formatBytes(total)})` : ` (${Math.round(percentage)}%)`;
         line.setText(`${label}: downloading ${event.model || "model"}${file}${byteText}`);
+      }
+      else if (event.stage === "sending" || event.stage === "retrying") {
+        line.setText(`${label}: sending request to API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
+      }
+      else if (event.stage === "done") {
+        line.setText(`${label}: complete`);
       }
       else if (event.stage === "inference") {
         line.setText(`${label}: analysing sentences (${Math.round(percentage)}%)`);
       }
-      else if (event.stage === "fallback") {
-        line.setText(`${label}: ${event.message || "fallback activated"}`);
-      }
       else {
-        line.setText(`${label}: loading ${event.model || "model"}${file}`);
+        line.setText(`${label}: loading ${event.model || "model"}`);
       }
     };
   },
@@ -898,10 +933,8 @@ FastOfflineKeySentenceAnnotator = {
       ).size || pages.length;
       const count = this.calculateAnnotationTarget(eligiblePages, configuredSettings);
       const enabledStages = [
-        configuredSettings.llmSummarization && "summarization",
         configuredSettings.llmEmbeddings && "embeddings",
-        configuredSettings.llmClassification && "classification",
-        configuredSettings.llmRerankings && "re-ranking"
+        configuredSettings.llmClassification && "classification"
       ].filter(Boolean);
       line.setProgress(45);
       line.setText(
@@ -911,11 +944,8 @@ FastOfflineKeySentenceAnnotator = {
       );
       const documentTitle = await this.getDocumentTitle(attachment);
       const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
-        llmSummarization: configuredSettings.llmSummarization,
-        llmSummarization: configuredSettings.llmSummarization,
         llmEmbeddings: configuredSettings.llmEmbeddings,
         llmClassification: configuredSettings.llmClassification,
-        llmRerankings: configuredSettings.llmRerankings,
         classificationBatchSize: configuredSettings.classificationBatchSize,
         multilingual: configuredSettings.multilingual,
         documentTitle,

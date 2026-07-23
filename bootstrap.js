@@ -22,6 +22,7 @@ async function startup({ id, version, rootURI }) {
   FastKeySentenceScoringConfig = Object.freeze(await scoringResponse.json());
   Services.scriptloader.loadSubScript(rootURI + "content/nlp.js");
   Services.scriptloader.loadSubScript(rootURI + "content/model-manager.js");
+  Services.scriptloader.loadSubScript(rootURI + "content/remote-llm.js");
   Services.scriptloader.loadSubScript(rootURI + "content/annotator.js");
   FastKeySentenceModels.init({ rootURI });
   FastOfflineKeySentenceAnnotator.init({ id, version, rootURI });
