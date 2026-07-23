@@ -1,6 +1,6 @@
 # Zotero Skimming
 
-Zotero 9 add-on that finds salient prose in academic PDFs and saves the results as native Zotero highlight annotations.
+Zotero 9 add-on that speeds up skimming, so you can orientate faster inside a paper.
 
 <img src="assets/screenshot.png" alt="Screenshot of a paper annotated" width="400" />
 
