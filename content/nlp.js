@@ -108,7 +108,7 @@ var FastKeySentenceNLP = (() => {
     if (sentence.frontMatter || sentence.inTable || sentence.reference) return true;
     if (/^(?:author contributions?|funding|institutional review board statement|informed consent statement|data availability statement|acknowledg(?:e)?ments?|conflicts? of interest|abbreviations?)\s*[:.]?/i.test(text)) return true;
     if (isReferenceHeading(sentence.section || "") || isReferenceEntry(text)) return true;
-    if (words.length < 8 || words.length > 90) return true;
+    if (words.length < 5 || words.length > 90) return true;
     const digits = (text.match(/\d/g) || []).length;
     if (digits / Math.max(1, text.length) > 0.28) return true;
     if (/^(figure|fig\.|table|tab\.)\s+(?:[A-Z][.-]?\s*)?(?:\d+|[IVXLC]+)/i.test(text)) return true;
@@ -333,7 +333,7 @@ var FastKeySentenceNLP = (() => {
       sentence.role = role.role;
       cues.push(role.score + (/\b\d+(?:\.\d+)?%\b/.test(sentence.text) ? 0.25 : 0));
       const wordCount = sentence.text.split(/\s+/).length;
-      lengths.push(Math.exp(-Math.pow(wordCount - 27, 2) / (2 * Math.pow(18, 2))));
+      lengths.push(Math.exp(-Math.pow(wordCount - 18, 2) / (2 * Math.pow(12, 2))));
     }
     const R = minMax(relevance);
     const C = minMax(centrality);
