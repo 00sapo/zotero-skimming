@@ -87,7 +87,7 @@ describe("FastKeySentenceModels", () => {
     expect(api.DTYPE).toBe("q8");
     expect(api.modelName("embeddings", false)).toBe("Xenova/all-MiniLM-L6-v2");
     expect(api.modelName("embeddings", true)).toBe("Xenova/multilingual-e5-small");
-    expect(api.modelName("classification", false)).toBe("Xenova/mobilebert-uncased-mnli");
+    expect(api.modelName("classification", false)).toBe("Xenova/distilbert-base-uncased-mnli");
     api.log("ready");
     expect(Zotero.debug).toHaveBeenCalledWith(expect.stringContaining("ready"));
   });

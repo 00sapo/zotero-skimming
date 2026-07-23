@@ -4,7 +4,7 @@
     "multilingual": "Xenova/multilingual-e5-small"
   },
   "classification": {
-    "en": "Xenova/mobilebert-uncased-mnli",
+    "en": "Xenova/distilbert-base-uncased-mnli",
     "multilingual": "onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX"
   }
 }

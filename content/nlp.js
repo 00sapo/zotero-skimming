@@ -381,7 +381,7 @@ var FastKeySentenceNLP = (() => {
     if (options.llmClassification && inferenceAvailable && selected.length) {
       options.onModelProgress?.({ stage: "preparing", operation: "classification" });
       const predictions = await FastKeySentenceModels.classify(
-        selected.map(s => s.text),
+        selected.map(s => summary + " " + s.text),
         !!options.multilingual,
         event => options.onModelProgress?.({ ...event, operation: "classification" }),
         options.classificationBatchSize
