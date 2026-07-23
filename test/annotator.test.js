@@ -209,6 +209,10 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
     const annotation = api.makeAnnotation({ text: "A result.", role: "result", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
     expect(annotation.sortIndex).toMatch(/^00002\|\d{6}\|\d{5}$/);
     expect(annotation.tags).toContainEqual({ name: "auto-key-sentence" });
+    expect(annotation.tags).toContainEqual({ name: "auto-result" });
+    const unclassified = api.makeAnnotation({ text: "A sentence.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
+    expect(unclassified.tags).toEqual([{ name: "auto-key-sentence" }]);
+    expect(unclassified.comment).toBe("Section: results. Score: 0.812.");
     const line = { setProgress: vi.fn(), setText: vi.fn() };
     const handler = api.modelProgressHandler(line, { llmEmbeddings: true, llmClassification: true });
     handler({ operation: "embeddings", stage: "download", file: "a.bin", loaded: 1024, total: 2048, model: "model" });

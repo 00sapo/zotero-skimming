@@ -1758,6 +1758,7 @@ FastOfflineKeySentenceAnnotator = {
       background: "Background context",
       takeaway: "Key takeaway"
     };
+    const role = Object.prototype.hasOwnProperty.call(descriptions, sentence.role) ? sentence.role : null;
     const top = Math.max(...rects.map(r => r[3]));
     const left = Math.min(...rects.map(r => r[0]));
     // Zotero 9 validates PDF annotation sort indexes as page|vertical|horizontal:
@@ -1769,13 +1770,13 @@ FastOfflineKeySentenceAnnotator = {
     return {
       key: Zotero.DataObjectUtilities.generateKey(),
       type: "highlight",
-      color: colors[sentence.role] || colors.background,
+      color: colors[role] || colors.background,
       pageLabel: String(sentence.pageIndex + 1),
       sortIndex,
       position: { pageIndex: sentence.pageIndex, rects },
       text,
-      comment: `${descriptions[sentence.role] || descriptions.background}. Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
-      tags: [{ name: "auto-key-sentence" }, { name: `auto-${sentence.role || "background"}` }]
+      comment: `${role ? descriptions[role] + ". " : ""}Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
+      tags: [{ name: "auto-key-sentence" }, ...(role ? [{ name: `auto-${role}` }] : [])]
     };
   },
 

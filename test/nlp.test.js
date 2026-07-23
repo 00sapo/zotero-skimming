@@ -30,8 +30,7 @@ describe("FastKeySentenceNLP", () => {
     expect(api.isReferenceHeading("Bibliography")).toBe(true);
     expect(api.isReferenceEntry("[4] Smith, J., 2021. Proceedings of the Conference. doi:10.1/x")).toBe(true);
     expect(api.isReferenceEntry("This is ordinary research prose without a citation.")).toBe(false);
-    expect(api.roleFor(prose[0])).toBe("contribution");
-    expect(api.roleFor("unmarked background prose")).toBe("background");
+    expect(api.roleFor).toBeUndefined();
   });
 
   it("covers sentence boundaries, heading variants, and reference forms", () => {
@@ -67,8 +66,7 @@ describe("FastKeySentenceNLP", () => {
     const selected = api.analyze(input, 4);
     expect(selected).toHaveLength(4);
     expect(selected).toEqual([...selected].sort((a, b) => a.order - b.order));
-    expect(selected.every(item => item.importance >= 0 && item.role)).toBe(true);
-    expect(selected.some(item => item.role !== "background")).toBe(true);
+    expect(selected.every(item => item.importance >= 0 && item.role === undefined)).toBe(true);
   });
 
   it("exercises noise filters while retaining prose", () => {
@@ -102,6 +100,16 @@ describe("FastKeySentenceNLP", () => {
     ];
     expect(api.analyze(input, 2)).toHaveLength(2);
     await expect(api.analyzeAsync([], 2)).resolves.toEqual([]);
+  });
+
+  it("does not classify when LLM classification is disabled", async () => {
+    const classify = vi.fn();
+    const selected = await nlp({
+      remote: { summarize: async () => "A compact paper synopsis." },
+      classify
+    }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 3);
+    expect(classify).not.toHaveBeenCalled();
+    expect(selected.every(item => item.role === undefined)).toBe(true);
   });
 
   it("handles partial model classification results", async () => {

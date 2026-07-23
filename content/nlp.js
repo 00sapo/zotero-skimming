@@ -6,15 +6,6 @@ var FastKeySentenceNLP = (() => {
   const STOP_WORDS = new Set(`a an and are as at be been being but by can could did do does doing for from had has have having he her hers herself him himself his how i if in into is it its itself may might more most must my myself no nor not of off on once only or other our ours ourselves out over own same she should so some such than that the their theirs them themselves then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yourself yourselves`.split(/\s+/));
   const SCORING = Object.freeze(FastKeySentenceScoringConfig);
 
-  const ROLE_RULES = [
-    { role: "contribution", score: SCORING.roleScores.contribution, re: /\b(we (propose|present|introduce|develop|contribute)|our (main )?contribution|this paper (proposes|presents|introduces)|novel|new (method|approach|framework|architecture))\b/i },
-    { role: "result", score: SCORING.roleScores.result, re: /\b(results? (show|demonstrate|indicate|suggest|reveal)|we (achieve|obtain|find|observe|show)|achiev(?:e|ed|es)|improv(?:e|ed|ement)|accuracy of|outperform(?:s|ed)?|state.of.the.art|F1|BLEU|accuracy)\b/i },
-    { role: "method", score: SCORING.roleScores.method, re: /\b(method|approach|pipeline|algorithm|architecture|model|framework|we (train|use|apply|compute|construct|evaluate|implement|design))\b/i },
-    { role: "goal", score: SCORING.roleScores.goal, re: /\b(aim|objective|goal|focus(?:es)? on|we (study|investigate|evaluate|examine|explore|address)|research question|hypothesis)\b/i },
-    { role: "takeaway", score: SCORING.roleScores.takeaway, re: /\b(we conclude|in conclusion|overall|this (shows|demonstrates|indicates)|therefore|thus|these (findings|results) (suggest|indicate|demonstrate)|key (finding|insight|result))\b/i },
-    { role: "background", score: SCORING.roleScores.background, re: /\b(background|related work|previous (work|research|studies)|prior (work|art)|state of the art|existing (methods|approaches|systems))\b/i }
-  ];
-
   function normalizeText(text) {
     return String(text || "")
       .replace(/\u00ad/g, "")
@@ -213,12 +204,6 @@ var FastKeySentenceNLP = (() => {
     return values.map(value => (value - min) / (max - min));
   }
 
-  function roleFor(text) {
-    for (const rule of ROLE_RULES) if (rule.re.test(text)) return rule.role;
-    return "background";
-  }
-
-
   function clusterCentroid(vectors, indexes) {
     return isSparseVector(vectors[0])
       ? sparseCentroid(vectors, indexes)
@@ -231,9 +216,7 @@ var FastKeySentenceNLP = (() => {
     if (!sentences.length) return;
     const summarySim = summaryScores || new Array(sentences.length).fill(0);
     const lengths = [];
-    for (let i = 0; i < sentences.length; i++) {
-      const sentence = sentences[i];
-      sentence.role = roleFor(sentence.text);
+    for (const sentence of sentences) {
       const wordCount = sentence.text.split(/\s+/).length;
       lengths.push(Math.exp(-Math.pow(wordCount - 18, 2) / (2 * Math.pow(12, 2))));
     }
@@ -443,7 +426,6 @@ var FastKeySentenceNLP = (() => {
     isNoise,
     paperTextForSummary,
     analyze,
-    analyzeAsync,
-    roleFor
+    analyzeAsync
   };
 })();
