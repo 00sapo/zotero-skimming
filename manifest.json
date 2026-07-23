@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Zotero Skimming",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Automatic annotations of PDF inside Zotero for skimming academic literature",
   "author": "00sapo",
   "icons": {
