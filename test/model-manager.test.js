@@ -87,7 +87,7 @@ describe("FastKeySentenceModels", () => {
     expect(api.DTYPE).toBe("q8");
     expect(api.modelName("embeddings", false)).toBe("Xenova/all-MiniLM-L6-v2");
     expect(api.modelName("embeddings", true)).toBe("Xenova/multilingual-e5-small");
-    expect(api.modelName("classification", false)).toBe("Xenova/distilbert-base-uncased-mnli");
+    expect(api.modelName("classification", false)).toBe("Xenova/mobilebert-uncased-mnli");
     api.log("ready");
     expect(Zotero.debug).toHaveBeenCalledWith(expect.stringContaining("ready"));
   });
@@ -140,7 +140,7 @@ describe("FastKeySentenceModels", () => {
   it("classifies sentence batches, defaults missing outputs, and reports inference", async () => {
     const classifier = vi.fn()
       .mockResolvedValueOnce([
-        { labels: ["method"], scores: ["0.4"] },
+        { labels: ["method, approach, algorithm, architecture, or experimental design"], scores: ["0.4"] },
         { labels: [], scores: [] }
       ])
       .mockResolvedValueOnce([{ labels: ["unknown"], scores: [0] }]);

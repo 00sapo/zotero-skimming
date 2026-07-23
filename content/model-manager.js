@@ -387,20 +387,20 @@ var FastKeySentenceModels = (() => {
   }
 
   const ROLE_LABELS = [
-    "background",
-    "method",
-    "contribution",
-    "result",
-    "take away",
-    "goal"
+    "background context, related work, or prior art",
+    "method, approach, algorithm, architecture, or experimental design",
+    "main contribution, novel proposal, or key innovation",
+    "empirical result, quantitative finding, accuracy, or performance measurement",
+    "conclusion, takeaway, key insight, or summary of findings",
+    "research objective, aim, goal, or research question"
   ];
   const ROLE_MAP = Object.freeze({
-    "background": "background",
-    "method": "method",
-    "contribution": "contribution",
-    "result": "result",
-    "take away": "takeaway",
-    "goal": "goal"
+    "background context, related work, or prior art": "background",
+    "method, approach, algorithm, architecture, or experimental design": "method",
+    "main contribution, novel proposal, or key innovation": "contribution",
+    "empirical result, quantitative finding, accuracy, or performance measurement": "result",
+    "conclusion, takeaway, key insight, or summary of findings": "takeaway",
+    "research objective, aim, goal, or research question": "goal"
   });
 
   async function classify(texts, multilingual, callback, batchSize = 8) {
