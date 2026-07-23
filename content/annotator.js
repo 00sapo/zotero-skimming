@@ -89,6 +89,7 @@ FastOfflineKeySentenceAnnotator = {
     llmClassification: false,
     classificationBatchSize: 8,
     multilingual: false,
+    subspanHighlights: true,
     remoteEndpoint: "",
     remoteApiKey: "",
     remoteModel: ""
@@ -107,6 +108,7 @@ FastOfflineKeySentenceAnnotator = {
       llmClassification: Zotero.Prefs.get(this.prefBranch + "llmClassification", true) ?? defaults.llmClassification,
       classificationBatchSize: Number(Zotero.Prefs.get(this.prefBranch + "classificationBatchSize", true)) || defaults.classificationBatchSize,
       multilingual: Zotero.Prefs.get(this.prefBranch + "multilingual", true) ?? defaults.multilingual,
+      subspanHighlights: Zotero.Prefs.get(this.prefBranch + "subspanHighlights", true) ?? defaults.subspanHighlights,
       remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
       remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel
@@ -114,6 +116,7 @@ FastOfflineKeySentenceAnnotator = {
     settings.llmEmbeddings = settings.llmEmbeddings === true;
     settings.llmClassification = settings.llmClassification === true;
     settings.multilingual = settings.multilingual === true;
+    settings.subspanHighlights = settings.subspanHighlights === true;
     return this.isValidSettings(settings) ? settings : { ...defaults };
   },
 
@@ -134,7 +137,7 @@ FastOfflineKeySentenceAnnotator = {
       && Number.isInteger(settings.classificationBatchSize)
       && settings.classificationBatchSize >= 1
       && settings.classificationBatchSize <= 32
-      && ["llmEmbeddings", "llmClassification", "multilingual"]
+      && ["llmEmbeddings", "llmClassification", "multilingual", "subspanHighlights"]
         .every(key => typeof settings[key] === "boolean")
       && typeof settings.remoteEndpoint === "string"
       && typeof settings.remoteApiKey === "string"
@@ -149,6 +152,7 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "llmClassification", settings.llmClassification, true);
     Zotero.Prefs.set(this.prefBranch + "classificationBatchSize", settings.classificationBatchSize, true);
     Zotero.Prefs.set(this.prefBranch + "multilingual", settings.multilingual, true);
+    Zotero.Prefs.set(this.prefBranch + "subspanHighlights", settings.subspanHighlights, true);
     Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteModel", settings.remoteModel || "", true);
@@ -273,7 +277,8 @@ FastOfflineKeySentenceAnnotator = {
     const options = [
       ["llm-embeddings", "LLM embeddings", "Use semantic sentence vectors instead of TF-IDF for ranking and MMR diversity.", initialSettings.llmEmbeddings],
       ["llm-classification", "LLM classification", "Classify selected sentences by scholarly discourse role.", initialSettings.llmClassification],
-      ["multilingual", "Multilingual", "Use multilingual alternatives for enabled stages.", initialSettings.multilingual]
+      ["multilingual", "Multilingual", "Use multilingual alternatives for enabled stages.", initialSettings.multilingual],
+      ["subspan-highlights", "Subspan highlights", "Highlight the best 10–30 word phrase within each sentence instead of the full sentence.", initialSettings.subspanHighlights]
     ];
     const checks = {};
     for (const [id, labelText, helpText, checked] of options) {
@@ -407,6 +412,7 @@ FastOfflineKeySentenceAnnotator = {
       llmClassification: checks["llm-classification"].checked,
       classificationBatchSize: Number(inputs["classification-batch-size"].value),
       multilingual: checks.multilingual.checked,
+      subspanHighlights: checks["subspan-highlights"].checked,
       remoteEndpoint: inputs["remote-endpoint"].value.trim(),
       remoteApiKey: inputs["remote-api-key"].value.trim(),
       remoteModel: inputs["remote-model"].value.trim()
@@ -957,6 +963,7 @@ FastOfflineKeySentenceAnnotator = {
       line.setProgress(70);
       line.setText("Creating Zotero highlights");
       let created = 0;
+      this._subspanHighlights = configuredSettings.subspanHighlights !== false;
       const notifierQueue = new Zotero.Notifier.Queue();
       try {
         for (const sentence of selected) {
@@ -1665,7 +1672,8 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   makeAnnotation(sentence) {
-    const { text, rects } = this.bestSubspan(sentence, 10, 30);
+    const subspan = this._subspanHighlights !== false;
+    const { text, rects } = subspan ? this.bestSubspan(sentence, 10, 30) : { text: sentence.text, rects: sentence.rects };
     const colors = {
       contribution: "#ffd400",
       result: "#5fb236",
