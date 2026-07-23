@@ -6,19 +6,6 @@ var FastKeySentenceNLP = (() => {
   const STOP_WORDS = new Set(`a an and are as at be been being but by can could did do does doing for from had has have having he her hers herself him himself his how i if in into is it its itself may might more most must my myself no nor not of off on once only or other our ours ourselves out over own same she should so some such than that the their theirs them themselves then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yourself yourselves`.split(/\s+/));
   const SCORING = Object.freeze(FastKeySentenceScoringConfig);
 
-  function logFallback(operation, error) {
-    const e = error || "";
-    const msg = typeof e === "object" && e !== null ? (e.message || String(e)) : String(e);
-    const stack = typeof e === "object" && e !== null ? e.stack : "";
-    const detail = `${msg} (type: ${typeof e})${stack ? `\n${stack}` : ""}`;
-    const line = `FastKeySentenceNLP ${operation} fallback: ${detail}`;
-    if (typeof Zotero !== "undefined") Zotero.debug(line);
-    if (typeof FastKeySentenceModels !== "undefined" && FastKeySentenceModels.appendToLog) {
-      void FastKeySentenceModels.appendToLog(line);
-    }
-    return detail;
-  }
-
   const ROLE_RULES = [
     { role: "contribution", score: SCORING.roleScores.contribution, re: /\b(we (propose|present|introduce|develop|contribute)|our (main )?contribution|this paper (proposes|presents|introduces))\b/i },
     { role: "result", score: SCORING.roleScores.result, re: /\b(results? (show|demonstrate|indicate|suggest)|we (achieve|obtain|find|observe)|achiev(?:e|ed|es)|improv(?:e|ed|ement)|accuracy|outperform(?:s|ed)?)\b/i },
@@ -455,43 +442,22 @@ var FastKeySentenceNLP = (() => {
 
     let summary = "";
     if (options.llmSummarization && inferenceAvailable) {
-      try {
-        options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
-        summary = await FastKeySentenceModels.summarize(
-          summarizationInput(filtered, options.documentTitle || ""),
-          event => options.onModelProgress?.({ ...event, operation: "summarization" })
-        );
-      }
-      catch (error) {
-        const detail = logFallback("summarization", error);
-        options.onModelProgress?.({
-          stage: "fallback",
-          operation: "summarization",
-          message: `Summarization failed; using title and abstract only: ${detail}`
-        });
-      }
+      options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
+      summary = await FastKeySentenceModels.summarize(
+        summarizationInput(filtered, options.documentTitle || ""),
+        event => options.onModelProgress?.({ ...event, operation: "summarization" })
+      );
     }
 
     let scored;
     if (options.llmEmbeddings && inferenceAvailable) {
-      try {
-        options.onModelProgress?.({ stage: "preparing", operation: "embeddings" });
-        const embeddings = await FastKeySentenceModels.embeddings(
-          filtered.map(sentence => sentence.text),
-          !!options.multilingual,
-          event => options.onModelProgress?.({ ...event, operation: "embeddings" })
-        );
-        scored = scoreDense(filtered, embeddings, count);
-      }
-      catch (error) {
-        const detail = logFallback("embeddings", error);
-        options.onModelProgress?.({
-          stage: "fallback",
-          operation: "embeddings",
-          message: `Embedding inference failed; using TF-IDF instead: ${detail}`
-        });
-        scored = scoreSparse(filtered, count);
-      }
+      options.onModelProgress?.({ stage: "preparing", operation: "embeddings" });
+      const embeddings = await FastKeySentenceModels.embeddings(
+        filtered.map(sentence => sentence.text),
+        !!options.multilingual,
+        event => options.onModelProgress?.({ ...event, operation: "embeddings" })
+      );
+      scored = scoreDense(filtered, embeddings, count);
     }
     else {
       scored = scoreSparse(filtered, count);
@@ -500,64 +466,44 @@ var FastKeySentenceNLP = (() => {
     let shortlist = shortlistIndexes(filtered, count);
 
     if (options.llmClassification && inferenceAvailable && shortlist.length) {
-      try {
-        options.onModelProgress?.({ stage: "preparing", operation: "classification" });
-        const predictions = await FastKeySentenceModels.classify(
-          shortlist.map(index => filtered[index].text),
-          !!options.multilingual,
-          event => options.onModelProgress?.({ ...event, operation: "classification" }),
-          options.classificationBatchSize
-        );
-        const rawScores = predictions.map(prediction => {
-          const salience = ROLE_SALIENCE[prediction.role] ?? ROLE_SALIENCE.context;
-          return SCORING.classification.confidence * Math.max(0, Math.min(1, prediction.score || 0))
-            + SCORING.classification.roleSalience * salience;
-        });
-        const normalized = minMax(rawScores);
-        shortlist.forEach((index, position) => {
-          const prediction = predictions[position] || { role: "context", score: 0 };
-          filtered[index].role = prediction.role || "context";
-          filtered[index].classificationConfidence = Number(prediction.score) || 0;
-          filtered[index].importance = SCORING.classification.priorImportance * filtered[index].importance
-            + SCORING.classification.classificationScore * normalized[position];
-        });
-        shortlist = shortlistIndexes(filtered, count);
-      }
-      catch (error) {
-        const detail = logFallback("classification", error);
-        options.onModelProgress?.({
-          stage: "fallback",
-          operation: "classification",
-          message: `Classification failed; retaining heuristic roles: ${detail}`
-        });
-      }
+      options.onModelProgress?.({ stage: "preparing", operation: "classification" });
+      const predictions = await FastKeySentenceModels.classify(
+        shortlist.map(index => filtered[index].text),
+        !!options.multilingual,
+        event => options.onModelProgress?.({ ...event, operation: "classification" }),
+        options.classificationBatchSize
+      );
+      const rawScores = predictions.map(prediction => {
+        const salience = ROLE_SALIENCE[prediction.role] ?? ROLE_SALIENCE.context;
+        return SCORING.classification.confidence * Math.max(0, Math.min(1, prediction.score || 0))
+          + SCORING.classification.roleSalience * salience;
+      });
+      const normalized = minMax(rawScores);
+      shortlist.forEach((index, position) => {
+        const prediction = predictions[position] || { role: "context", score: 0 };
+        filtered[index].role = prediction.role || "context";
+        filtered[index].classificationConfidence = Number(prediction.score) || 0;
+        filtered[index].importance = SCORING.classification.priorImportance * filtered[index].importance
+          + SCORING.classification.classificationScore * normalized[position];
+      });
+      shortlist = shortlistIndexes(filtered, count);
     }
 
     if (options.llmRerankings && inferenceAvailable && shortlist.length) {
-      try {
-        const query = rerankingQuery(filtered, options.documentTitle || "", summary);
-        options.onModelProgress?.({ stage: "preparing", operation: "reranking" });
-        const scores = await FastKeySentenceModels.rerank(
-          query,
-          shortlist.map(index => filtered[index].text),
-          !!options.multilingual,
-          event => options.onModelProgress?.({ ...event, operation: "reranking" })
-        );
-        const normalized = minMax(scores);
-        shortlist.forEach((index, position) => {
-          filtered[index].rerankingScore = Number(scores[position]) || 0;
-          filtered[index].importance = SCORING.reranking.priorImportance * filtered[index].importance
-            + SCORING.reranking.rerankingScore * normalized[position];
-        });
-      }
-      catch (error) {
-        const detail = logFallback("reranking", error);
-        options.onModelProgress?.({
-          stage: "fallback",
-          operation: "reranking",
-          message: `Re-ranking failed; retaining the first-stage scores: ${detail}`
-        });
-      }
+      const query = rerankingQuery(filtered, options.documentTitle || "", summary);
+      options.onModelProgress?.({ stage: "preparing", operation: "reranking" });
+      const scores = await FastKeySentenceModels.rerank(
+        query,
+        shortlist.map(index => filtered[index].text),
+        !!options.multilingual,
+        event => options.onModelProgress?.({ ...event, operation: "reranking" })
+      );
+      const normalized = minMax(scores);
+      shortlist.forEach((index, position) => {
+        filtered[index].rerankingScore = Number(scores[position]) || 0;
+        filtered[index].importance = SCORING.reranking.priorImportance * filtered[index].importance
+          + SCORING.reranking.rerankingScore * normalized[position];
+      });
     }
 
     return selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
