@@ -719,7 +719,7 @@ FastOfflineKeySentenceAnnotator = {
       "aria-modal": "true",
       "aria-labelledby": "fast-key-sentence-annotator-summary-title",
       style: [
-        "width: min(720px, calc(100vw - 48px))",
+        "width: min(800px, calc(100vw - 48px))",
         "max-height: calc(100vh - 48px)",
         "overflow: auto",
         "padding: 22px",
@@ -751,7 +751,7 @@ FastOfflineKeySentenceAnnotator = {
         "background: color-mix(in srgb, Canvas 96%, AccentColor 4%)",
         "line-height: 1.6",
         "white-space: pre-wrap",
-        "max-height: 55vh",
+        "max-height: 72vh",
         "overflow: auto"
       ].join(";")
     }, summary);
