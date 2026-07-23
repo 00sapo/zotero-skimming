@@ -42,11 +42,11 @@ var FastKeySentenceRemote = (() => {
     if (!endpoint) throw new Error("No remote endpoint configured.");
 
     const targetSentences = Math.max(3, Math.round(sentenceCount * SUMMARY_SENTENCES_PER_ANNOTATION));
-    const targetTokens = Math.min(600, Math.max(60, targetSentences * 22));
+    const targetTokens = Math.min(1000, Math.max(120, targetSentences * 30));
 
     const systemPrompt = [
       "You are a research assistant. Summarize the following academic paper in a single compact paragraph.",
-      `Write about ${targetSentences} sentences. Cover: the research objective, the method or approach,`,
+      `Aim for about ${targetSentences} sentences. Cover: the research objective, the method or approach,`,
       "the main empirical findings, and any key limitations or conclusions.",
       "Be precise, concise, and avoid filler."
     ].join(" ");
