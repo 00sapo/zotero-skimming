@@ -229,8 +229,11 @@ FastOfflineKeySentenceAnnotator = {
     const title = create("h1", {
       id: "fast-key-sentence-annotator-dialog-title",
       style: "margin: 0 0 18px; font-size: 1.35rem; font-weight: 600"
-    }, "Key-sentence annotation");
+    }, "Paper skim");
     panel.appendChild(title);
+    panel.appendChild(create("p", {
+      style: "margin: -10px 0 16px; padding: 10px 12px; border: 1px solid color-mix(in srgb, #d4a017 40%, transparent); border-radius: 6px; background: color-mix(in srgb, #fff6d8 70%, Canvas 30%); color: CanvasText; line-height: 1.4"
+    }, "Please, be aware of the bias risk induced by automated sentence selection methods. Do not use this add-on for in-depth study of academic articles."));
 
     const form = create("form", { novalidate: true });
 
@@ -348,7 +351,7 @@ FastOfflineKeySentenceAnnotator = {
     remoteConfig.appendChild(remoteGrid);
     remoteConfig.appendChild(create("p", {
       style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Any OpenAI-compatible endpoint works (OpenAI, Anthropic via proxy, Groq, local vLLM, etc.). The summary guides sentence ranking via semantic similarity."));
+    }, "Any compatible endpoint works. The summary guides sentence ranking via semantic similarity."));
     form.appendChild(remoteConfig);
 
     const error = create("p", {
