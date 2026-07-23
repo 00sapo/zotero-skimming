@@ -76,7 +76,7 @@ Classification calls are batched. The batch size is configurable from 1 to 32.
 
 ### Optional summarization and re-ranking
 
-The Qwen3 0.6B model can summarize up to approximately 40K tokens of paper text. The synopsis is added to the title and abstract-derived context used by the cross-encoder re-ranker.
+Qwen2.5 0.5B can summarize up to approximately 15K tokens of paper body text. The synopsis is added to the title and abstract-derived context used by the cross-encoder re-ranker.
 
 Re-ranking blends as:
 
@@ -103,9 +103,9 @@ All model assets come from Hugging Face, are downloaded explicitly with **Update
 | Embeddings | `Xenova/all-MiniLM-L6-v2` | `Xenova/multilingual-e5-small` |
 | Classification | `Xenova/distilbert-base-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
 | Re-ranking | `Xenova/ms-marco-MiniLM-L-6-v2` | `SugoLabs/mmarco-mMiniLMv2-L12-H384-v1` |
-| Summarization | `onnx-community/Qwen3-0.6B-ONNX` | same model |
+| Summarization | `onnx-community/Qwen2.5-0.5B-Instruct` | same model |
 
-`model-identifiers.json` is the source of truth for these Hugging Face identifiers. Qwen3's quantized model is approximately 590 MB before tokenizer and configuration files. `scoring-config.json` contains the scoring weights, role scores, TextRank parameters, classification/re-ranking blends, and final-selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
+`model-identifiers.json` is the source of truth for these Hugging Face identifiers. Qwen2.5's quantized model is approximately 490 MB before tokenizer and configuration files. `scoring-config.json` contains the scoring weights, role scores, TextRank parameters, classification/re-ranking blends, and final-selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
 
 ## Build and test
 

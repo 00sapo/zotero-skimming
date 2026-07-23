@@ -408,7 +408,8 @@ var FastKeySentenceNLP = (() => {
       .map(s => s.text)
       .filter(Boolean)
       .join(" ");
-    return normalizeText([documentTitle, body].filter(Boolean).join(" ")).slice(0, 120000);
+    // Cap at ~15K tokens (≈ 60K chars) to keep KV cache within WASM limits
+    return normalizeText([documentTitle, body].filter(Boolean).join(" ")).slice(0, 60000);
   }
 
   function rerankingQuery(sentences, documentTitle = "", summary = "") {
