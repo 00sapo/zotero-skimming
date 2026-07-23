@@ -56,15 +56,17 @@ Summary similarity dominates: sentences semantically close to the synopsis are p
 
 ### 4. MMR selection
 
-Maximum marginal relevance selects the requested number of highlights while penalizing semantic redundancy and repeated sections:
+Maximum marginal relevance selects the requested number of highlights while penalizing semantic redundancy, repeated sections, and overlapping summary coverage:
 
 ```text
-0.65 × importance − 0.35 × redundancy − section penalty
+0.65 × importance − 0.35 × redundancy − section penalty − 0.03 × coverage overlap
 ```
+
+Summary sentences are embedded and tracked: each selection claims the summary sentence it's closest to. Subsequent candidates receive a small penalty if their best-matching summary sentence was already claimed, encouraging the highlights to span different aspects of the synopsis.
 
 ### 5. Optional local classification
 
-If enabled, a zero-shot classifier (distilBERT MNLI, ~270 MB) labels each selected sentence with one of six roles. The classifier receives the paper summary concatenated with the sentence as context:
+If enabled, a zero-shot classifier (mobileBERT, ~95 MB) labels each selected sentence with one of six roles. The classifier receives the paper summary concatenated with the sentence as context:
 
 | Role | Description |
 |------|-------------|
@@ -90,9 +92,9 @@ All local model assets come from Hugging Face, use q8/legacy quantized ONNX arti
 | Stage | English | Multilingual |
 |-------|---------|-------------|
 | Embeddings | `Xenova/all-MiniLM-L6-v2` | `Xenova/multilingual-e5-small` |
-| Classification | `Xenova/distilbert-base-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
+| Classification | `Xenova/mobilebert-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
 
-`model-identifiers.json` is the source of truth for these Hugging Face identifiers. DistilBERT's quantized model is approximately 270 MB. `scoring-config.json` contains the scoring weights, role scores, classification blends, and selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
+`model-identifiers.json` is the source of truth for these Hugging Face identifiers. MobileBERT's quantized model is approximately 95 MB. `scoring-config.json` contains the scoring weights, role scores, classification blends, and selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
 
 ## Build and test
 
