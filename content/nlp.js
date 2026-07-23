@@ -260,10 +260,16 @@ var FastKeySentenceNLP = (() => {
     return { vectors: normalizedVectors, norms };
   }
 
-  function selectMMR(sentences, vectors, norms, count) {
+  function selectMMR(sentences, vectors, norms, count, summarySentences = null) {
     const selected = [];
     const remaining = new Set(sentences.map((_, i) => i));
     const sectionCounts = new Map();
+    // Track which summary sentences are covered (for coverage encouragement)
+    const summaryVecs = summarySentences ? summarySentences.map(s => s.vector) : null;
+    const summaryNorms = summarySentences ? summarySentences.map(s => s.norm) : null;
+    const summaryCovered = summaryVecs ? new Array(summaryVecs.length).fill(0) : null;
+    const COVERAGE_WEIGHT = 0.03;
+
     while (selected.length < count && remaining.size) {
       let best = -1, bestScore = -Infinity;
       for (const i of remaining) {
@@ -271,9 +277,20 @@ var FastKeySentenceNLP = (() => {
         for (const j of selected) {
           redundancy = Math.max(redundancy, vectorCosine(vectors[i], vectors[j], norms[i], norms[j]));
         }
+        let coveragePenalty = 0;
+        if (summaryVecs && summaryVecs.length) {
+          let bestCoverIdx = -1, bestCoverSim = -Infinity;
+          for (let k = 0; k < summaryVecs.length; k++) {
+            const sim = vectorCosine(vectors[i], summaryVecs[k], norms[i], summaryNorms[k]);
+            if (sim > bestCoverSim) { bestCoverSim = sim; bestCoverIdx = k; }
+          }
+          if (summaryCovered[bestCoverIdx]) {
+            coveragePenalty = bestCoverSim * COVERAGE_WEIGHT;
+          }
+        }
         const sectionPenalty = SCORING.selection.sectionPenalty * (sectionCounts.get(sentences[i].section || "") || 0);
         const value = SCORING.selection.importance * sentences[i].importance
-          - SCORING.selection.redundancy * redundancy - sectionPenalty;
+          - SCORING.selection.redundancy * redundancy - sectionPenalty - coveragePenalty;
         if (value > bestScore) {
           bestScore = value;
           best = i;
@@ -284,6 +301,15 @@ var FastKeySentenceNLP = (() => {
       remaining.delete(best);
       const section = sentences[best].section || "";
       sectionCounts.set(section, (sectionCounts.get(section) || 0) + 1);
+      // Mark the most similar summary sentence as covered
+      if (summaryVecs && summaryVecs.length) {
+        let bestCoverIdx = -1, bestCoverSim = -Infinity;
+        for (let k = 0; k < summaryVecs.length; k++) {
+          const sim = vectorCosine(vectors[best], summaryVecs[k], norms[best], summaryNorms[k]);
+          if (sim > bestCoverSim) { bestCoverSim = sim; bestCoverIdx = k; }
+        }
+        if (bestCoverIdx >= 0) summaryCovered[bestCoverIdx] = 1;
+      }
     }
     return selected.map(i => sentences[i]).sort((a, b) => a.order - b.order);
   }
@@ -375,7 +401,17 @@ var FastKeySentenceNLP = (() => {
       .slice(0, shortlistSize)
       .map(entry => entry.index);
 
-    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
+    // Build summary sentence embeddings for coverage encouragement in MMR
+    let summaryParts = null;
+    if (options.llmEmbeddings && inferenceAvailable && summary) {
+      const summarySentences = sentenceRanges(summary).map(([s, e]) => summary.slice(s, e)).filter(Boolean);
+      if (summarySentences.length > 1) {
+        const partVecs = await FastKeySentenceModels.embeddings(summarySentences, false, () => {});
+        summaryParts = partVecs.map((vec, i) => ({ vector: vec.map(Number), norm: denseNorm(vec), text: summarySentences[i] }));
+      }
+    }
+
+    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length), summaryParts);
 
     // 3. Classify selected sentences (if enabled)
     if (options.llmClassification && inferenceAvailable && selected.length) {
