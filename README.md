@@ -76,7 +76,7 @@ Classification calls are batched. The batch size is configurable from 1 to 32.
 
 ### Optional summarization and re-ranking
 
-The Llama 3.2 1B Instruct model can summarize the title and up to approximately 30K tokens of paper text. The synopsis is added to the title and abstract-derived context used by the cross-encoder re-ranker.
+The Qwen3 0.6B model can summarize up to approximately 40K tokens of paper text. The synopsis is added to the title and abstract-derived context used by the cross-encoder re-ranker.
 
 Re-ranking blends as:
 
@@ -103,9 +103,9 @@ All model assets come from Hugging Face, are downloaded explicitly with **Update
 | Embeddings | `Xenova/all-MiniLM-L6-v2` | `Xenova/multilingual-e5-small` |
 | Classification | `Xenova/distilbert-base-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
 | Re-ranking | `Xenova/ms-marco-MiniLM-L-6-v2` | `SugoLabs/mmarco-mMiniLMv2-L12-H384-v1` |
-| Summarization | `onnx-community/Llama-3.2-1B-Instruct-ONNX` | same model |
+| Summarization | `onnx-community/Qwen3-0.6B-ONNX` | same model |
 
-`model-identifiers.json` is the source of truth for these Hugging Face identifiers. Llama’s quantized model is approximately 1.24 GB before tokenizer and configuration files. `scoring-config.json` contains the scoring weights, role scores, TextRank parameters, classification/re-ranking blends, and final-selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
+`model-identifiers.json` is the source of truth for these Hugging Face identifiers. Qwen3's quantized model is approximately 590 MB before tokenizer and configuration files. `scoring-config.json` contains the scoring weights, role scores, TextRank parameters, classification/re-ranking blends, and final-selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
 
 ## Build and test
 
