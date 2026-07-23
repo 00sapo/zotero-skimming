@@ -1717,7 +1717,7 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   async refineSelectedWindows(selected, settings) {
-    if (typeof FastKeySentenceModels?.embeddings !== "function") return;
+    if (typeof FastKeySentenceModels === "undefined" || typeof FastKeySentenceModels.embeddings !== "function") return;
     const threshold = 0.08;
     const summary = selected[0]?._paperSummary || "";
     if (!summary) return;
