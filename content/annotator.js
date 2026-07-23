@@ -590,9 +590,11 @@ FastOfflineKeySentenceAnnotator = {
       if (!sentences.length) throw new Error("No usable text was found. Run OCR first if this is a scanned PDF.");
 
       const documentTitle = await this.getDocumentTitle(attachment);
-      const inputText = FastKeySentenceNLP.normalizeText(
-        [documentTitle, ...sentences.map(s => s.text)].filter(Boolean).join(" ")
-      ).slice(0, 120000);
+      // Filter out noise (authors, tables, figures, references) and abstract
+      const bodySentences = sentences.filter(
+        s => !FastKeySentenceNLP.isNoise(s) && s.section !== "abstract"
+      );
+      const inputText = FastKeySentenceNLP.summarizationInput(bodySentences, documentTitle);
 
       line.setProgress(45);
       line.setText("Generating summary…");

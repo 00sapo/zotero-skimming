@@ -403,7 +403,12 @@ var FastKeySentenceNLP = (() => {
   }
 
   function summarizationInput(sentences, documentTitle = "") {
-    return normalizeText([documentTitle, ...sentences.map(sentence => sentence.text)].filter(Boolean).join(" ")).slice(0, 120000);
+    const body = sentences
+      .filter(s => normalizeText(s.section || "") !== "abstract")
+      .map(s => s.text)
+      .filter(Boolean)
+      .join(" ");
+    return normalizeText([documentTitle, body].filter(Boolean).join(" ")).slice(0, 120000);
   }
 
   function rerankingQuery(sentences, documentTitle = "", summary = "") {
@@ -515,6 +520,8 @@ var FastKeySentenceNLP = (() => {
     detectHeading,
     isReferenceHeading,
     isReferenceEntry,
+    isNoise,
+    summarizationInput,
     analyze,
     analyzeAsync,
     roleFor
