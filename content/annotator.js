@@ -1465,6 +1465,12 @@ FastOfflineKeySentenceAnnotator = {
     return marked;
   },
 
+  isPostReferenceHeading(heading) {
+    return /^(?:appendix|supplementary material|supplementary information)$/i.test(
+      FastKeySentenceNLP.normalizeText(heading)
+    );
+  },
+
   isLikelyReferencePage(lines) {
     const content = lines
       .map(line => FastKeySentenceNLP.normalizeText(line.text))
@@ -1538,16 +1544,14 @@ FastOfflineKeySentenceAnnotator = {
       const lines = this.buildLines(page);
       if (!lines.length) continue;
 
-      // Recover from a references section only when a later explicit section begins,
-      // such as an appendix or supplementary material.
       const openingHeadings = lines.slice(0, 8)
         .map(line => FastKeySentenceNLP.detectHeading(line.text))
         .filter(Boolean);
-      if (inReferences && openingHeadings.some(heading => !FastKeySentenceNLP.isReferenceHeading(heading))) {
+      if (inReferences && openingHeadings.some(heading => this.isPostReferenceHeading(heading))) {
         inReferences = false;
       }
       if (!inReferences && this.isLikelyReferencePage(lines)) inReferences = true;
-      if (inReferences && !openingHeadings.some(heading => !FastKeySentenceNLP.isReferenceHeading(heading))) {
+      if (inReferences && !openingHeadings.some(heading => this.isPostReferenceHeading(heading))) {
         continue;
       }
 
@@ -1604,6 +1608,10 @@ FastOfflineKeySentenceAnnotator = {
         const heading = FastKeySentenceNLP.detectHeading(rawLine);
         if (heading && rawLine.split(/\s+/).length <= 12) {
           flushBuffer();
+          if (inReferences && !FastKeySentenceNLP.isReferenceHeading(heading) && !this.isPostReferenceHeading(heading)) {
+            previousLine = null;
+            continue;
+          }
           currentSection = heading;
           previousLine = null;
           if (FastKeySentenceNLP.isReferenceHeading(heading)) {
@@ -1623,7 +1631,12 @@ FastOfflineKeySentenceAnnotator = {
         const inlineHeading = lineText.match(/^\s*(abstract|introduction|background|related work|methods?|methodology|materials? and methods?|datasets?|workflow|architecture|experiments?|results?|discussion|limitations?|conclusions?|future work|references|bibliography|works cited|literature cited|reference list|appendix|supplementary material)\s*[:.—-]\s*(.+)$/i);
         if (inlineHeading) {
           flushBuffer();
-          currentSection = FastKeySentenceNLP.detectHeading(inlineHeading[1]) || inlineHeading[1].toLowerCase();
+          const inlineSection = FastKeySentenceNLP.detectHeading(inlineHeading[1]) || inlineHeading[1].toLowerCase();
+          if (inReferences && !FastKeySentenceNLP.isReferenceHeading(inlineSection) && !this.isPostReferenceHeading(inlineSection)) {
+            previousLine = null;
+            continue;
+          }
+          currentSection = inlineSection;
           previousLine = null;
           if (FastKeySentenceNLP.isReferenceHeading(currentSection)) {
             inReferences = true;

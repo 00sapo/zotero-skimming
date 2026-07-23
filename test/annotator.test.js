@@ -191,6 +191,17 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
     expect(() => api.extractPages(null)).toThrow("no page structure");
     const lines = ["Introduction", "A complete opening sentence with enough meaningful words for testing.", "Funding", "Ignored sentence after funding.", "References", "[1] Smith 2020."].map((text, i) => ({ pageIndex: 0, width: 600, height: 800, words: text.split(" ").map((x, j) => word(x, j * 30, 750 - i * 20)) }));
     expect(api.buildSentences(lines).some(x => x.section === "introduction")).toBe(true);
+    const referencePage = {
+      pageIndex: 0,
+      width: 600,
+      height: 800,
+      words: ["Introduction", "A complete opening sentence with enough meaningful words for testing.", "References", "[1] Smith, J. 2020. A useful dataset.", "Datasets..", "A reference title following a misleading heading."].flatMap((text, i) =>
+        text.split(" ").map((part, j) => word(part, j * 30, 750 - i * 20))
+      )
+    };
+    expect(api.buildSentences([referencePage]).map(sentence => sentence.text)).toEqual([
+      "A complete opening sentence with enough meaningful words for testing."
+    ]);
   });
 
   it("creates Zotero-valid annotations and reports model progress", () => {
