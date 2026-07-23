@@ -950,7 +950,11 @@ FastOfflineKeySentenceAnnotator = {
           + `${enabledStages.length ? `; LLM: ${enabledStages.join(", ")}` : "; fast mode"})`
       );
       const documentTitle = await this.getDocumentTitle(attachment);
-      const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
+      // Build sliding windows from sentences (10-30 word spans) for finer-grained ranking
+      const rankingUnits = configuredSettings.subspanHighlights !== false
+        ? this.buildWindows(sentences, 10, 30)
+        : sentences;
+      const selected = await FastKeySentenceNLP.analyzeAsync(rankingUnits, count, {
         llmEmbeddings: configuredSettings.llmEmbeddings,
         llmClassification: configuredSettings.llmClassification,
         classificationBatchSize: configuredSettings.classificationBatchSize,
@@ -963,7 +967,6 @@ FastOfflineKeySentenceAnnotator = {
       line.setProgress(70);
       line.setText("Creating Zotero highlights");
       let created = 0;
-      this._subspanHighlights = configuredSettings.subspanHighlights !== false;
       const notifierQueue = new Zotero.Notifier.Queue();
       try {
         for (const sentence of selected) {
@@ -1672,8 +1675,8 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   makeAnnotation(sentence) {
-    const subspan = this._subspanHighlights !== false;
-    const { text, rects } = subspan ? this.bestSubspan(sentence, 10, 30) : { text: sentence.text, rects: sentence.rects };
+    const text = sentence.text;
+    const rects = sentence.rects || [];
     const colors = {
       contribution: "#ffd400",
       result: "#5fb236",
@@ -1711,46 +1714,32 @@ FastOfflineKeySentenceAnnotator = {
     };
   },
 
-  bestSubspan(sentence, minWords = 10, maxWords = 30) {
-    const tokens = sentence.text.split(/\s+/);
-    const rects = sentence.rects || [];
-    if (tokens.length <= minWords) return { text: sentence.text, rects };
-
-    const stopWords = new Set(["the", "a", "an", "of", "in", "to", "and", "for", "on", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "shall", "with", "at", "from", "by", "as", "or", "but", "not", "no", "this", "that", "these", "those", "it", "its", "we", "they", "he", "she", "his", "her", "their", "our", "also", "only", "just", "very", "than", "then", "more", "some", "such", "each", "all", "any", "both", "few", "most", "other", "one", "two", "three", "which", "what", "who", "whom", "whose", "when", "where", "how", "about", "between", "through", "during", "before", "after", "above", "below", "up", "down", "out", "off", "over", "under", "again", "further", "once", "here", "there", "now"]);
-
-    const wordScores = tokens.map(t => {
-      const w = t.replace(/[^a-zA-Z0-9%.-]/g, "").toLowerCase();
-      if (stopWords.has(w)) return 0;
-      if (/^\d+(\.\d+)?%$/.test(t)) return 3;
-      if (/\d/.test(t)) return 2;
-      if (w.length > 5) return 2;
-      return 1;
-    });
-
-    const windowSize = Math.min(maxWords, tokens.length);
-    let bestStart = 0, bestScore = -Infinity;
-    for (let start = 0; start <= tokens.length - minWords; start++) {
-      const end = Math.min(start + windowSize, tokens.length);
-      const count = end - start;
-      if (count < minWords) continue;
-      let score = 0, unique = new Set();
-      for (let i = start; i < end; i++) {
-        const w = tokens[i].replace(/[^a-zA-Z0-9%.-]/g, "").toLowerCase();
-        if (!stopWords.has(w)) { score += wordScores[i]; unique.add(w); }
+  buildWindows(sentences, minWords = 10, maxWords = 30) {
+    const windows = [];
+    for (const sentence of sentences) {
+      const tokens = sentence.text.split(/\s+/);
+      const rects = sentence.rects || [];
+      if (tokens.length <= minWords) {
+        windows.push({ ...sentence, rects: rects.length ? rects : sentence.rects });
+        continue;
       }
-      score += unique.size * 0.5;
-      const prev = start > 0 ? tokens[start - 1] : "";
-      const next = end < tokens.length ? tokens[end] : "";
-      if (/[,;:]$/.test(prev)) score += 1;
-      if (/[,;:]$/.test(tokens[end - 1])) score -= 1;
-      if (/^[a-z]/.test(next || "")) score -= 2;
-      if (score > bestScore) { bestScore = score; bestStart = start; }
+      const windowSize = Math.min(maxWords, tokens.length);
+      for (let start = 0; start <= tokens.length - minWords; start++) {
+        const end = Math.min(start + windowSize, tokens.length);
+        if (end - start < minWords) continue;
+        windows.push({
+          text: tokens.slice(start, end).join(" "),
+          rects: rects.slice(start, end),
+          pageIndex: sentence.pageIndex,
+          pageHeight: sentence.pageHeight,
+          section: sentence.section,
+          frontMatter: sentence.frontMatter,
+          order: sentence.order,
+          sourceText: sentence.text
+        });
+      }
     }
-
-    const bestEnd = Math.min(bestStart + windowSize, tokens.length);
-    const trimmed = tokens.slice(bestStart, bestEnd).join(" ");
-    const trimmedRects = rects.slice(bestStart, bestEnd);
-    return { text: trimmed, rects: trimmedRects.length === bestEnd - bestStart ? trimmedRects : rects };
+    return windows;
   },
 
 };
