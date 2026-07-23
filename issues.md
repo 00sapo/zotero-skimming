@@ -1,6 +1,5 @@
 # Issues
 
-1. summarization causes wasm segmentation fault
 2. if an LLM step is selected and it fails, then the error should be reported and the process should
    stop
 3. the gpu is not being used

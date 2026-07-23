@@ -12,7 +12,7 @@
     "multilingual": "SugoLabs/mmarco-mMiniLMv2-L12-H384-v1"
   },
   "summarization": {
-    "en": "onnx-community/text_summarization-ONNX",
-    "multilingual": "onnx-community/text_summarization-ONNX"
+    "en": "onnx-community/Qwen3-0.6B-ONNX",
+    "multilingual": "onnx-community/Qwen3-0.6B-ONNX"
   }
 }
