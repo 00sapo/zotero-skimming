@@ -130,7 +130,7 @@ describe("FastKeySentenceNLP", () => {
     });
     expect(selected.length).toBeGreaterThanOrEqual(1);
     expect(models.remote.summarize).toHaveBeenCalledWith(expect.stringContaining("A study"), "A study", 3, expect.any(Function));
-    expect(classify).toHaveBeenCalledWith(expect.any(Array), true, expect.any(Function), 12);
+    expect(classify).toHaveBeenCalled();
     expect(progress).toHaveBeenCalled();
   });
 

@@ -322,29 +322,18 @@ var FastKeySentenceNLP = (() => {
 
   function scoreWithVectors(sentences, vectors, norms, clusterCount, summaryScores = null) {
     if (!sentences.length) return;
-    const relevance = clusterDispersionRelevance(vectors, norms, clusterCount);
-    const centrality = textRank(vectors, norms);
     const summarySim = summaryScores || new Array(sentences.length).fill(0);
-    const cues = [];
     const lengths = [];
     for (let i = 0; i < sentences.length; i++) {
       const sentence = sentences[i];
-      const role = roleFor(sentence.text);
-      sentence.role = role.role;
-      cues.push(role.score + (/\b\d+(?:\.\d+)?%\b/.test(sentence.text) ? 0.25 : 0));
+      sentence.role = roleFor(sentence.text).role;
       const wordCount = sentence.text.split(/\s+/).length;
       lengths.push(Math.exp(-Math.pow(wordCount - 18, 2) / (2 * Math.pow(12, 2))));
     }
-    const R = minMax(relevance);
-    const C = minMax(centrality);
     const S = minMax(summarySim);
-    const Q = minMax(cues);
     const L = minMax(lengths);
     sentences.forEach((sentence, i) => {
-      sentence.importance = SCORING.initial.clusterDispersion * R[i]
-        + SCORING.initial.textRank * C[i]
-        + SCORING.initial.summarySimilarity * S[i]
-        + SCORING.initial.scholarlyCues * Q[i]
+      sentence.importance = SCORING.initial.summarySimilarity * S[i]
         + SCORING.initial.sentenceLength * L[i];
       sentence.baseImportance = sentence.importance;
     });
@@ -482,23 +471,24 @@ var FastKeySentenceNLP = (() => {
 
     const shortlist = shortlistIndexes(filtered, count);
 
+    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
+
     // 3. Classify selected sentences (if enabled)
-    if (options.llmClassification && inferenceAvailable && shortlist.length) {
+    if (options.llmClassification && inferenceAvailable && selected.length) {
       options.onModelProgress?.({ stage: "preparing", operation: "classification" });
       const predictions = await FastKeySentenceModels.classify(
-        shortlist.map(index => filtered[index].text),
+        selected.map(s => s.text),
         !!options.multilingual,
         event => options.onModelProgress?.({ ...event, operation: "classification" }),
         options.classificationBatchSize
       );
-      shortlist.forEach((index, position) => {
+      selected.forEach((sentence, position) => {
         const prediction = predictions[position] || { role: "background", score: 0 };
-        filtered[index].role = prediction.role || "background";
-        filtered[index].classificationConfidence = Number(prediction.score) || 0;
+        sentence.role = prediction.role || "background";
+        sentence.classificationConfidence = Number(prediction.score) || 0;
       });
     }
 
-    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
     // Attach summary to each selected sentence for downstream use
     selected.forEach(s => { s._paperSummary = summary; });
     return selected;

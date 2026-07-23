@@ -1,10 +1,7 @@
 {
   "initial": {
-    "clusterDispersion": 0.15,
-    "textRank": 0.10,
-    "summarySimilarity": 0.55,
-    "scholarlyCues": 0.08,
-    "sentenceLength": 0.12
+    "summarySimilarity": 0.85,
+    "sentenceLength": 0.15
   },
   "roleScores": {
     "background": 0.20,
