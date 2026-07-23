@@ -368,7 +368,12 @@ var FastKeySentenceNLP = (() => {
       scored = scoreSparse(filtered, count, summaryScores);
     }
 
-    const shortlist = shortlistIndexes(filtered, count);
+    const shortlistSize = Math.min(filtered.length, Math.max(count * 4, 60), 160);
+    const shortlist = filtered
+      .map((sentence, index) => ({ index, importance: sentence.importance || 0 }))
+      .sort((a, b) => b.importance - a.importance)
+      .slice(0, shortlistSize)
+      .map(entry => entry.index);
 
     const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
 
