@@ -898,7 +898,7 @@ FastOfflineKeySentenceAnnotator = {
 
   async annotateAttachment(attachment, window = null, settings = null) {
     const progress = new Zotero.ProgressWindow();
-    progress.changeHeadline("Finding key sentences offline");
+    progress.changeHeadline("Zotero-skimming");
     const title = attachment.getField("title") || attachment.attachmentFilename || "PDF";
     const line = new progress.ItemProgress("chrome://zotero/skin/treeitem-attachment-pdf.png", title);
     line.setProgress(5);
