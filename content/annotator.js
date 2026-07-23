@@ -351,7 +351,7 @@ FastOfflineKeySentenceAnnotator = {
     remoteConfig.appendChild(remoteGrid);
     remoteConfig.appendChild(create("p", {
       style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Any compatible endpoint works. The summary guides sentence ranking via semantic similarity."));
+    }, "Any OpenAI compatible API works. The summary guides sentence ranking via semantic similarity."));
     form.appendChild(remoteConfig);
 
     const error = create("p", {
