@@ -6,11 +6,11 @@ Zotero 9 add-on that finds salient prose in academic PDFs and saves the results 
 
 Configure annotation density, optional local models, and the remote LLM endpoint in the dialog:
 
-![Key-sentence annotation settings](assets/settings-dialog.png)
+<img src="assets/settings-dialog.png" alt="Key-sentence annotation settings" width="400" />
 
 Right-click a PDF attachment and choose **Annotate key sentences…**:
 
-![Zotero PDF context menu](assets/context-menu.png)
+<img src="assets/context-menu.png" alt="Zotero PDF context menu" width="100" />
 
 ## Installation
 
