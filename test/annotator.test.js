@@ -68,6 +68,86 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
     expect(api.mergeRects([[20, 10, 30, 20], [0, 10, 15, 20], [0, 0, 10, 5]])).toEqual([[0, 10, 30, 20], [0, 0, 10, 5]]);
   });
 
+  it("reads two-column prose down the left column before the right", () => {
+    const api = annotator();
+    const line = (text, x, y) => text.split(" ").map((part, index) => word(part, x + index * 26, y));
+    const page = {
+      pageIndex: 0,
+      width: 600,
+      height: 800,
+      words: [
+        ...line("Left column begins with a complete thought", 40, 700),
+        ...line("and ends only on this second line.", 40, 688),
+        ...line("Right column begins with a separate thought", 340, 700),
+        ...line("and ends only on this second line.", 340, 688)
+      ]
+    };
+
+    expect(api.buildLines(page).map(item => item.text)).toEqual([
+      "Left column begins with a complete thought",
+      "and ends only on this second line.",
+      "Right column begins with a separate thought",
+      "and ends only on this second line."
+    ]);
+    expect(api.buildSentences([page]).map(item => item.text)).toEqual([
+      "Left column begins with a complete thought and ends only on this second line.",
+      "Right column begins with a separate thought and ends only on this second line."
+    ]);
+  });
+
+  it("splits columns despite irregular word spacing", () => {
+    const api = annotator();
+    const row = (left, right, y) => [
+      ...left.map((text, index) => word(text, [40, 120, 210, 275][index], y)),
+      ...right.map((text, index) => word(text, [313, 343, 373, 403][index], y))
+    ];
+    const page = {
+      pageIndex: 0,
+      width: 600,
+      height: 800,
+      words: [
+        ...row(["Left", "first", "wide", "gap."], ["Right", "first", "column", "text."], 700),
+        ...row(["Left", "second", "wide", "gap."], ["Right", "second", "column", "text."], 688),
+        word("Heading", 40, 676),
+        ...["Right", "after", "short", "heading."].map((text, index) => word(text, 313 + index * 30, 676))
+      ]
+    };
+
+    expect(api.buildLines(page).map(item => item.text)).toEqual([
+      "Left first wide gap.",
+      "Left second wide gap.",
+      "Heading",
+      "Right first column text.",
+      "Right second column text.",
+      "Right after short heading."
+    ]);
+  });
+
+  it("keeps column-local headings with their left-column prose", () => {
+    const api = annotator();
+    const line = (text, x, y) => text.split(" ").map((part, index) => word(part, x + index * 26, y));
+    const page = {
+      pageIndex: 0,
+      width: 600,
+      height: 800,
+      words: [
+        ...line("Abstract prose on the left.", 40, 730),
+        ...line("1 Introduction", 40, 700),
+        ...line("Introduction prose on the left.", 40, 688),
+        ...line("Continuation starts in the right column.", 340, 730),
+        ...line("More right-column prose follows.", 340, 688)
+      ]
+    };
+
+    expect(api.buildLines(page).map(item => item.text)).toEqual([
+      "Abstract prose on the left.",
+      "1 Introduction",
+      "Introduction prose on the left.",
+      "Continuation starts in the right column.",
+      "More right-column prose follows."
+    ]);
+  });
+
   it("extracts legacy and structured pages, filtering duplicate geometry", () => {
     const api = annotator();
     const legacy = api.extractPages({ pages: [[100, 200, [0, 10, 40, 20, "Hello world"]]] });

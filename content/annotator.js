@@ -1236,15 +1236,77 @@ FastOfflineKeySentenceAnnotator = {
       best.cy = best.words.reduce((sum, w) => sum + (w.rect[1] + w.rect[3]) / 2, 0) / best.words.length;
       best.height = best.words.reduce((sum, w) => sum + (w.rect[3] - w.rect[1]), 0) / best.words.length;
     }
-    for (const line of lines) {
+    const describe = line => {
       line.words.sort((a, b) => a.rect[0] - b.rect[0]);
       line.left = Math.min(...line.words.map(w => w.rect[0]));
       line.right = Math.max(...line.words.map(w => w.rect[2]));
       line.top = Math.max(...line.words.map(w => w.rect[3]));
       line.bottom = Math.min(...line.words.map(w => w.rect[1]));
       line.text = this.joinTokens(line.words.map(w => w.text));
+      return line;
+    };
+    lines.forEach(describe);
+
+    const lineGaps = new Map();
+    const columnRows = lines.map(line => {
+      const gaps = line.words.slice(1).map((word, index) => {
+        const previous = line.words[index];
+        return {
+          index: index + 1,
+          left: previous.rect[2],
+          right: word.rect[0],
+          width: word.rect[0] - previous.rect[2],
+          center: (previous.rect[2] + word.rect[0]) / 2
+        };
+      });
+      lineGaps.set(line, gaps);
+      const split = gaps
+        .filter(gap => gap.width >= 12 && Math.abs(gap.center - page.width / 2) <= page.width * 0.1)
+        .sort((a, b) => Math.abs(a.center - page.width / 2) - Math.abs(b.center - page.width / 2)
+          || b.width - a.width)[0];
+      return split && split.index >= 4 && line.words.length - split.index >= 4 ? split : null;
+    }).filter(Boolean);
+    if (columnRows.length >= 2) {
+      const centers = columnRows.map(split => split.center).sort((a, b) => a - b);
+      const gutterCenter = centers[Math.floor(centers.length / 2)];
+      for (const line of lines) {
+        const split = lineGaps.get(line).find(gap => gap.width >= 12
+          && gap.left <= gutterCenter && gap.right >= gutterCenter);
+        if (split) line.columnSplit = split.index;
+      }
     }
-    return lines.sort((a, b) => b.cy - a.cy || a.left - b.left);
+    const readingLines = columnRows.length >= 2
+      ? lines.flatMap(line => line.columnSplit
+        ? [describe({ cy: line.cy, height: line.height, words: line.words.slice(0, line.columnSplit) }),
+          describe({ cy: line.cy, height: line.height, words: line.words.slice(line.columnSplit) })]
+        : [line])
+      : lines;
+    return this.sortLinesReadingOrder(readingLines, page.width);
+  },
+
+  sortLinesReadingOrder(lines, pageWidth) {
+    const visualOrder = lines.slice().sort((a, b) => b.cy - a.cy || a.left - b.left);
+    const left = visualOrder.filter(line => line.left < pageWidth * 0.48);
+    const right = visualOrder.filter(line => line.left >= pageWidth * 0.48);
+    if (left.length < 2 || right.length < 2) return visualOrder;
+
+    const ordered = [];
+    let band = [];
+    const flushBand = () => {
+      ordered.push(...band.filter(line => line.left < pageWidth * 0.48));
+      ordered.push(...band.filter(line => line.left >= pageWidth * 0.48));
+      band = [];
+    };
+    for (const line of visualOrder) {
+      const spansColumns = line.left < pageWidth * 0.42 && line.right > pageWidth * 0.58;
+      if (spansColumns) {
+        flushBand();
+        ordered.push(line);
+      }
+      else band.push(line);
+    }
+    flushBand();
+    return ordered;
   },
 
   joinTokens(tokens) {
