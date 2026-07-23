@@ -950,11 +950,7 @@ FastOfflineKeySentenceAnnotator = {
           + `${enabledStages.length ? `; LLM: ${enabledStages.join(", ")}` : "; fast mode"})`
       );
       const documentTitle = await this.getDocumentTitle(attachment);
-      // Build sliding windows from sentences (10-30 word spans) for finer-grained ranking
-      const rankingUnits = configuredSettings.subspanHighlights !== false
-        ? this.buildWindows(sentences, 10, 30)
-        : sentences;
-      const selected = await FastKeySentenceNLP.analyzeAsync(rankingUnits, count, {
+      const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
         llmEmbeddings: configuredSettings.llmEmbeddings,
         llmClassification: configuredSettings.llmClassification,
         classificationBatchSize: configuredSettings.classificationBatchSize,
@@ -963,6 +959,12 @@ FastOfflineKeySentenceAnnotator = {
         onModelProgress: this.modelProgressHandler(line, configuredSettings)
       });
       if (!selected.length) throw new Error("No suitable annotation candidates were found.");
+
+      // Refine: build sliding windows for selected sentences and keep windows
+      // that are more similar to the summary than the full sentence.
+      if (configuredSettings.subspanHighlights !== false) {
+        await this.refineSelectedWindows(selected, configuredSettings);
+      }
 
       line.setProgress(70);
       line.setText("Creating Zotero highlights");
@@ -1714,32 +1716,45 @@ FastOfflineKeySentenceAnnotator = {
     };
   },
 
-  buildWindows(sentences, minWords = 10, maxWords = 30) {
-    const windows = [];
-    for (const sentence of sentences) {
+  async refineSelectedWindows(selected, settings) {
+    if (typeof FastKeySentenceModels?.embeddings !== "function") return;
+    const threshold = 0.08;
+    const summary = selected[0]?._paperSummary || "";
+    if (!summary) return;
+
+    const summaryEmb = (await FastKeySentenceModels.embeddings([summary], false, () => {}))[0];
+    const cos = (a, b) => {
+      let dot = 0, na = 0, nb = 0;
+      for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+      return dot / (Math.sqrt(na) * Math.sqrt(nb));
+    };
+
+    for (const sentence of selected) {
       const tokens = sentence.text.split(/\s+/);
-      const rects = sentence.rects || [];
-      if (tokens.length <= minWords) {
-        windows.push({ ...sentence, rects: rects.length ? rects : sentence.rects });
-        continue;
-      }
-      const windowSize = Math.min(maxWords, tokens.length);
-      for (let start = 0; start <= tokens.length - minWords; start++) {
+      if (tokens.length <= 10) continue;
+      const windowSize = Math.min(30, tokens.length);
+      const windows = [];
+      for (let start = 0; start <= tokens.length - 10; start++) {
         const end = Math.min(start + windowSize, tokens.length);
-        if (end - start < minWords) continue;
+        if (end - start < 10) continue;
         windows.push({
           text: tokens.slice(start, end).join(" "),
-          rects: rects.slice(start, end),
-          pageIndex: sentence.pageIndex,
-          pageHeight: sentence.pageHeight,
-          section: sentence.section,
-          frontMatter: sentence.frontMatter,
-          order: sentence.order,
-          sourceText: sentence.text
+          rects: (sentence.rects || []).slice(start, end),
         });
       }
+      if (!windows.length) continue;
+
+      const allTexts = [sentence.text, ...windows.map(w => w.text)];
+      const allEmbeddings = await FastKeySentenceModels.embeddings(allTexts, false, () => {});
+      const sentenceScore = cos(allEmbeddings[0], summaryEmb);
+
+      let bestWin = null, bestScore = sentenceScore + threshold;
+      for (let i = 0; i < windows.length; i++) {
+        const winScore = cos(allEmbeddings[i + 1], summaryEmb);
+        if (winScore > bestScore) { bestScore = winScore; bestWin = windows[i]; }
+      }
+      if (bestWin) { sentence.text = bestWin.text; sentence.rects = bestWin.rects; }
     }
-    return windows;
   },
 
 };
