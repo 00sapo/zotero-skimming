@@ -267,7 +267,7 @@ FastOfflineKeySentenceAnnotator = {
 
     const stages = makeFieldset("Optional transformer stages");
     const options = [
-      ["llm-summarization", "LLM summarization", "Generate a paper synopsis with Llama 3.2 1B (about 1.2 GB) and add it to the re-ranking context.", initialSettings.llmSummarization],
+      ["llm-summarization", "LLM summarization", "Generate a paper synopsis with T5-small (about 240 MB) and add it to the re-ranking context.", initialSettings.llmSummarization],
       ["llm-embeddings", "LLM embeddings", "Use semantic sentence vectors instead of TF-IDF for relevance, TextRank, and MMR diversity.", initialSettings.llmEmbeddings],
       ["llm-classification", "LLM classification", "Classify shortlisted sentences by scholarly discourse role.", initialSettings.llmClassification],
       ["llm-rerankings", "LLM re-rankings", "Re-rank shortlisted sentences against the paper context.", initialSettings.llmRerankings],

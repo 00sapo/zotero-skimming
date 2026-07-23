@@ -520,15 +520,13 @@ var FastKeySentenceModels = (() => {
 
   async function summarize(text, callback) {
     if (!text) return "";
-    const generator = await getPipeline("text-generation", "summarization", false, callback);
-    const prompt = "Summarize the following academic paper in a compact factual paragraph. Preserve its objective, method, main findings, and limitations.\n\nPaper:\n" + text;
-    const output = await generator(prompt, {
+    const generator = await getPipeline("summarization", "summarization", false, callback);
+    const output = await generator(text, {
       max_new_tokens: 180,
-      do_sample: false,
-      return_full_text: false
+      do_sample: false
     });
-    const generated = Array.isArray(output) ? output[0]?.generated_text : output?.generated_text;
-    const summary = String(generated || "").replace(prompt, "").replace(/\s+/g, " ").trim();
+    const generated = Array.isArray(output) ? output[0]?.summary_text : output?.summary_text;
+    const summary = String(generated || "").replace(/\s+/g, " ").trim();
     callback?.({ stage: "inference", model: modelName("summarization", false), progress: 100 });
     return summary;
   }
@@ -585,9 +583,10 @@ var FastKeySentenceModels = (() => {
     const selected = names.filter(name => rootFiles.has(name));
     const q8 = names.filter(name => /^onnx\/.+_q8\.onnx$/i.test(name));
     const legacyQ8 = names.filter(name => /^onnx\/model_quantized\.onnx$/i.test(name));
-    const onnx = q8.length ? q8 : legacyQ8;
+    const seq2seqQ8 = names.filter(name => /^onnx\/.+_quantized\.onnx$/i.test(name));
+    const onnx = q8.length ? q8 : legacyQ8.length ? legacyQ8 : seq2seqQ8;
     if (!onnx.length) {
-      throw new Error("No quantized q8 ONNX model was found in the selected Hugging Face repository.");
+      throw new Error("No quantized ONNX model was found in the selected Hugging Face repository.");
     }
     selected.push(...onnx);
     return [...new Set(selected)];
