@@ -34,6 +34,12 @@ FastOfflineKeySentenceAnnotator = {
     menuitem.setAttribute("image", this.iconURI);
     menuitem.setAttribute("label", "Skim paper");
 
+    const deleteMenuitem = doc.createXULElement("menuitem");
+    deleteMenuitem.id = "fast-offline-key-sentence-annotator-delete-menuitem";
+    deleteMenuitem.setAttribute("class", "menuitem-iconic");
+    deleteMenuitem.setAttribute("image", this.iconURI);
+    deleteMenuitem.setAttribute("label", "Delete skim annotations");
+
     // Delay opening the modal until the context menu has closed. Opening a
     // child window directly from a XUL menu command is unreliable on some
     // Zotero/Gecko builds.
@@ -50,6 +56,13 @@ FastOfflineKeySentenceAnnotator = {
       }, 75);
     };
 
+    const onDeleteCommand = () => {
+      this.deleteSkimAnnotationsForSelection(window).catch(error => {
+        this.log(error.stack || String(error));
+        Services.prompt.alert(window, "Paper skim", error.message || String(error));
+      });
+    };
+
     const onPopupShowing = () => {
       try {
         const selected = window.ZoteroPane?.getSelectedItems?.() || [];
@@ -57,20 +70,26 @@ FastOfflineKeySentenceAnnotator = {
           item?.isPDFAttachment?.() || item?.isRegularItem?.()
         );
         menuitem.hidden = !applicable;
+        deleteMenuitem.hidden = !applicable;
       }
       catch (error) {
         this.log(error.stack || String(error));
         menuitem.hidden = true;
+        deleteMenuitem.hidden = true;
       }
     };
 
     menuitem.addEventListener("command", onCommand);
+    deleteMenuitem.addEventListener("command", onDeleteCommand);
     popup.addEventListener("popupshowing", onPopupShowing);
     popup.appendChild(menuitem);
+    popup.appendChild(deleteMenuitem);
     this.windowState.set(window, {
       popup,
       menuitem,
+      deleteMenuitem,
       onCommand,
+      onDeleteCommand,
       onPopupShowing
     });
   },
@@ -79,8 +98,10 @@ FastOfflineKeySentenceAnnotator = {
     const state = this.windowState.get(window);
     if (!state) return;
     state.menuitem.removeEventListener("command", state.onCommand);
+    state.deleteMenuitem.removeEventListener("command", state.onDeleteCommand);
     state.popup.removeEventListener("popupshowing", state.onPopupShowing);
     state.menuitem.remove();
+    state.deleteMenuitem.remove();
     this.windowState.delete(window);
   },
 
@@ -583,6 +604,20 @@ FastOfflineKeySentenceAnnotator = {
     }
   },
 
+  async deleteSkimAnnotationsForSelection(window) {
+    const selected = window.ZoteroPane.getSelectedItems();
+    if (!selected.length) throw new Error("Select a Zotero item or PDF attachment first.");
+    const attachments = [];
+    for (const item of selected) {
+      const attachment = await this.resolvePDFAttachment(item);
+      if (attachment && !attachments.some(x => x.id === attachment.id)) attachments.push(attachment);
+    }
+    if (!attachments.length) throw new Error("No PDF attachment was found in the selection.");
+    const annotations = attachments.flatMap(attachment => attachment.getAnnotations())
+      .filter(annotation => annotation.getTags().some(tag => tag.tag.startsWith("autoskim-")));
+    for (const annotation of annotations) await annotation.eraseTx();
+  },
+
   async summarizeForSelection(window, settings) {
     try {
       const selected = window.ZoteroPane.getSelectedItems();
@@ -914,7 +949,7 @@ FastOfflineKeySentenceAnnotator = {
       }
 
       const existingAutoAnnotations = attachment.getAnnotations()
-        .filter(item => item.getTags().some(tag => tag.tag === "auto-key-sentence"));
+        .filter(item => item.getTags().some(tag => tag.tag === "autoskim-key-sentence"));
       if (existingAutoAnnotations.length) {
         throw new Error(`This PDF already contains ${existingAutoAnnotations.length} automatic key-sentence annotation(s). Remove them before running the annotator again.`);
       }
@@ -1782,7 +1817,7 @@ FastOfflineKeySentenceAnnotator = {
       position: { pageIndex: sentence.pageIndex, rects },
       text,
       comment: `${role ? descriptions[role] + ". " : ""}Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
-      tags: [{ name: "auto-key-sentence" }, ...(role ? [{ name: `auto-${role}` }] : [])]
+      tags: [{ name: "autoskim-key-sentence" }, ...(role ? [{ name: `autoskim-${role}` }] : [])]
     };
   },
 

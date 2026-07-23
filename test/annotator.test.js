@@ -208,10 +208,10 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
     const api = annotator();
     const annotation = api.makeAnnotation({ text: "A result.", role: "result", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
     expect(annotation.sortIndex).toMatch(/^00002\|\d{6}\|\d{5}$/);
-    expect(annotation.tags).toContainEqual({ name: "auto-key-sentence" });
-    expect(annotation.tags).toContainEqual({ name: "auto-result" });
+    expect(annotation.tags).toContainEqual({ name: "autoskim-key-sentence" });
+    expect(annotation.tags).toContainEqual({ name: "autoskim-result" });
     const unclassified = api.makeAnnotation({ text: "A sentence.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
-    expect(unclassified.tags).toEqual([{ name: "auto-key-sentence" }]);
+    expect(unclassified.tags).toEqual([{ name: "autoskim-key-sentence" }]);
     expect(unclassified.comment).toBe("Section: results. Score: 0.812.");
     const line = { setProgress: vi.fn(), setText: vi.fn() };
     const handler = api.modelProgressHandler(line, { llmEmbeddings: true, llmClassification: true });
@@ -244,14 +244,40 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     api.openAnnotationDialog = vi.fn().mockResolvedValue();
     api.addToWindow(window);
     const menu = window.popup.children[0];
+    const deleteMenu = window.popup.children[1];
     menu.dispatch("popupshowing");
     expect(menu.hidden).toBe(false);
+    expect(deleteMenu.hidden).toBe(false);
+    expect(deleteMenu.label).toBe("Delete skim annotations");
+    expect(deleteMenu.class).toBe("menuitem-iconic");
+    expect(deleteMenu.image).toBe(api.iconURI);
+    api.deleteSkimAnnotationsForSelection = vi.fn().mockResolvedValue();
+    deleteMenu.dispatch("command");
+    expect(api.deleteSkimAnnotationsForSelection).toHaveBeenCalledWith(window);
     menu.dispatch("command");
     expect(api.openAnnotationDialog).toHaveBeenCalledWith(window);
     api.removeFromWindow(window);
     expect(menu.removed).toBe(true);
+    expect(deleteMenu.removed).toBe(true);
 
     expect(models.updateModels).not.toHaveBeenCalled();
+  });
+
+  it("deletes only autoskim annotations from selected PDFs", async () => {
+    const autoskim = { getTags: () => [{ tag: "autoskim-key-sentence" }], eraseTx: vi.fn().mockResolvedValue() };
+    const autoskimRole = { getTags: () => [{ tag: "autoskim-result" }], eraseTx: vi.fn().mockResolvedValue() };
+    const manual = { getTags: () => [{ tag: "important" }], eraseTx: vi.fn().mockResolvedValue() };
+    const attachment = {
+      id: 1,
+      isAttachment: () => true,
+      isPDFAttachment: () => true,
+      getAnnotations: () => [autoskim, autoskimRole, manual]
+    };
+    const api = annotator();
+    await api.deleteSkimAnnotationsForSelection(fakeWindow([attachment]));
+    expect(autoskim.eraseTx).toHaveBeenCalledOnce();
+    expect(autoskimRole.eraseTx).toHaveBeenCalledOnce();
+    expect(manual.eraseTx).not.toHaveBeenCalled();
   });
 
   it("renders, validates, updates, cancels, and submits the settings overlay", async () => {
@@ -443,7 +469,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     await api.annotateAttachment(attachment, null, { perPage: 1, minimum: 1, maximum: 2, llmEmbeddings: false, llmClassification: false, multilingual: false });
     expect(saved).toHaveLength(1);
     expect(commits).toHaveLength(1);
-    attachment.getAnnotations = () => [{ getTags: () => [{ tag: "auto-key-sentence" }] }];
+    attachment.getAnnotations = () => [{ getTags: () => [{ tag: "autoskim-key-sentence" }] }];
     await expect(api.annotateAttachment(attachment)).rejects.toThrow("already contains");
     expect(progressLines.at(-1).error).toBe(true);
   });

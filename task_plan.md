@@ -1,19 +1,15 @@
-# Task Plan: Classification batching
+# Task Plan: Delete skim annotations
 
 ## Goal
-Make local zero-shot classification faster with a persisted, user-configurable batch size.
+Add an iconic context-menu command that deletes all add-on-created annotations and migrate their tag prefix to `autoskim-`.
 
 ## Phases
-### Implementation
-- [x] Add a `classificationBatchSize` setting with a 1–32 validation range and default of 8.
-- [x] Add dialog input and RAM-speed explanation.
-- [x] Batch zero-shot pipeline calls and retain fallback output handling.
-- [x] Pass the setting through ranking to the model manager.
+- [completed] Inspect annotation creation, tag conventions, deletion APIs, and existing menu tests.
+- [completed] Add `Delete skim annotations` menu item and deletion behavior.
+- [completed] Change generated annotation tags to `autoskim-…`.
+- [completed] Add unit tests for visibility, icon, command binding, and deletion behavior.
+- [completed] Run full validation.
+- [pending] Commit on request.
 
-### Verification
-- [x] Update unit tests.
-- [x] Run `yarn test`, `yarn coverage`, syntax checks, and `git diff --check`.
-
-## Deferred
-| Item | Reason |
-| Qwen synopsis | The selected official Qwen2.5 ONNX repository has no q8 artifact; user retained q8-only operation. |
+## Decisions
+- Deletion targets annotations carrying the add-on tag prefix only.
