@@ -16,7 +16,6 @@ export function loadScript(file, globals = {}) {
     FastKeySentenceScoringConfig: {
       initial: { summarySimilarity: 0.85, sentenceLength: 0.15 },
       roleScores: { background: 0.20, method: 0.60, contribution: 1.00, result: 0.85, takeaway: 0.90, goal: 0.55 },
-      textRank: { similarityThreshold: 0.08, damping: 0.85, maxIterations: 50, windowSize: 240, overlap: 40 },
       classification: { confidence: 0.65, roleSalience: 0.35, priorImportance: 0.7, classificationScore: 0.3 },
       selection: { importance: 0.65, redundancy: 0.35, sectionPenalty: 0.06 }
     },

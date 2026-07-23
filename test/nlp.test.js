@@ -30,8 +30,8 @@ describe("FastKeySentenceNLP", () => {
     expect(api.isReferenceHeading("Bibliography")).toBe(true);
     expect(api.isReferenceEntry("[4] Smith, J., 2021. Proceedings of the Conference. doi:10.1/x")).toBe(true);
     expect(api.isReferenceEntry("This is ordinary research prose without a citation.")).toBe(false);
-    expect(api.roleFor(prose[0]).role).toBe("contribution");
-    expect(api.roleFor("unmarked background prose").role).toBe("background");
+    expect(api.roleFor(prose[0])).toBe("contribution");
+    expect(api.roleFor("unmarked background prose")).toBe("background");
   });
 
   it("covers sentence boundaries, heading variants, and reference forms", () => {

@@ -204,50 +204,7 @@ var FastKeySentenceNLP = (() => {
     return dot / (normA * normB);
   }
 
-  function denseCentroid(vectors) {
-    if (!vectors.length || !vectors[0]?.length) return [];
-    const centroid = new Array(vectors[0].length).fill(0);
-    for (const vector of vectors) {
-      for (let i = 0; i < centroid.length; i++) centroid[i] += Number(vector[i]) || 0;
-    }
-    for (let i = 0; i < centroid.length; i++) centroid[i] /= vectors.length;
-    return centroid;
-  }
 
-  function textRank(vectors, norms, windowSize = SCORING.textRank.windowSize, overlap = SCORING.textRank.overlap) {
-    const n = vectors.length;
-    const global = new Array(n).fill(0);
-    const step = Math.max(1, windowSize - overlap);
-    for (let start = 0; start < n; start += step) {
-      const end = Math.min(n, start + windowSize);
-      const m = end - start;
-      const graph = Array.from({ length: m }, () => []);
-      for (let i = 0; i < m; i++) {
-        for (let j = i + 1; j < m; j++) {
-          const w = vectorCosine(vectors[start + i], vectors[start + j], norms[start + i], norms[start + j]);
-          if (w >= SCORING.textRank.similarityThreshold) {
-            graph[i].push([j, w]);
-            graph[j].push([i, w]);
-          }
-        }
-      }
-      let rank = new Array(m).fill(1 / Math.max(1, m));
-      for (let iter = 0; iter < SCORING.textRank.maxIterations; iter++) {
-        const next = new Array(m).fill((1 - SCORING.textRank.damping) / Math.max(1, m));
-        for (let i = 0; i < m; i++) {
-          const sum = graph[i].reduce((total, [, weight]) => total + weight, 0);
-          if (!sum) continue;
-          for (const [j, weight] of graph[i]) next[j] += SCORING.textRank.damping * rank[i] * weight / sum;
-        }
-        const delta = next.reduce((total, value, i) => total + Math.abs(value - rank[i]), 0);
-        rank = next;
-        if (delta < 1e-7) break;
-      }
-      rank.forEach((value, i) => { global[start + i] = Math.max(global[start + i], value); });
-      if (end === n) break;
-    }
-    return global;
-  }
 
   function minMax(values) {
     if (!values.length) return [];
@@ -257,17 +214,10 @@ var FastKeySentenceNLP = (() => {
   }
 
   function roleFor(text) {
-    for (const rule of ROLE_RULES) if (rule.re.test(text)) return { role: rule.role, score: rule.score };
-    return { role: "background", score: SCORING.roleScores.background };
+    for (const rule of ROLE_RULES) if (rule.re.test(text)) return rule.role;
+    return "background";
   }
 
-  function sparseCentroid(vectors, indexes) {
-    const centroid = new Map();
-    for (const index of indexes) {
-      for (const [key, value] of vectors[index]) centroid.set(key, (centroid.get(key) || 0) + value / indexes.length);
-    }
-    return centroid;
-  }
 
   function clusterCentroid(vectors, indexes) {
     return isSparseVector(vectors[0])
@@ -275,50 +225,7 @@ var FastKeySentenceNLP = (() => {
       : denseCentroid(indexes.map(index => vectors[index]));
   }
 
-  function kMeans(vectors, norms, count) {
-    const clusters = Math.min(vectors.length, Math.max(1, Math.floor(Number(count) || 1)));
-    let centroids = Array.from({ length: clusters }, (_, i) => clusterCentroid(vectors, [Math.floor(i * vectors.length / clusters)]));
-    let assignments = new Array(vectors.length).fill(-1);
-    for (let iteration = 0; iteration < 20; iteration++) {
-      const centroidNorms = centroids.map(vectorNorm);
-      const next = vectors.map((vector, i) => {
-        let best = 0, similarity = -Infinity;
-        for (let cluster = 0; cluster < clusters; cluster++) {
-          const value = vectorCosine(vector, centroids[cluster], norms[i], centroidNorms[cluster]);
-          if (value > similarity) {
-            similarity = value;
-            best = cluster;
-          }
-        }
-        return best;
-      });
-      const unchanged = next.every((cluster, i) => cluster === assignments[i]);
-      assignments = next;
-      const members = Array.from({ length: clusters }, () => []);
-      assignments.forEach((cluster, i) => members[cluster].push(i));
-      centroids = centroids.map((centroid, cluster) => members[cluster].length ? clusterCentroid(vectors, members[cluster]) : centroid);
-      if (unchanged) break;
-    }
-    return assignments;
-  }
 
-  function clusterDispersionRelevance(vectors, norms, count) {
-    if (!vectors.length) return [];
-    const clusterCount = Math.min(vectors.length, Math.max(1, Math.floor(Math.max(1, Number(count) || 1) / 4)));
-    const assignments = kMeans(vectors, norms, clusterCount);
-    const centroids = Array.from({ length: clusterCount }, () => null);
-    const members = Array.from({ length: clusterCount }, () => []);
-    assignments.forEach((cluster, index) => members[cluster].push(index));
-    for (let cluster = 0; cluster < clusterCount; cluster++) {
-      centroids[cluster] = members[cluster].length ? clusterCentroid(vectors, members[cluster]) : null;
-    }
-    const relevance = vectors.map((vector, index) => {
-      const cluster = assignments[index];
-      const centroid = centroids[cluster];
-      return centroid ? 1 - vectorCosine(vector, centroid, norms[index], vectorNorm(centroid)) : 0;
-    });
-    return minMax(relevance);
-  }
 
   function scoreWithVectors(sentences, vectors, norms, clusterCount, summaryScores = null) {
     if (!sentences.length) return;
@@ -326,7 +233,7 @@ var FastKeySentenceNLP = (() => {
     const lengths = [];
     for (let i = 0; i < sentences.length; i++) {
       const sentence = sentences[i];
-      sentence.role = roleFor(sentence.text).role;
+      sentence.role = roleFor(sentence.text);
       const wordCount = sentence.text.split(/\s+/).length;
       lengths.push(Math.exp(-Math.pow(wordCount - 18, 2) / (2 * Math.pow(12, 2))));
     }
@@ -381,14 +288,6 @@ var FastKeySentenceNLP = (() => {
     return selected.map(i => sentences[i]).sort((a, b) => a.order - b.order);
   }
 
-  function shortlistIndexes(sentences, count) {
-    const limit = Math.min(sentences.length, Math.max(60, Math.min(160, count * 4)));
-    return sentences
-      .map((sentence, index) => ({ index, importance: sentence.importance }))
-      .sort((a, b) => b.importance - a.importance)
-      .slice(0, limit)
-      .map(entry => entry.index);
-  }
 
   function summarySimilaritySpares(sentences, summaryText) {
     if (!summaryText || !sentences.length) return new Array(sentences.length).fill(0);
