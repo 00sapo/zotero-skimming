@@ -4,7 +4,7 @@ Zotero 9 add-on that finds salient prose in academic PDFs and saves the results 
 
 ## Screenshots
 
-Configure annotation density and optional models in the dialog:
+Configure annotation density, optional local models, and the remote LLM endpoint in the dialog:
 
 ![Key-sentence annotation settings](assets/settings-dialog.png)
 
@@ -25,82 +25,77 @@ The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native
 
 1. Select a PDF attachment in the Zotero library.
 2. Right-click it and choose **Annotate key sentences…**.
-3. Set the average, minimum, and maximum annotations per PDF.
-4. Enable optional transformer stages as needed.
-5. Click **Update models** to download selected model assets into the Zotero profile cache. This is required only once per selected model and revision.
-6. Click **Annotate**.
+3. Configure the remote summarization endpoint, API key, and model name. Any OpenAI-compatible API works (OpenAI, Anthropic via proxy, Groq, local vLLM/Ollama, etc.).
+4. Set the average, minimum, and maximum annotations per PDF.
+5. Enable optional local transformer stages (embeddings, classification) as needed.
+6. Click **Update models** to download selected local model assets into the Zotero profile cache. This is required only once per selected model and revision.
+7. Click **Annotate** to extract, summarize, rank, and annotate. Or click **Summarize** to generate and preview just the paper synopsis.
 
-The baseline ranker works without downloaded models. Transformer failures fall back to the baseline where possible. Larger classification batches are faster but require more RAM. WebGPU is used automatically when available; inference falls back to WASM.
+The baseline ranker works without downloaded models. Summarization always uses the configured remote API. Local transformer failures fall back to TF-IDF for embeddings and skip classification.
 
-## Scoring algorithm
+## Workflow
 
-### Extraction and filtering
+### 1. Remote summarization
 
-The add-on extracts positioned text from every page, reconstructs reading order and sections, then removes references, tables, front matter, headings, boilerplate, citation-heavy lines, and unsuitable sentence lengths.
+Paper body text (filtered: no authors, tables, figures, abstract, references) is sent to the configured remote LLM. The summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations.
 
-### Initial sentence score
+### 2. Sentence embeddings
 
-Sentence vectors are TF-IDF word/bigram vectors by default, or local transformer embeddings when enabled. K-means creates `floor(annotation target / 4)` clusters, bounded to the available sentences. For each sentence, **cluster dispersion** is its cosine distance from its own cluster centroid.
+Sentences are vectorized with a local transformer model (MiniLM-L6 for English, multilingual-e5-small for multilingual). Without LLM embeddings enabled, TF-IDF word/bigram vectors are used instead. The summary text is embedded in the same vector space.
 
-The initial score is:
+### 3. Sentence ranking
 
-```text
-0.38 × cluster dispersion
-+ 0.35 × TextRank centrality
-+ 0.10 × scholarly cues
-+ 0.17 × sentence-length suitability
-```
-
-TextRank uses cosine-linked sentence graphs, a 0.08 similarity threshold, damping 0.85, up to 50 iterations, and overlapping windows of 240 sentences with 40-sentence overlap. Sentence-length suitability peaks near 27 words. Scholarly cues detect contribution, result, method, objective, limitation, conclusion, future-work, and dataset language; percentage expressions receive an additional cue.
-
-The shortlist contains up to `min(160, max(60, target × 4))` candidates.
-
-### Optional classification
-
-A zero-shot classifier labels shortlisted sentences by scholarly role. Its score is 65% model confidence and 35% role salience, then the sentence score is blended as:
+Each sentence is scored by:
 
 ```text
-0.78 × previous score + 0.22 × classification score
+0.55 × summary similarity (cosine to summary embedding)
++ 0.15 × cluster dispersion
++ 0.10 × TextRank centrality
++ 0.08 × scholarly cues
++ 0.12 × sentence-length suitability
 ```
 
-Classification calls are batched. The batch size is configurable from 1 to 32.
+Summary similarity dominates: sentences semantically close to the synopsis are preferred. Cluster dispersion rewards sentences that are distinct within their topical cluster. TextRank adds centrality within local sliding windows. Scholarly cues detect the six discourse roles below. Sentence-length suitability peaks near 27 words.
 
-### Optional summarization and re-ranking
-
-Qwen2.5 0.5B can summarize up to approximately 15K tokens of paper body text. The synopsis is added to the title and abstract-derived context used by the cross-encoder re-ranker.
-
-Re-ranking blends as:
-
-```text
-0.65 × previous score + 0.35 × re-ranking score
-```
-
-### Final selection
+### 4. MMR selection
 
 Maximum marginal relevance selects the requested number of highlights while penalizing semantic redundancy and repeated sections:
 
 ```text
-0.72 × importance − 0.28 × redundancy − section penalty
+0.65 × importance − 0.35 × redundancy − section penalty
 ```
+
+### 5. Optional local classification
+
+If enabled, a local zero-shot classifier (mobileBERT, ~95 MB) labels each selected sentence with one of six roles:
+
+| Role | Description |
+|------|-------------|
+| contribution | Main contribution of the paper |
+| result | Key empirical result or finding |
+| method | Core method, approach, or architecture |
+| goal | Research objective or aim |
+| takeaway | Conclusion or key insight |
+| background | Background context or related work |
+
+Classification does not affect sentence ranking — it only sets the annotation color and tag.
 
 Selected annotations are restored to PDF reading order and mapped back to their original rectangles.
 
 ## Models
 
-All model assets come from Hugging Face, are downloaded explicitly with **Update models**, and use the q8/legacy quantized ONNX artifact accepted by the add-on.
+All local model assets come from Hugging Face, use q8/legacy quantized ONNX artifacts, and are downloaded explicitly with **Update models**.
 
 | Stage | English | Multilingual |
-|---|---|---|
+|-------|---------|-------------|
 | Embeddings | `Xenova/all-MiniLM-L6-v2` | `Xenova/multilingual-e5-small` |
-| Classification | `Xenova/distilbert-base-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
-| Re-ranking | `Xenova/ms-marco-MiniLM-L-6-v2` | `SugoLabs/mmarco-mMiniLMv2-L12-H384-v1` |
-| Summarization | `onnx-community/Qwen2.5-0.5B-Instruct` | same model |
+| Classification | `Xenova/mobilebert-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
 
-`model-identifiers.json` is the source of truth for these Hugging Face identifiers. Qwen2.5's quantized model is approximately 490 MB before tokenizer and configuration files. `scoring-config.json` contains the scoring weights, role scores, TextRank parameters, classification/re-ranking blends, and final-selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
+`model-identifiers.json` is the source of truth for these Hugging Face identifiers. MobileBERT's quantized model is approximately 95 MB. `scoring-config.json` contains the scoring weights, role scores, TextRank parameters, classification blends, and selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
 
 ## Build and test
 
-Requirements: Bash, Python 3, `zip`, `unzip`, Node.js, Yarn, and the project’s JavaScript test dependencies.
+Requirements: Bash, Python 3, `zip`, `unzip`, Node.js, Yarn, and the project's JavaScript test dependencies.
 
 ```sh
 yarn install
@@ -112,6 +107,7 @@ node --check content/annotator.js
 node --check content/nlp.js
 node --check content/model-manager.js
 node --check content/model-host.mjs
+node --check content/remote-llm.js
 git diff --check
 ```
 
