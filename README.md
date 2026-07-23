@@ -2,12 +2,8 @@
 
 Zotero 9 add-on that finds salient prose in academic PDFs and saves the results as native Zotero highlight annotations.
 
-## Screenshots
+<img src="assets/screenshot.png" alt="Screenshot of a paper annotated" width="400" />
 
-Configure annotation density, optional local models, and the remote LLM endpoint in the dialog. Right-click a PDF attachment and choose **Annotate key sentences…**.
-
-<img src="assets/settings-dialog.png" alt="Key-sentence annotation settings" width="400" />
-<img src="assets/context-menu.png" alt="Zotero PDF context menu" width="150" />
 
 ## Installation
 
@@ -22,7 +18,9 @@ The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native
 
 1. Select a PDF attachment in the Zotero library.
 2. Right-click it and choose **Annotate key sentences…**.
-3. Configure the remote summarization endpoint, API key, and model name. Any OpenAI-compatible API works (OpenAI, Anthropic via proxy, Groq, local vLLM/Ollama, etc.).
+  <img src="assets/context-menu.png" alt="Zotero PDF context menu" width="150" />
+3. Configure the remote summarization endpoint, API key, and model name. Any OpenAI-compatible API works (OpenAI, Anthropic via litellm, Groq, Deepseek, local vLLM/Ollama, etc.).
+  <img src="assets/settings-dialog.png" alt="Key-sentence annotation settings" width="400" />
 4. Set the average, minimum, and maximum annotations per PDF.
 5. Enable optional local transformer stages (embeddings, classification) as needed.
 6. Click **Update models** to download selected local model assets into the Zotero profile cache. This is required only once per selected model and revision.
@@ -89,7 +87,7 @@ All local model assets come from Hugging Face, use q8/legacy quantized ONNX arti
 | Embeddings | `Xenova/all-MiniLM-L6-v2` | `Xenova/multilingual-e5-small` |
 | Classification | `Xenova/mobilebert-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
 
-`model-identifiers.json` is the source of truth for these Hugging Face identifiers. MobileBERT's quantized model is approximately 95 MB. `scoring-config.json` contains the scoring weights, role scores, classification blends, and selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
+`model-identifiers.json` is the source of truth for these Hugging Face identifiers. MobileBERT's quantized model is approximately 95 MB. `scoring-config.json` contains scoring and selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
 
 ## Build and test
 
