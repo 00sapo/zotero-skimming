@@ -385,7 +385,7 @@ FastOfflineKeySentenceAnnotator = {
     const summarizeButton = create("button", {
       type: "button",
       style: buttonStyle
-    }, "Summarize");
+    }, "Test API credentials");
     const cancelButton = create("button", {
       type: "button",
       style: buttonStyle

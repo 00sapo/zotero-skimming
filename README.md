@@ -28,7 +28,7 @@ The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native
 4. Set the average, minimum, and maximum annotations per PDF.
 5. Enable optional local transformer stages (embeddings, classification) as needed.
 6. Click **Update models** to download selected local model assets into the Zotero profile cache. This is required only once per selected model and revision.
-7. Click **Annotate** to extract, summarize, rank, and annotate. Or click **Summarize** to generate and preview just the paper synopsis.
+7. Click **Annotate** to extract, summarize, rank, and annotate. Or click **Test API credentials** to verify the remote API and preview just the paper synopsis.
 
 The baseline ranker works without downloaded models. Summarization always uses the configured remote API. Local transformer failures fall back to TF-IDF for embeddings and skip classification.
 
