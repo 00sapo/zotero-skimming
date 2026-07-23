@@ -79,9 +79,7 @@ If enabled, a zero-shot classifier (mobileBERT, ~95 MB) labels each selected sen
 
 Classification runs **after** MMR selection — only the final set of highlights is classified. It does not affect sentence ranking; it only sets the annotation color and tag.
 
-### 6. Subspan highlights
-
-By default, each selected sentence is trimmed to its most salient 10–30 word span via a keyword-density sliding window. The PDF rectangle is cropped to match. This behaviour can be toggled off in the settings.
+### 6. Selected annotations
 
 Selected annotations are restored to PDF reading order and mapped back to their original rectangles.
 

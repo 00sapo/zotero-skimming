@@ -89,7 +89,6 @@ FastOfflineKeySentenceAnnotator = {
     llmClassification: false,
     classificationBatchSize: 8,
     multilingual: false,
-    subspanHighlights: true,
     remoteEndpoint: "",
     remoteApiKey: "",
     remoteModel: ""
@@ -108,7 +107,6 @@ FastOfflineKeySentenceAnnotator = {
       llmClassification: Zotero.Prefs.get(this.prefBranch + "llmClassification", true) ?? defaults.llmClassification,
       classificationBatchSize: Number(Zotero.Prefs.get(this.prefBranch + "classificationBatchSize", true)) || defaults.classificationBatchSize,
       multilingual: Zotero.Prefs.get(this.prefBranch + "multilingual", true) ?? defaults.multilingual,
-      subspanHighlights: Zotero.Prefs.get(this.prefBranch + "subspanHighlights", true) ?? defaults.subspanHighlights,
       remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
       remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel
@@ -116,7 +114,6 @@ FastOfflineKeySentenceAnnotator = {
     settings.llmEmbeddings = settings.llmEmbeddings === true;
     settings.llmClassification = settings.llmClassification === true;
     settings.multilingual = settings.multilingual === true;
-    settings.subspanHighlights = settings.subspanHighlights === true;
     return this.isValidSettings(settings) ? settings : { ...defaults };
   },
 
@@ -137,7 +134,7 @@ FastOfflineKeySentenceAnnotator = {
       && Number.isInteger(settings.classificationBatchSize)
       && settings.classificationBatchSize >= 1
       && settings.classificationBatchSize <= 32
-      && ["llmEmbeddings", "llmClassification", "multilingual", "subspanHighlights"]
+      && ["llmEmbeddings", "llmClassification", "multilingual"]
         .every(key => typeof settings[key] === "boolean")
       && typeof settings.remoteEndpoint === "string"
       && typeof settings.remoteApiKey === "string"
@@ -152,7 +149,6 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "llmClassification", settings.llmClassification, true);
     Zotero.Prefs.set(this.prefBranch + "classificationBatchSize", settings.classificationBatchSize, true);
     Zotero.Prefs.set(this.prefBranch + "multilingual", settings.multilingual, true);
-    Zotero.Prefs.set(this.prefBranch + "subspanHighlights", settings.subspanHighlights, true);
     Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteModel", settings.remoteModel || "", true);
@@ -277,8 +273,7 @@ FastOfflineKeySentenceAnnotator = {
     const options = [
       ["llm-embeddings", "LLM embeddings", "Use semantic sentence vectors instead of TF-IDF for ranking and MMR diversity.", initialSettings.llmEmbeddings],
       ["llm-classification", "LLM classification", "Classify selected sentences by scholarly discourse role.", initialSettings.llmClassification],
-      ["multilingual", "Multilingual", "Use multilingual alternatives for enabled stages.", initialSettings.multilingual],
-      ["subspan-highlights", "Subspan highlights", "Highlight the best 10–30 word phrase within each sentence instead of the full sentence.", initialSettings.subspanHighlights]
+      ["multilingual", "Multilingual", "Use multilingual alternatives for enabled stages.", initialSettings.multilingual]
     ];
     const checks = {};
     for (const [id, labelText, helpText, checked] of options) {
@@ -412,7 +407,6 @@ FastOfflineKeySentenceAnnotator = {
       llmClassification: checks["llm-classification"].checked,
       classificationBatchSize: Number(inputs["classification-batch-size"].value),
       multilingual: checks.multilingual.checked,
-      subspanHighlights: checks["subspan-highlights"].checked,
       remoteEndpoint: inputs["remote-endpoint"].value.trim(),
       remoteApiKey: inputs["remote-api-key"].value.trim(),
       remoteModel: inputs["remote-model"].value.trim()
@@ -959,12 +953,6 @@ FastOfflineKeySentenceAnnotator = {
         onModelProgress: this.modelProgressHandler(line, configuredSettings)
       });
       if (!selected.length) throw new Error("No suitable annotation candidates were found.");
-
-      // Refine: build sliding windows for selected sentences and keep windows
-      // that are more similar to the summary than the full sentence.
-      if (configuredSettings.subspanHighlights !== false) {
-        await this.refineSelectedWindows(selected, configuredSettings);
-      }
 
       line.setProgress(70);
       line.setText("Creating Zotero highlights");
@@ -1714,47 +1702,6 @@ FastOfflineKeySentenceAnnotator = {
       comment: `${descriptions[sentence.role] || descriptions.background}. Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
       tags: [{ name: "auto-key-sentence" }, { name: `auto-${sentence.role || "background"}` }]
     };
-  },
-
-  async refineSelectedWindows(selected, settings) {
-    if (typeof FastKeySentenceModels === "undefined" || typeof FastKeySentenceModels.embeddings !== "function") return;
-    const threshold = 0.08;
-    const summary = selected[0]?._paperSummary || "";
-    if (!summary) return;
-
-    const summaryEmb = (await FastKeySentenceModels.embeddings([summary], false, () => {}))[0];
-    const cos = (a, b) => {
-      let dot = 0, na = 0, nb = 0;
-      for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-      return dot / (Math.sqrt(na) * Math.sqrt(nb));
-    };
-
-    for (const sentence of selected) {
-      const tokens = sentence.text.split(/\s+/);
-      if (tokens.length <= 10) continue;
-      const windowSize = Math.min(30, tokens.length);
-      const windows = [];
-      for (let start = 0; start <= tokens.length - 10; start++) {
-        const end = Math.min(start + windowSize, tokens.length);
-        if (end - start < 10) continue;
-        windows.push({
-          text: tokens.slice(start, end).join(" "),
-          rects: (sentence.rects || []).slice(start, end),
-        });
-      }
-      if (!windows.length) continue;
-
-      const allTexts = [sentence.text, ...windows.map(w => w.text)];
-      const allEmbeddings = await FastKeySentenceModels.embeddings(allTexts, false, () => {});
-      const sentenceScore = cos(allEmbeddings[0], summaryEmb);
-
-      let bestWin = null, bestScore = sentenceScore + threshold;
-      for (let i = 0; i < windows.length; i++) {
-        const winScore = cos(allEmbeddings[i + 1], summaryEmb);
-        if (winScore > bestScore) { bestScore = winScore; bestWin = windows[i]; }
-      }
-      if (bestWin) { sentence.text = bestWin.text; sentence.rects = bestWin.rects; }
-    }
   },
 
 };
