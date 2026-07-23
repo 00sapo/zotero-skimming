@@ -34,15 +34,21 @@ var FastKeySentenceRemote = (() => {
     Zotero.Prefs.set(pref + "remoteModel", model || "", true);
   }
 
-  async function summarize(paperText, documentTitle, onProgress = null) {
+  const SUMMARY_SENTENCES_PER_ANNOTATION = 1.5;
+
+  async function summarize(paperText, documentTitle, sentenceCount = 10, onProgress = null) {
     const { endpoint, apiKey, model } = getConfig();
     if (!apiKey) throw new Error("No remote API key configured. Set it in the annotator settings.");
     if (!endpoint) throw new Error("No remote endpoint configured.");
 
+    const targetSentences = Math.max(3, Math.round(sentenceCount * SUMMARY_SENTENCES_PER_ANNOTATION));
+    const targetTokens = Math.min(600, Math.max(60, targetSentences * 22));
+
     const systemPrompt = [
-      "You are a research assistant. Summarize the following academic paper in a compact factual paragraph.",
-      "Cover: the research objective, the method or approach, the main empirical findings, and any key limitations or conclusions.",
-      "Be precise, concise, and avoid filler. Write in a single paragraph."
+      "You are a research assistant. Summarize the following academic paper in a single compact paragraph.",
+      `Write about ${targetSentences} sentences. Cover: the research objective, the method or approach,`,
+      "the main empirical findings, and any key limitations or conclusions.",
+      "Be precise, concise, and avoid filler."
     ].join(" ");
 
     const userText = documentTitle
@@ -56,7 +62,7 @@ var FastKeySentenceRemote = (() => {
         { role: "user", content: userText.slice(0, 128000) }
       ],
       temperature: 0.1,
-      max_tokens: 300
+      max_tokens: targetTokens
     };
 
     onProgress?.({ stage: "sending", model });

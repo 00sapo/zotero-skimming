@@ -454,6 +454,7 @@ var FastKeySentenceNLP = (() => {
     const summary = await FastKeySentenceRemote.summarize(
       paperText,
       options.documentTitle || "",
+      count,
       event => options.onModelProgress?.({ ...event, operation: "summarization" })
     );
 

@@ -633,6 +633,7 @@ FastOfflineKeySentenceAnnotator = {
       const summary = await FastKeySentenceRemote.summarize(
         inputText,
         documentTitle,
+        10,
         event => {
           if (["sending", "retrying"].includes(event.stage)) {
             line.setText(`Sending to remote API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
