@@ -38,12 +38,11 @@ function hostModule(overrides = {}) {
   };
 }
 
-function manager({ module = hostModule(), fetchImpl, owner = true, existingHost = true, gpu, files: initial = [RUNTIME, WASM] } = {}) {
+function manager({ module = hostModule(), fetchImpl, owner = true, existingHost = true, files: initial = [RUNTIME, WASM] } = {}) {
   const files = new Map(initial.map(path => [path, bytes(path)]));
   const listeners = new Map();
   const frameWindow = {
     ...(existingHost ? { FastKeySentenceTransformers: module } : {}),
-    ...(gpu ? { navigator: { gpu } } : {}),
     URL: { createObjectURL: vi.fn(() => "blob:asset"), revokeObjectURL: vi.fn() }, Blob, Response,
     addEventListener: vi.fn((name, fn) => listeners.set(name, fn)),
     removeEventListener: vi.fn(name => listeners.delete(name))
@@ -79,15 +78,16 @@ function manager({ module = hostModule(), fetchImpl, owner = true, existingHost 
   return { api: context.FastKeySentenceModels, Zotero, IOUtils, files, fetch, module, frame, frameWindow, document };
 }
 
-const settings = { llmSummarization: false, llmEmbeddings: true, llmClassification: true, llmRerankings: true, multilingual: false };
+const settings = { llmEmbeddings: true, llmClassification: true, multilingual: false };
 
 describe("FastKeySentenceModels", () => {
-  it("exposes its pinned local-inference contract", () => {
+  it("exposes its pinned local-inference contract and model names", () => {
     const { api, Zotero } = manager();
     expect(api.supportsInference()).toBe(true);
     expect(api.DTYPE).toBe("q8");
     expect(api.modelName("embeddings", false)).toBe("Xenova/all-MiniLM-L6-v2");
     expect(api.modelName("embeddings", true)).toBe("Xenova/multilingual-e5-small");
+    expect(api.modelName("classification", false)).toBe("Xenova/mobilebert-uncased-mnli");
     api.log("ready");
     expect(Zotero.debug).toHaveBeenCalledWith(expect.stringContaining("ready"));
   });
@@ -98,7 +98,7 @@ describe("FastKeySentenceModels", () => {
     const { api, files, fetch } = manager({ files: [], fetchImpl: async url => url.includes("/api/models/") ? response(manifest) : response(url.includes("wasm") ? "wasm" : "runtime", { stream: !url.includes("wasm") }) });
     await expect(api.ensureRuntimeDownloaded(events.push.bind(events))).resolves.toBe(RUNTIME);
     await expect(api.ensureRuntimeDownloaded(events.push.bind(events))).resolves.toBe(RUNTIME);
-    await api.updateModels({ ...settings, llmEmbeddings: true, llmClassification: false, llmRerankings: false }, () => {});
+    await api.updateModels({ ...settings, llmClassification: false }, () => {});
     expect(files.has(RUNTIME)).toBe(true);
     expect(events.map(event => event.stage)).toContain("done");
     expect(fetch).toHaveBeenCalled();
@@ -147,73 +147,31 @@ describe("FastKeySentenceModels", () => {
     const { api, Zotero } = manager({ module: hostModule({ pipeline: vi.fn(async () => classifier) }) });
     expect(await api.classify([])).toEqual([]);
     expect(await api.classify(["a", "b", "c", "d", "e"], false, vi.fn(), 2)).toEqual([
-      { role: "method", score: 0.4 }, { role: "context", score: 0 }, { role: "context", score: 0 }, { role: "context", score: 0 }, { role: "context", score: 0 }
+      { role: "method", score: 0.4 }, { role: "background", score: 0 }, { role: "background", score: 0 }, { role: "background", score: 0 }, { role: "background", score: 0 }
     ]);
     expect(classifier.mock.calls.map(([batch]) => batch.length)).toEqual([2, 2, 1]);
     expect(Zotero.Promise.delay).toHaveBeenCalledTimes(3);
   });
 
-  it("uses WebGPU when available and falls back to WASM", async () => {
-    const pipeline = vi.fn()
-      .mockRejectedValueOnce(new Error("GPU unavailable"))
-      .mockResolvedValue(async () => ({ labels: ["method"], scores: [0.8] }));
-    const progress = vi.fn();
-    const { api } = manager({ module: hostModule({ pipeline }), gpu: { requestAdapter: vi.fn(async () => ({})) } });
-    await api.classify(["A complete sentence for classification."], false, progress);
-    expect(pipeline).toHaveBeenNthCalledWith(1, "zero-shot-classification", expect.any(String), expect.objectContaining({ device: "webgpu" }));
-    expect(pipeline).toHaveBeenNthCalledWith(2, "zero-shot-classification", expect.any(String), expect.objectContaining({ device: "wasm" }));
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "fallback" }));
-  });
-
-  it("generates a compact summary", async () => {
-    const generator = vi.fn(async () => [{ generated_text: "A compact paper synopsis." }]);
-    const { api } = manager({ module: hostModule({ pipeline: vi.fn(async () => generator) }) });
-    expect(await api.summarize("")).toBe("");
-    expect(await api.summarize("Paper content.")).toBe("A compact paper synopsis.");
-    expect(generator).toHaveBeenCalledWith(expect.stringContaining("Paper content."), expect.objectContaining({ max_new_tokens: 180, do_sample: false }));
-  });
-
-  it("reranks direct and multi-logit batches and supports multilingual batching", async () => {
-    const model = vi.fn()
-      .mockResolvedValueOnce({ logits: { data: [0.2, 0.8] } })
-      .mockResolvedValueOnce({ logits: { data: [0.1, 0.2, 0.3, 0.4] } });
-    const { api, module } = manager({ module: hostModule({ AutoModelForSequenceClassification: { from_pretrained: vi.fn(async () => model) } }) });
-    expect(await api.rerank("q", [])).toEqual([]);
-    expect(await api.rerank("q", ["a", "b"])).toEqual([0.2, 0.8]);
-    expect(await api.rerank("q", ["a", "b"], true)).toEqual([0.2, 0.4]);
-    expect(module.AutoTokenizer.from_pretrained).toHaveBeenCalledTimes(2);
-  });
-
-  it("wraps pipeline and pair-model failures and permits retries", async () => {
+  it("wraps pipeline failures and permits retries", async () => {
     const badPipeline = hostModule({ pipeline: vi.fn().mockRejectedValueOnce(new Error("broken")).mockResolvedValue(async () => ({ tolist: () => [1] })) });
     const first = manager({ module: badPipeline });
     await expect(first.api.embeddings(["x"])).rejects.toThrow("Could not load");
     await expect(first.api.embeddings(["x"])).resolves.toEqual([[1]]);
-    const badPair = manager({ module: hostModule({ AutoTokenizer: { from_pretrained: vi.fn().mockRejectedValue(new Error("bad tokenizer")) } }) });
-    await expect(badPair.api.rerank("q", ["x"])).rejects.toThrow("Could not load");
   });
 
-  it("reports pipeline and pair-model loading variants", async () => {
+  it("reports pipeline loading variants", async () => {
     const progress = vi.fn();
     const module = hostModule({
       pipeline: vi.fn(async (task, name, options) => {
         options.progress_callback({ status: "ready", file: "weights.onnx", progress: "50", loaded: "4", total: "8" });
         options.progress_callback({ stage: "", name: "fallback", progress: "bad", loaded: null, total: undefined });
         return task === "feature-extraction" ? async () => ({ tolist: () => [1, 2] }) : async () => ({ labels: ["method"], scores: [1] });
-      }),
-      AutoTokenizer: { from_pretrained: vi.fn(async (_name, options) => {
-        options.progress_callback({});
-        return async () => ({});
-      }) },
-      AutoModelForSequenceClassification: { from_pretrained: vi.fn(async (_name, options) => {
-        options.progress_callback({ stage: "loading", progress: 25 });
-        return async () => ({ logits: { data: [1] } });
-      }) }
+      })
     });
     const { api } = manager({ module });
     await api.embeddings(["x"], false, progress);
     await api.classify(["x"], false, progress);
-    await api.rerank("q", ["x"], false, progress);
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "ready", progress: 50, loaded: 4, total: 8 }));
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "loading", progress: null, loaded: 0, total: 0 }));
   });
@@ -236,7 +194,7 @@ describe("FastKeySentenceModels", () => {
       fetchImpl: async url => url.includes("/api/models/") ? response(manifest) : response("fresh")
     });
     await api.ensureRuntimeDownloaded(undefined, true);
-    await api.updateModels({ ...settings, llmClassification: false, llmRerankings: false }, undefined, true);
+    await api.updateModels({ ...settings, llmClassification: false }, undefined, true);
     expect(files.has(model)).toBe(true);
     expect(fetch.mock.calls.filter(([url]) => url.includes("model_quantized.onnx"))).toHaveLength(0);
   });
@@ -271,12 +229,10 @@ describe("FastKeySentenceModels", () => {
 
   it("updates individual model stages and shuts down before host creation", async () => {
     const manifest = { siblings: [{ rfilename: "config.json" }, { rfilename: "onnx/model_q8.onnx" }] };
-    const cached = [RUNTIME, WASM, `${ROOT}/models/Xenova/all-MiniLM-L6-v2/config.json`, `${ROOT}/models/Xenova/all-MiniLM-L6-v2/onnx/model_q8.onnx`, `${ROOT}/models/Xenova/distilbert-base-uncased-mnli/config.json`, `${ROOT}/models/Xenova/distilbert-base-uncased-mnli/onnx/model_q8.onnx`, `${ROOT}/models/Xenova/ms-marco-MiniLM-L-6-v2/config.json`, `${ROOT}/models/Xenova/ms-marco-MiniLM-L-6-v2/onnx/model_q8.onnx`];
+    const cached = [RUNTIME, WASM, `${ROOT}/models/Xenova/all-MiniLM-L6-v2/config.json`, `${ROOT}/models/Xenova/all-MiniLM-L6-v2/onnx/model_q8.onnx`];
     const { api } = manager({ files: cached, fetchImpl: async () => response(manifest) });
-    await api.updateModels({ ...settings, llmClassification: false, llmRerankings: false });
-    await api.updateModels({ ...settings, llmEmbeddings: false, llmRerankings: false });
-    await api.updateModels({ ...settings, llmEmbeddings: false, llmClassification: false });
-    expect(api.shutdown()).toBeUndefined();
+    await api.updateModels({ ...settings, llmClassification: false });
+    await expect(api.updateModels({ ...settings, llmEmbeddings: false, llmClassification: false })).rejects.toThrow("Select at least");
   });
 
   it("downloads selected q8 model files, skips cached files, and emits aggregate progress", async () => {
@@ -285,7 +241,7 @@ describe("FastKeySentenceModels", () => {
     ] };
     const events = [];
     const { api, IOUtils, files } = manager({ files: [], fetchImpl: async url => url.includes("/api/models/") ? response(manifest) : response("model") });
-    await expect(api.updateModels({ ...settings, llmClassification: false, llmRerankings: false }, event => events.push(event), true)).resolves.toBe(true);
+    await expect(api.updateModels({ ...settings, llmClassification: false }, event => events.push(event), true)).resolves.toBe(true);
     expect(IOUtils.writeJSON).toHaveBeenCalledWith(expect.stringContaining("download-manifest.json"), expect.objectContaining({ dtype: "q8", revision: "abc" }));
     expect([...files.keys()].some(path => path.endsWith("model_q8.onnx"))).toBe(true);
     expect(events).toContainEqual(expect.objectContaining({ operation: "all", stage: "complete" }));
@@ -293,11 +249,11 @@ describe("FastKeySentenceModels", () => {
 
   it("rejects invalid model selections and manifests", async () => {
     const none = manager();
-    await expect(none.api.updateModels({ ...settings, llmEmbeddings: false, llmClassification: false, llmRerankings: false })).rejects.toThrow("Select at least");
+    await expect(none.api.updateModels({ ...settings, llmEmbeddings: false, llmClassification: false })).rejects.toThrow("Select at least");
     const missing = manager({ fetchImpl: async () => response({ siblings: [{ rfilename: "config.json" }] }) });
-    await expect(missing.api.updateModels({ ...settings, llmClassification: false, llmRerankings: false })).rejects.toThrow("quantized q8");
+    await expect(missing.api.updateModels({ ...settings, llmClassification: false })).rejects.toThrow("quantized");
     const manifestError = manager({ fetchImpl: async () => response("", { ok: false, status: 404 }) });
-    await expect(manifestError.api.updateModels({ ...settings, llmClassification: false, llmRerankings: false })).rejects.toThrow("manifest");
+    await expect(manifestError.api.updateModels({ ...settings, llmClassification: false })).rejects.toThrow("manifest");
   });
 
   it("fails inference cleanly when host creation or runtime prerequisites fail", async () => {

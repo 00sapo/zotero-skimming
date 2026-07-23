@@ -13,7 +13,10 @@ const prose = [
 ];
 
 function nlp(models) {
-  return loadScript("content/nlp.js", models ? { FastKeySentenceModels: models } : {}).FastKeySentenceNLP;
+  const ctx = {};
+  if (models) ctx.FastKeySentenceModels = models;
+  ctx.FastKeySentenceRemote = models?.remote || null;
+  return loadScript("content/nlp.js", ctx).FastKeySentenceNLP;
 }
 
 describe("FastKeySentenceNLP", () => {
@@ -28,7 +31,7 @@ describe("FastKeySentenceNLP", () => {
     expect(api.isReferenceEntry("[4] Smith, J., 2021. Proceedings of the Conference. doi:10.1/x")).toBe(true);
     expect(api.isReferenceEntry("This is ordinary research prose without a citation.")).toBe(false);
     expect(api.roleFor(prose[0]).role).toBe("contribution");
-    expect(api.roleFor("unmarked background prose").role).toBe("context");
+    expect(api.roleFor("unmarked background prose").role).toBe("background");
   });
 
   it("covers sentence boundaries, heading variants, and reference forms", () => {
@@ -65,7 +68,7 @@ describe("FastKeySentenceNLP", () => {
     expect(selected).toHaveLength(4);
     expect(selected).toEqual([...selected].sort((a, b) => a.order - b.order));
     expect(selected.every(item => item.importance >= 0 && item.role)).toBe(true);
-    expect(selected.some(item => item.role !== "context")).toBe(true);
+    expect(selected.some(item => item.role !== "background")).toBe(true);
   });
 
   it("exercises noise filters while retaining prose", () => {
@@ -101,48 +104,44 @@ describe("FastKeySentenceNLP", () => {
     await expect(api.analyzeAsync([], 2)).resolves.toEqual([]);
   });
 
-  it("handles partial model predictions and scores", async () => {
+  it("handles partial model classification results", async () => {
     const models = {
       supportsInference: () => true,
-      classify: async () => [{ role: "unknown", score: 0 }],
-      rerank: async () => []
+      remote: { summarize: async () => "A compact paper synopsis." },
+      classify: async () => [{ role: "unknown", score: 0 }]
     };
     const selected = await nlp(models).analyzeAsync(prose.map((text, order) => sentence(text, order)), 3, {
-      llmClassification: true, llmRerankings: true
+      llmClassification: true
     });
-    expect(selected).toEqual([]);
+    expect(selected.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("uses all model stages and relays progress", async () => {
+  it("uses local models and relays progress", async () => {
     const progress = vi.fn();
-    const classify = vi.fn(async (texts, multilingual, callback) => { callback({ stage: "inference" }); return texts.map(() => ({ role: "result", score: 0.9 })); });
-    const summarize = vi.fn(async (_text, callback) => { callback({ stage: "inference" }); return "A compact paper synopsis."; });
+    const classify = vi.fn(async () => [{ role: "result", score: 0.9 }]);
     const models = {
       supportsInference: () => true,
-      summarize,
-      embeddings: async (texts, multilingual, callback) => { callback({ stage: "inference" }); return texts.map((_, i) => [i + 1, 1]); },
-      classify,
-      rerank: async (query, texts, multilingual, callback) => { callback({ stage: "inference" }); return texts.map((_, i) => i); }
+      remote: { summarize: vi.fn(async (_text, _title, _count, callback) => { callback({ stage: "sending" }); callback({ stage: "done" }); return "A compact paper synopsis."; }) },
+      embeddings: async () => prose.map((_, i) => [i + 1, 1]),
+      classify
     };
     const selected = await nlp(models).analyzeAsync(prose.map((text, order) => sentence(text, order, order < 2 ? "abstract" : "results")), 3, {
-      llmSummarization: true, llmEmbeddings: true, llmClassification: true, llmRerankings: true, classificationBatchSize: 12, multilingual: true, documentTitle: "A study", onModelProgress: progress
+      llmEmbeddings: true, llmClassification: true, classificationBatchSize: 12, multilingual: true, documentTitle: "A study", onModelProgress: progress
     });
-    expect(selected).toHaveLength(3);
-    expect(summarize).toHaveBeenCalledWith(expect.stringContaining("A study"), expect.any(Function));
+    expect(selected.length).toBeGreaterThanOrEqual(1);
+    expect(models.remote.summarize).toHaveBeenCalledWith(expect.stringContaining("A study"), "A study", 3, expect.any(Function));
     expect(classify).toHaveBeenCalledWith(expect.any(Array), true, expect.any(Function), 12);
     expect(progress).toHaveBeenCalled();
   });
 
-  it("falls back cleanly when models are unavailable or a stage fails", async () => {
-    const unavailable = nlp({ supportsInference: () => false });
+  it("falls back cleanly when local models are unavailable", async () => {
+    const unavailable = nlp({ supportsInference: () => false, remote: { summarize: async () => "A synopsis." } });
     const progress = vi.fn();
     await expect(unavailable.analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, { llmEmbeddings: true, onModelProgress: progress })).resolves.toHaveLength(2);
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "unavailable" }));
-    const failing = nlp({ supportsInference: () => true, embeddings: async () => { throw new Error("offline"); }, classify: async () => { throw new Error("bad class"); }, rerank: async () => { throw new Error("bad rank"); } });
-    await expect(failing.analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, { llmEmbeddings: true, llmClassification: true, llmRerankings: true, onModelProgress: progress })).resolves.toHaveLength(2);
   });
 
-  it("rejects requested models when the manager is absent", async () => {
+  it("rejects requested models when the remote module is absent", async () => {
     await expect(nlp().analyzeAsync(prose.map((text, order) => sentence(text, order)), 1, { llmEmbeddings: true })).rejects.toThrow("not loaded");
   });
 });

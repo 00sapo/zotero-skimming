@@ -1692,7 +1692,7 @@ FastOfflineKeySentenceAnnotator = {
     return {
       key: Zotero.DataObjectUtilities.generateKey(),
       type: "highlight",
-      color: colors[sentence.role] || colors.context,
+      color: colors[sentence.role] || colors.background,
       pageLabel: String(sentence.pageIndex + 1),
       sortIndex,
       position: { pageIndex: sentence.pageIndex, rects: sentence.rects },

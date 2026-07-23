@@ -26,6 +26,7 @@ describe("bootstrap", () => {
     expect(Services.scriptloader.loadSubScript.mock.calls.map(([url]) => url)).toEqual([
       "resource://addon/content/nlp.js",
       "resource://addon/content/model-manager.js",
+      "resource://addon/content/remote-llm.js",
       "resource://addon/content/annotator.js"
     ]);
     expect(models.init).toHaveBeenCalledWith({ rootURI: "resource://addon/" });

@@ -424,7 +424,7 @@ var FastKeySentenceModels = (() => {
         const prediction = predictions[i] || {};
         const label = prediction.labels?.[0] || "background context";
         results.push({
-          role: ROLE_MAP[label] || "context",
+          role: ROLE_MAP[label] || "background",
           score: Number(prediction.scores?.[0]) || 0
         });
       }

@@ -5,6 +5,7 @@ function annotator(globals = {}) {
   const nlpContext = loadScript("content/nlp.js");
   return loadScript("content/annotator.js", {
     FastKeySentenceNLP: nlpContext.FastKeySentenceNLP,
+    FastKeySentenceRemote: { DEFAULT_ENDPOINT: "https://api.example.com", DEFAULT_MODEL: "test-model", summarize: async () => "A test summary.", getConfig: () => ({ endpoint: "", apiKey: "", model: "" }), saveConfig: () => {} },
     Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" } },
     ...globals
   }).FastOfflineKeySentenceAnnotator;
@@ -118,7 +119,7 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
     expect(annotation.sortIndex).toMatch(/^00002\|\d{6}\|\d{5}$/);
     expect(annotation.tags).toContainEqual({ name: "auto-key-sentence" });
     const line = { setProgress: vi.fn(), setText: vi.fn() };
-    const handler = api.modelProgressHandler(line, { llmEmbeddings: true, llmClassification: true, llmRerankings: false });
+    const handler = api.modelProgressHandler(line, { llmEmbeddings: true, llmClassification: true });
     handler({ operation: "embeddings", stage: "download", file: "a.bin", loaded: 1024, total: 2048, model: "model" });
     handler({ operation: "classification", stage: "inference", progress: 50 });
     expect(line.setProgress).toHaveBeenCalled();
@@ -140,8 +141,8 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(api.isValidDensity({ perPage: 1, minimum: 0, maximum: 1 })).toBe(true);
     expect(api.isValidDensity({ perPage: 0, minimum: 2, maximum: 1 })).toBe(false);
     expect(api.getConfiguredSettings()).toEqual({ ...api.settingsDefaults });
-    api.saveSettings({ perPage: 2, minimum: 1, maximum: 3, llmSummarization: true, llmEmbeddings: true, llmClassification: false, llmRerankings: true, classificationBatchSize: 12, multilingual: true });
-    expect(api.getConfiguredSettings()).toMatchObject({ perPage: 2, llmSummarization: true, classificationBatchSize: 12 });
+    api.saveSettings({ perPage: 2, minimum: 1, maximum: 3, llmEmbeddings: true, llmClassification: false, classificationBatchSize: 12, multilingual: true, remoteEndpoint: "https://api.example.com", remoteApiKey: "sk-test", remoteModel: "gpt-4o-mini" });
+    expect(api.getConfiguredSettings()).toMatchObject({ perPage: 2, classificationBatchSize: 12, remoteEndpoint: "https://api.example.com" });
     expect(api.calculateAnnotationTarget(3, { perPage: 2, minimum: 1, maximum: 4 })).toBe(4);
 
     const window = fakeWindow([{ isPDFAttachment: () => true }]);
@@ -166,7 +167,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(window.document.documentElement.children[0].tag).toBe("div");
     expect(byId(window, "per-page").value).toBe("1.9");
     expect(byId(window, "classification-batch-size").value).toBe("8");
-    expect(byId(window, "llm-summarization")).toBeDefined();
+    expect(byId(window, "remote-endpoint")).toBeDefined();
     await byText(window, "Update models").listeners.click[0]();
     expect(descendants(window.document.documentElement).find(x => x.role === "alert").textContent).toContain("Use valid density");
     api.isValidSettings = settings => settings.perPage > 0;
@@ -181,8 +182,9 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     byId(window, "minimum").value = "1";
     byId(window, "maximum").value = "3";
     byId(window, "classification-batch-size").value = "12";
+    byId(window, "remote-api-key").value = "sk-test";
     submit();
-    await expect(result).resolves.toMatchObject({ perPage: 2, llmEmbeddings: true, classificationBatchSize: 12 });
+    await expect(result).resolves.toMatchObject({ perPage: 2, llmEmbeddings: true, classificationBatchSize: 12, remoteApiKey: "sk-test" });
 
     const cancelled = api.showSettingsOverlay(window, api.settingsDefaults);
     window.document.documentElement.children.at(-1).listeners.keydown?.[0]?.({ key: "Escape", preventDefault: vi.fn(), stopPropagation: vi.fn() });
@@ -256,7 +258,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(await titleApi.getDocumentTitle({ parentID: 1, getField: () => "", attachmentFilename: "file.pdf" })).toBe("file.pdf");
 
     const line = { setProgress: vi.fn(), setText: vi.fn() };
-    const progress = api.modelProgressHandler(line, { llmEmbeddings: true, llmClassification: false, llmRerankings: false });
+    const progress = api.modelProgressHandler(line, { llmEmbeddings: true, llmClassification: false });
     progress({ operation: "unknown", stage: "loading", loaded: 1, total: 0 });
     progress({ operation: "embeddings", stage: "progress", file: "a", loaded: 2000000, total: 2000000 });
     progress({ operation: "embeddings", stage: "inference", loaded: 1, total: 2 });
@@ -299,7 +301,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     for (const density of [{ perPage: NaN, minimum: 1, maximum: 2 }, { perPage: 0, minimum: 1, maximum: 2 }, { perPage: 21, minimum: 1, maximum: 2 }, { perPage: 1, minimum: 1.1, maximum: 2 }, { perPage: 1, minimum: 1, maximum: 1.1 }, { perPage: 1, minimum: -1, maximum: 2 }, { perPage: 1, minimum: 1, maximum: 0 }, { perPage: 1, minimum: 1, maximum: 501 }, { perPage: 1, minimum: 3, maximum: 2 }]) expect(api.isValidDensity(density)).toBe(false);
     expect(api.isValidSettings({ ...api.settingsDefaults, llmEmbeddings: 1 })).toBe(false);
     expect(api.calculateAnnotationTarget(-1, { perPage: 1, minimum: 2, maximum: 3 })).toBe(2);
-    expect(api.makeAnnotation({ text: "x", role: "other", pageIndex: -1, pageHeight: 1, rects: [[-1, 2, 3, 4]], section: "", importance: 0 })).toMatchObject({ color: "#ffd400", pageLabel: "0" });
+    expect(api.makeAnnotation({ text: "x", role: "other", pageIndex: -1, pageHeight: 1, rects: [[-1, 2, 3, 4]], section: "", importance: 0 })).toMatchObject({ color: "#aaaaaa", pageLabel: "0" });
   });
 
   it("reports extraction and annotation API failures", async () => {
@@ -343,7 +345,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect((await api.extractAllPages(attachment, value => percentages.push(value))).map(page => page.pageIndex)).toEqual([0, 5]);
     expect(percentages).toEqual([5 / 6, 1]);
     api.extractAllPages = async () => [{ pageIndex: 0, width: 100, height: 100, words: "Abstract A sufficiently long result sentence demonstrates reliable findings across datasets.".split(" ").map((text, i) => word(text, i * 5, 70)) }];
-    await api.annotateAttachment(attachment, null, { perPage: 1, minimum: 1, maximum: 2, llmEmbeddings: false, llmClassification: false, llmRerankings: false, multilingual: false });
+    await api.annotateAttachment(attachment, null, { perPage: 1, minimum: 1, maximum: 2, llmEmbeddings: false, llmClassification: false, multilingual: false });
     expect(saved).toHaveLength(1);
     expect(commits).toHaveLength(1);
     attachment.getAnnotations = () => [{ getTags: () => [{ tag: "auto-key-sentence" }] }];
