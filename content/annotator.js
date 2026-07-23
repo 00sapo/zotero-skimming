@@ -349,6 +349,10 @@ FastOfflineKeySentenceAnnotator = {
       type: "button",
       style: buttonStyle
     }, "Update models");
+    const summarizeButton = create("button", {
+      type: "button",
+      style: buttonStyle
+    }, "Summarize");
     const cancelButton = create("button", {
       type: "button",
       style: buttonStyle
@@ -357,7 +361,7 @@ FastOfflineKeySentenceAnnotator = {
       type: "submit",
       style: buttonStyle + "; background: AccentColor; color: AccentColorText; border-color: AccentColor"
     }, "Annotate");
-    footerLeft.append(updateModelsButton);
+    footerLeft.append(updateModelsButton, summarizeButton);
     footerRight.append(cancelButton, annotateButton);
     footer.append(footerLeft, footerRight);
     form.appendChild(footer);
@@ -379,6 +383,7 @@ FastOfflineKeySentenceAnnotator = {
 
     const setBusy = busy => {
       updateModelsButton.disabled = busy;
+      summarizeButton.disabled = busy;
       annotateButton.disabled = busy;
       cancelButton.disabled = busy;
       for (const input of Object.values(inputs)) input.disabled = busy;
@@ -473,6 +478,21 @@ FastOfflineKeySentenceAnnotator = {
       });
 
       cancelButton.addEventListener("click", () => finish(null));
+
+      summarizeButton.addEventListener("click", async () => {
+        error.textContent = "";
+        const settings = readSettings();
+        if (!this.isValidSettings(settings)) {
+          error.textContent = "Use valid density values before summarising.";
+          return;
+        }
+        if (!settings.llmSummarization) {
+          error.textContent = "Enable LLM summarization to generate a summary.";
+          return;
+        }
+        finish({ ...settings, action: "summarize" });
+      });
+
       form.addEventListener("submit", event => {
         event.preventDefault();
         const settings = readSettings();
@@ -495,11 +515,15 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   async openAnnotationDialog(window) {
-    const settings = await this.showSettingsOverlay(window, this.getConfiguredSettings());
-    if (!settings) return;
-    if (!this.isValidSettings(settings)) throw new Error("Invalid annotation settings.");
-    this.saveSettings(settings);
-    await this.runForSelection(window, settings);
+    const result = await this.showSettingsOverlay(window, this.getConfiguredSettings());
+    if (!result) return;
+    if (!this.isValidSettings(result)) throw new Error("Invalid annotation settings.");
+    this.saveSettings(result);
+    if (result.action === "summarize") {
+      await this.summarizeForSelection(window, result);
+      return;
+    }
+    await this.runForSelection(window, result);
   },
 
   async runForSelection(window, settings = null) {
@@ -520,6 +544,220 @@ FastOfflineKeySentenceAnnotator = {
       this.log(error.stack || String(error));
       Services.prompt.alert(window, "Fast Offline Key-Sentence Annotator", error.message || String(error));
     }
+  },
+
+  async summarizeForSelection(window, settings) {
+    try {
+      const selected = window.ZoteroPane.getSelectedItems();
+      if (!selected.length) throw new Error("Select a Zotero item or PDF attachment first.");
+      const attachments = [];
+      for (const item of selected) {
+        const attachment = await this.resolvePDFAttachment(item);
+        if (attachment && !attachments.some(x => x.id === attachment.id)) attachments.push(attachment);
+      }
+      if (!attachments.length) throw new Error("No PDF attachment was found in the selection.");
+      for (const attachment of attachments) {
+        await this.summarizeAttachment(attachment, window, settings);
+      }
+    }
+    catch (error) {
+      this.log(error.stack || String(error));
+      Services.prompt.alert(window, "Fast Offline Key-Sentence Annotator", error.message || String(error));
+    }
+  },
+
+  async summarizeAttachment(attachment, window, settings) {
+    const progress = new Zotero.ProgressWindow();
+    progress.changeHeadline("Summarizing paper");
+    const title = await this.getDocumentTitle(attachment);
+    const line = new progress.ItemProgress("chrome://zotero/skin/treeitem-attachment-pdf.png", title);
+    line.setProgress(5);
+    progress.show();
+
+    try {
+      if (typeof Zotero.PDFWorker?.getRecognizerData !== "function") {
+        throw new Error("This Zotero build does not expose a supported local PDF text-extraction API.");
+      }
+
+      line.setText("Extracting all PDF pages");
+      const pages = await this.extractAllPages(attachment, progressValue => {
+        const value = Number.isFinite(progressValue) ? progressValue : 0;
+        line.setProgress(Math.max(5, Math.min(40, 5 + Math.round(value * 35))));
+      });
+      line.setProgress(40);
+      line.setText(`Reconstructing sentences from ${pages.length} pages`);
+      const sentences = this.buildSentences(pages);
+      if (!sentences.length) throw new Error("No usable text was found. Run OCR first if this is a scanned PDF.");
+
+      const documentTitle = await this.getDocumentTitle(attachment);
+      const inputText = FastKeySentenceNLP.normalizeText(
+        [documentTitle, ...sentences.map(s => s.text)].filter(Boolean).join(" ")
+      ).slice(0, 120000);
+
+      line.setProgress(45);
+      line.setText("Generating summary…");
+
+      const summary = await FastKeySentenceModels.summarize(
+        inputText,
+        event => {
+          const pct = Number.isFinite(event.progress) ? event.progress : 0;
+          if (["download", "progress", "initiate"].includes(event.stage)) {
+            line.setProgress(5 + Math.round(pct * 0.4));
+            line.setText(`Loading summarization model (${Math.round(pct)}%)`);
+          }
+          else if (event.stage === "inference") {
+            line.setProgress(45 + Math.round(pct * 0.5));
+            line.setText("Generating summary…");
+          }
+        }
+      );
+
+      if (!summary) throw new Error("The summarization model returned an empty result.");
+
+      line.setProgress(100);
+      line.setText("Summary ready");
+      progress.startCloseTimer(1500);
+
+      await this.showSummaryOverlay(window, summary, title);
+    }
+    catch (error) {
+      const e = error || "";
+      const msg = typeof e === "object" && e !== null ? (e.message || String(e)) : String(e);
+      this.log(`Summarization failed: ${msg}`);
+      if (typeof FastKeySentenceModels !== "undefined" && FastKeySentenceModels.appendToLog) {
+        void FastKeySentenceModels.appendToLog(`summarization failed: ${msg}`);
+      }
+      line.setError();
+      line.setText("Summarization failed");
+      progress.startCloseTimer(8000);
+      throw error;
+    }
+  },
+
+  showSummaryOverlay(window, summary, title) {
+    const doc = window.document;
+    const HTML_NS = "http://www.w3.org/1999/xhtml";
+    const existing = doc.getElementById("fast-key-sentence-annotator-summary-overlay");
+    existing?.remove();
+
+    const create = (tag, attrs = {}, text = null) => {
+      const element = doc.createElementNS(HTML_NS, tag);
+      for (const [name, value] of Object.entries(attrs)) {
+        if (name === "style") {
+          element.style.cssText = value;
+        }
+        else if (name === "className") {
+          element.className = value;
+        }
+        else if (name in element && !name.startsWith("aria-")) {
+          try {
+            element[name] = value;
+          }
+          catch (_) {
+            element.setAttribute(name, String(value));
+          }
+        }
+        else {
+          element.setAttribute(name, String(value));
+        }
+      }
+      if (text !== null) element.textContent = text;
+      return element;
+    };
+
+    const overlay = create("div", {
+      id: "fast-key-sentence-annotator-summary-overlay",
+      role: "presentation",
+      style: [
+        "position: fixed",
+        "inset: 0",
+        "z-index: 2147483647",
+        "display: flex",
+        "align-items: center",
+        "justify-content: center",
+        "padding: 24px",
+        "background: rgba(0, 0, 0, 0.42)",
+        "font: message-box"
+      ].join(";")
+    });
+
+    const panel = create("section", {
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-labelledby": "fast-key-sentence-annotator-summary-title",
+      style: [
+        "width: min(720px, calc(100vw - 48px))",
+        "max-height: calc(100vh - 48px)",
+        "overflow: auto",
+        "padding: 22px",
+        "border: 1px solid color-mix(in srgb, CanvasText 25%, transparent)",
+        "border-radius: 10px",
+        "box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35)",
+        "background: Canvas",
+        "color: CanvasText"
+      ].join(";")
+    });
+
+    const heading = create("h1", {
+      id: "fast-key-sentence-annotator-summary-title",
+      style: "margin: 0 0 6px; font-size: 1.25rem; font-weight: 600"
+    }, "Paper summary");
+    panel.appendChild(heading);
+
+    const subtitle = create("div", {
+      style: "margin: 0 0 16px; opacity: 0.7; font-size: 0.92rem"
+    }, title);
+    panel.appendChild(subtitle);
+
+    const body = create("div", {
+      style: [
+        "margin: 0 0 18px",
+        "padding: 14px 16px",
+        "border: 1px solid color-mix(in srgb, CanvasText 18%, transparent)",
+        "border-radius: 7px",
+        "background: color-mix(in srgb, Canvas 96%, AccentColor 4%)",
+        "line-height: 1.6",
+        "white-space: pre-wrap",
+        "max-height: 55vh",
+        "overflow: auto"
+      ].join(";")
+    }, summary);
+    panel.appendChild(body);
+
+    const footer = create("footer", {
+      style: "display: flex; justify-content: flex-end; gap: 10px"
+    });
+    const closeButton = create("button", {
+      type: "button",
+      style: "min-width: 92px; min-height: 32px; padding: 5px 14px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 5px; background: AccentColor; color: AccentColorText; border-color: AccentColor; font: inherit"
+    }, "Close");
+    footer.appendChild(closeButton);
+    panel.appendChild(footer);
+    overlay.appendChild(panel);
+    doc.documentElement.appendChild(overlay);
+
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener("keydown", onKeyDown, true);
+        overlay.remove();
+        resolve();
+      };
+
+      const onKeyDown = event => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          finish();
+        }
+      };
+      window.addEventListener("keydown", onKeyDown, true);
+
+      closeButton.addEventListener("click", () => finish());
+      closeButton.focus();
+    });
   },
 
   async resolvePDFAttachment(item) {
