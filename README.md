@@ -48,14 +48,11 @@ Sentences are vectorized with a local transformer model (MiniLM-L6 for English, 
 Each sentence is scored by:
 
 ```text
-0.55 × summary similarity (cosine to summary embedding)
-+ 0.15 × cluster dispersion
-+ 0.10 × TextRank centrality
-+ 0.08 × scholarly cues
-+ 0.12 × sentence-length suitability
+0.85 × summary similarity (cosine to summary embedding)
++ 0.15 × sentence-length suitability
 ```
 
-Summary similarity dominates: sentences semantically close to the synopsis are preferred. Cluster dispersion rewards sentences that are distinct within their topical cluster. TextRank adds centrality within local sliding windows. Scholarly cues detect the six discourse roles below. Sentence-length suitability peaks near 27 words.
+Summary similarity dominates: sentences semantically close to the synopsis are preferred. Length suitability peaks near 18 words.
 
 ### 4. MMR selection
 
@@ -67,7 +64,7 @@ Maximum marginal relevance selects the requested number of highlights while pena
 
 ### 5. Optional local classification
 
-If enabled, a local zero-shot classifier (mobileBERT, ~95 MB) labels each selected sentence with one of six roles:
+If enabled, a zero-shot classifier (distilBERT MNLI, ~270 MB) labels each selected sentence with one of six roles. The classifier receives the paper summary concatenated with the sentence as context:
 
 | Role | Description |
 |------|-------------|
@@ -78,7 +75,11 @@ If enabled, a local zero-shot classifier (mobileBERT, ~95 MB) labels each select
 | takeaway | Conclusion or key insight |
 | background | Background context or related work |
 
-Classification does not affect sentence ranking — it only sets the annotation color and tag.
+Classification runs **after** MMR selection — only the final set of highlights is classified. It does not affect sentence ranking; it only sets the annotation color and tag.
+
+### 6. Subspan highlights
+
+By default, each selected sentence is trimmed to its most salient 10–30 word span via a keyword-density sliding window. The PDF rectangle is cropped to match. This behaviour can be toggled off in the settings.
 
 Selected annotations are restored to PDF reading order and mapped back to their original rectangles.
 
@@ -89,9 +90,9 @@ All local model assets come from Hugging Face, use q8/legacy quantized ONNX arti
 | Stage | English | Multilingual |
 |-------|---------|-------------|
 | Embeddings | `Xenova/all-MiniLM-L6-v2` | `Xenova/multilingual-e5-small` |
-| Classification | `Xenova/mobilebert-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
+| Classification | `Xenova/distilbert-base-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
 
-`model-identifiers.json` is the source of truth for these Hugging Face identifiers. MobileBERT's quantized model is approximately 95 MB. `scoring-config.json` contains the scoring weights, role scores, TextRank parameters, classification blends, and selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
+`model-identifiers.json` is the source of truth for these Hugging Face identifiers. DistilBERT's quantized model is approximately 270 MB. `scoring-config.json` contains the scoring weights, role scores, classification blends, and selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
 
 ## Build and test
 
