@@ -319,13 +319,13 @@ var FastKeySentenceNLP = (() => {
     return selectMMR(filtered, vectors, norms, Math.min(count, filtered.length));
   }
 
-  function paperTextForSummary(sentences, documentTitle = "") {
+  function paperTextForSummary(sentences) {
     const body = sentences
-      .filter(s => normalizeText(s.section || "") !== "abstract")
+      .filter(s => !s.frontMatter && normalizeText(s.section || "") !== "abstract")
       .map(s => s.text)
       .filter(Boolean)
       .join(" ");
-    return normalizeText([documentTitle, body].filter(Boolean).join(" ")).slice(0, 128000);
+    return normalizeText(body).slice(0, 128000);
   }
 
   async function analyzeAsync(sentences, count, options = {}) {
@@ -348,7 +348,7 @@ var FastKeySentenceNLP = (() => {
 
     // 1. Summarize via remote LLM
     options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
-    const paperText = paperTextForSummary(filtered, options.documentTitle || "");
+    const paperText = paperTextForSummary(filtered);
     const summary = await FastKeySentenceRemote.summarize(
       paperText,
       options.documentTitle || "",

@@ -124,6 +124,17 @@ describe("FastKeySentenceNLP", () => {
     expect(selected.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("builds summary input from body prose only", () => {
+    const api = nlp();
+    const paperText = api.paperTextForSummary([
+      { ...sentence("Title and metadata.", 0, "title"), frontMatter: true },
+      sentence("Abstract claim.", 1, "abstract"),
+      sentence("Body result one.", 2, "results"),
+      sentence("Body result two.", 3, "results")
+    ]);
+    expect(paperText).toBe("Body result one. Body result two.");
+  });
+
   it("uses local models and relays progress", async () => {
     const progress = vi.fn();
     const classify = vi.fn(async () => [{ role: "result", score: 0.9 }]);
@@ -137,7 +148,7 @@ describe("FastKeySentenceNLP", () => {
       llmEmbeddings: true, llmClassification: true, classificationBatchSize: 12, multilingual: true, documentTitle: "A study", onModelProgress: progress
     });
     expect(selected.length).toBeGreaterThanOrEqual(1);
-    expect(models.remote.summarize).toHaveBeenCalledWith(expect.stringContaining("A study"), "A study", 3, expect.any(Function));
+    expect(models.remote.summarize).toHaveBeenCalledWith(expect.not.stringContaining("A study"), "A study", 3, expect.any(Function));
     expect(classify).toHaveBeenCalled();
     expect(progress).toHaveBeenCalled();
   });
