@@ -2,7 +2,9 @@
 
 Say bye-bye to confused AI-generated summaries, abstract sentences, and hallucinations. With this add-on, you can give a first pass to a paper by directly reading its real sentences, no AI invention, only guided AI selection.
 
-First skim, then read. Zotero 9 add-on that speeds up skimming, so you can orientate faster inside a paper.
+First skim, then read. Skimming is also known as _"orientation reading"_.
+
+Requires Zotero 9.
 
 <img src="assets/screenshot.png" alt="Screenshot of a paper annotated" width="400" />
 
@@ -21,10 +23,8 @@ The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native
 ## Usage
 
 1. Select a PDF attachment in the Zotero library.
-2. Right-click it and choose **Annotate key sentences…**.
-  <img src="assets/context-menu.png" alt="Zotero PDF context menu" width="150" />
-3. Configure the remote summarization endpoint, API key, and model name. Any OpenAI-compatible API works (OpenAI, Anthropic via litellm, Groq, Deepseek, local vLLM/Ollama, etc.).
-  <img src="assets/settings-dialog.png" alt="Key-sentence annotation settings" width="400" />
+2. Right-click it and choose **Annotate key sentences…**. <img src="assets/context-menu.png" alt="Zotero PDF context menu" width="150" />
+3. Configure the remote summarization endpoint, API key, and model name. Any OpenAI-compatible API works (OpenAI, Anthropic via litellm, Deepseek, local vLLM/Ollama, Openrouter, Together.ai, etc.). <img src="assets/settings-dialog.png" alt="Key-sentence annotation settings" width="400" />
 4. Set the average, minimum, and maximum annotations per PDF.
 5. Enable optional local transformer stages (embeddings, classification) as needed.
 6. Click **Update models** to download selected local model assets into the Zotero profile cache. This is required only once per selected model and revision.
