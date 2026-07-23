@@ -29,7 +29,7 @@ FastOfflineKeySentenceAnnotator = {
 
     const menuitem = doc.createXULElement("menuitem");
     menuitem.id = "fast-offline-key-sentence-annotator-menuitem";
-    menuitem.setAttribute("label", "Annotate key sentences…");
+    menuitem.setAttribute("label", "Skim paper");
 
     // Delay opening the modal until the context menu has closed. Opening a
     // child window directly from a XUL menu command is unreliable on some
