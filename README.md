@@ -12,12 +12,6 @@ Right-click a PDF attachment and choose **Annotate key sentences…**:
 
 ![Zotero PDF context menu](assets/context-menu.png)
 
-## Features
-
-- 🧭 OpenAI-compatible API for summarization
-- ✨ Native Zotero highlights, not PDF edits
-- 🎛️ Tune density, batch size, model usage, and scoring weights
-
 ## Installation
 
 1. Download the latest `.xpi` from the [Codeberg releases](https://codeberg.org/00sapo/zotero-skimming/releases).

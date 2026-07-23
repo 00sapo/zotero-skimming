@@ -20,8 +20,6 @@ var FastKeySentenceModels = (() => {
   let runtimeFile = null;
   let runtimePromise = null;
   let wasmBlobURL = null;
-  let gpuAvailablePromise = null;
-  let gpuDisabled = false;
   let hostPromise = null;
   let hostFrame = null;
   const objectCache = new Map();
@@ -332,40 +330,9 @@ var FastKeySentenceModels = (() => {
     });
   }
 
-  async function preferredDevice() {
-    if (!gpuAvailablePromise) {
-      gpuAvailablePromise = (async () => {
-        // Try the main Zotero window first (chrome-privileged context);
-        // fall back to the host iframe. Firefox requires a secure context
-        // or chrome privileges for navigator.gpu.
-        const sources = [
-          Zotero.getMainWindow?.()?.navigator?.gpu,
-          hostFrame?.contentWindow?.navigator?.gpu
-        ].filter(Boolean);
-        for (const gpu of sources) {
-          if (typeof gpu?.requestAdapter !== "function") continue;
-          try {
-            const adapter = await gpu.requestAdapter();
-            if (adapter) {
-              log("WebGPU adapter found; using GPU acceleration");
-              return true;
-            }
-          }
-          catch (error) {
-            log(`WebGPU adapter request failed: ${errorDetail(error)}`);
-          }
-        }
-        log("No WebGPU adapter available; using WASM");
-        return false;
-      })();
-    }
-    return !gpuDisabled && await gpuAvailablePromise ? "webgpu" : "wasm";
-  }
-
-  function inferenceOptions(name, callback, device) {
+  function inferenceOptions(name, callback) {
     return {
       dtype: DTYPE,
-      device,
       progress_callback: event => report(callback, name, event)
     };
   }
@@ -373,24 +340,14 @@ var FastKeySentenceModels = (() => {
   async function getPipeline(task, kind, multilingual, callback) {
     const name = modelName(kind, multilingual);
     const mod = await runtime(callback);
-    const device = await preferredDevice();
-    const key = `pipeline:${task}:${name}:${DTYPE}:${device}`;
+    const key = `pipeline:${task}:${name}:${DTYPE}:wasm`;
     if (!objectCache.has(key)) {
-      const load = selectedDevice => mod.pipeline(task, name, inferenceOptions(name, callback, selectedDevice));
-      const pending = load(device).catch(async error => {
-        if (device === "webgpu") {
-          gpuDisabled = true;
-          const detail = errorDetail(error);
-          log(`WebGPU pipeline failed for ${name}; disabling WebGPU and retrying with WASM: ${detail}`);
-          callback?.({ stage: "fallback", model: name, device, message: `WebGPU failed; using WASM: ${detail}` });
-          return load("wasm");
-        }
-        throw error;
-      }).catch(error => {
-        objectCache.delete(key);
-        log(`Pipeline failed for ${name}: ${errorDetail(error)}`);
-        throw new Error(`Could not load ${name}: ${error?.message || error}`);
-      });
+      const pending = mod.pipeline(task, name, inferenceOptions(name, callback))
+        .catch(error => {
+          objectCache.delete(key);
+          log(`Pipeline failed for ${name}: ${errorDetail(error)}`);
+          throw new Error(`Could not load ${name}: ${error?.message || error}`);
+        });
       objectCache.set(key, pending);
     }
     return objectCache.get(key);
@@ -574,8 +531,6 @@ var FastKeySentenceModels = (() => {
     }
     wasmBlobURL = null;
     logFile = null;
-    gpuAvailablePromise = null;
-    gpuDisabled = false;
     hostFrame?.remove();
     hostFrame = null;
     hostPromise = null;
