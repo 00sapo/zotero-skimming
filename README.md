@@ -1,6 +1,8 @@
 # Zotero Skimming
 
-Zotero 9 add-on that speeds up skimming, so you can orientate faster inside a paper.
+Say bye-bye to confused AI-generated summaries, abstract sentences, and hallucinations. With this add-on, you can give a first pass to a paper by directly reading its real sentences, no AI invention, only guided AI selection.
+
+First skim, then read. Zotero 9 add-on that speeds up skimming, so you can orientate faster inside a paper.
 
 <img src="assets/screenshot.png" alt="Screenshot of a paper annotated" width="400" />
 
