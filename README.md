@@ -14,7 +14,7 @@ Right-click a PDF attachment and choose **Annotate key sentences…**:
 
 ## Installation
 
-1. Download the latest `.xpi` from the [Codeberg releases](https://codeberg.org/00sapo/zotero-skimming/releases).
+1. Download the latest `.xpi` from the [GitHub releases](https://github.com/00sapo/zotero-skimming/releases).
 2. In Zotero, open **Tools → Add-ons**.
 3. Open the gear menu and choose **Install Add-on From File…**.
 4. Select the downloaded `.xpi` and restart Zotero if prompted.
@@ -116,4 +116,4 @@ git diff --check
 
 ## Repository
 
-https://codeberg.org/00sapo/zotero-skimming
+https://github.com/00sapo/zotero-skimming
