@@ -334,10 +334,30 @@ var FastKeySentenceModels = (() => {
 
   async function preferredDevice() {
     if (!gpuAvailablePromise) {
-      const gpu = hostFrame?.contentWindow?.navigator?.gpu;
-      gpuAvailablePromise = gpu?.requestAdapter
-        ? gpu.requestAdapter().then(adapter => !!adapter).catch(() => false)
-        : Promise.resolve(false);
+      gpuAvailablePromise = (async () => {
+        // Try the main Zotero window first (chrome-privileged context);
+        // fall back to the host iframe. Firefox requires a secure context
+        // or chrome privileges for navigator.gpu.
+        const sources = [
+          Zotero.getMainWindow?.()?.navigator?.gpu,
+          hostFrame?.contentWindow?.navigator?.gpu
+        ].filter(Boolean);
+        for (const gpu of sources) {
+          if (typeof gpu?.requestAdapter !== "function") continue;
+          try {
+            const adapter = await gpu.requestAdapter();
+            if (adapter) {
+              log("WebGPU adapter found; using GPU acceleration");
+              return true;
+            }
+          }
+          catch (error) {
+            log(`WebGPU adapter request failed: ${errorDetail(error)}`);
+          }
+        }
+        log("No WebGPU adapter available; using WASM");
+        return false;
+      })();
     }
     return !gpuDisabled && await gpuAvailablePromise ? "webgpu" : "wasm";
   }
