@@ -24,13 +24,13 @@ The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native
 
 1. Select a PDF attachment in the Zotero library.
 2. Right-click it and choose **Skim paper**. <img src="assets/context-menu.png" alt="Zotero PDF context menu with Skim paper selected" width="150" />
-3. Choose **Remote API** or **Local Qwen** for summarization. Remote mode requires an OpenAI-compatible endpoint, API key, and model name; local mode uses `onnx-community/Qwen2.5-0.5B-Instruct`. <img src="assets/settings-dialog.png" alt="Paper skim settings dialog" width="400" />
+3. Choose **Remote API** or **Local Ollama** for summarization. Remote mode requires an OpenAI-compatible endpoint, API key, and model name. Local mode requires a user-installed [Ollama](https://ollama.com/download). <img src="assets/settings-dialog.png" alt="Paper skim settings dialog" width="400" />
 4. Set the average, minimum, and maximum annotations per PDF.
-5. Enable optional local transformer stages (embeddings, classification) as needed.
-6. Click **Update models** to download selected local model assets into the Zotero profile cache. This is required only once per selected model and revision.
+5. Optionally enable local semantic relevance scoring.
+6. Set **Ollama command** if Ollama is not on Zotero’s PATH (for mise: `mise exec -- ollama`), then click **Download Ollama models** once to download and import the required GGUF models.
 7. Click **Annotate** to extract, summarize, rank, and annotate. In remote mode, **Test API credentials** verifies the API and previews the paper synopsis.
 
-The baseline ranker works without downloaded models. Local Qwen uses int8 ONNX and falls back to baseline ranking if it cannot run. Other local transformer failures fall back to TF-IDF for embeddings and skip classification.
+The baseline ranker works without downloaded models. When enabled, local semantic relevance falls back to the baseline ranker if Ollama is unavailable.
 
 ## Workflow
 
@@ -38,65 +38,36 @@ The baseline ranker works without downloaded models. Local Qwen uses int8 ONNX a
 
 Choose **Remote API** to send filtered paper body text (no authors, tables, figures, abstract, or references) to the configured remote LLM. Its summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations.
 
-**Map-reduce long papers** and its shared context window apply to both sources. They split long input into locally token-counted chunks before reducing their summaries. Local Qwen carries each partial summary into the next map step and overlaps adjacent chunks by 5%. The window defaults to 4096 tokens and accepts values from 256 to 131072.
+**Map-reduce long papers** and its shared context window apply to both sources. They split long input into locally token-counted chunks before reducing their summaries. Local Ollama carries each partial summary into the next map step and overlaps adjacent chunks by 5%. The window defaults to 4096 tokens and accepts values from 256 to 131072.
 
-Choose **Local Qwen** to summarize in Zotero with `onnx-community/Qwen2.5-0.5B-Instruct`. Download it first with **Update models**. Local summarization, embeddings, and classification run in a dedicated worker thread through the add-on's single-threaded Transformers.js/ONNX runtime using `onnx/model_int8.onnx`; they do not block Zotero's interface or access the network. Remote credentials are hidden when local summarization is selected.
+Choose **Local Ollama** to summarize with imported `Qwen/Qwen2.5-0.5B-Instruct-GGUF`. Ollama handles local GPU selection and execution; this add-on starts `ollama serve` when its executable is available. Remote credentials are hidden when local summarization is selected.
 
-### 2. Sentence embeddings
+### 2. Local semantic relevance
 
-Sentences are vectorized with a local transformer model (MiniLM-L6 for English, multilingual-e5-small for multilingual). Without LLM embeddings enabled, TF-IDF word/bigram vectors are used instead. The summary text is embedded in the same vector space.
+When enabled, `Qwen/Qwen3-Embedding-0.6B-GGUF` embeds candidates twice through Ollama: once against the paper synopsis and once against configured scholarly keyword sections. The two relevance signals are blended with the sparse baseline before MMR selection. If Ollama is unavailable, the baseline TF-IDF ranker remains active.
 
-### 3. Sentence ranking
+### 3. MMR selection
 
-Each sentence is scored by:
-
-```text
-0.85 × summary similarity (cosine to summary embedding)
-+ 0.15 × sentence-length suitability
-```
-
-Summary similarity dominates: sentences semantically close to the synopsis are preferred. Length suitability peaks near 18 words.
-
-### 4. MMR selection
-
-Maximum marginal relevance selects the requested number of highlights while penalizing semantic redundancy, repeated sections, and overlapping summary coverage:
+Maximum marginal relevance selects the requested number of highlights while penalizing semantic redundancy and repeated sections:
 
 ```text
-0.65 × importance − 0.35 × redundancy − section penalty − 0.03 × coverage overlap
+0.65 × importance − 0.35 × redundancy − section penalty
 ```
 
-Summary sentences are embedded and tracked: each selection claims the summary sentence it's closest to. Subsequent candidates receive a small penalty if their best-matching summary sentence was already claimed, encouraging the highlights to span different aspects of the synopsis.
-
-### 5. Optional local classification
-
-If enabled, a zero-shot classifier (mobileBERT, ~95 MB) labels each selected sentence with one of six roles. The classifier receives the paper summary concatenated with the sentence as context:
-
-| Role | Description |
-|------|-------------|
-| contribution | Main contribution of the paper |
-| result | Key empirical result or finding |
-| method | Core method, approach, or architecture |
-| goal | Research objective or aim |
-| takeaway | Conclusion or key insight |
-| background | Background context or related work |
-
-Classification runs **after** MMR selection — only the final set of highlights is classified. It does not affect sentence ranking; it only sets the annotation color and tag.
-
-### 6. Selected annotations
+### 4. Selected annotations
 
 Selected annotations are restored to PDF reading order and mapped back to their original rectangles.
 
 ## Models
 
-All local model assets come from Hugging Face and are downloaded explicitly with **Update models**. Embeddings and classification use q8/legacy quantized ONNX artifacts; local Qwen summarization uses its int8 ONNX artifact.
+Install Ollama separately, then use **Download Ollama models** to upload these Hugging Face GGUF files into Ollama's local store through its blob API.
 
-| Stage | English | Multilingual |
-|-------|---------|-------------|
-| Summarization | `onnx-community/Qwen2.5-0.5B-Instruct` (int8) | Same model |
-| Embeddings | `Xenova/all-MiniLM-L6-v2` | `Xenova/multilingual-e5-small` |
-| Classification | `Xenova/mobilebert-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
+| Stage | Model |
+|-------|-------|
+| Summarization | `Qwen/Qwen2.5-0.5B-Instruct-GGUF` (Q4_K_M) |
+| Semantic relevance | `Qwen/Qwen3-Embedding-0.6B-GGUF` (Q8_0) |
 
-`model-identifiers.json` is the source of truth for these Hugging Face identifiers. MobileBERT's quantized model is approximately 95 MB. `scoring-config.json` contains scoring and selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
+`model-identifiers.json` records the imported model names and source repositories. `scoring-config.json` contains relevance prompts plus scoring and selection weights.
 
 ## Similar plugins
 
@@ -116,7 +87,6 @@ node --check bootstrap.js
 node --check content/annotator.js
 node --check content/nlp.js
 node --check content/model-manager.js
-node --check content/model-host.mjs
 node --check content/remote-llm.js
 git diff --check
 ```

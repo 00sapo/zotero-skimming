@@ -1,14 +1,10 @@
 {
-  "embeddings": {
-    "en": "Xenova/all-MiniLM-L6-v2",
-    "multilingual": "Xenova/multilingual-e5-small"
-  },
-  "classification": {
-    "en": "Xenova/mobilebert-uncased-mnli",
-    "multilingual": "onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX"
-  },
   "summarization": {
-    "en": "onnx-community/Qwen2.5-0.5B-Instruct",
-    "multilingual": "onnx-community/Qwen2.5-0.5B-Instruct"
+    "repository": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    "model": "zotero-skimming-summary"
+  },
+  "embeddings": {
+    "repository": "Qwen/Qwen3-Embedding-0.6B-GGUF",
+    "model": "zotero-skimming-embedding"
   }
 }

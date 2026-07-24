@@ -1,347 +1,115 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadScript } from "./helpers.js";
 
-const ROOT = "/profile/fast-key-sentence-annotator";
-const RUNTIME = `${ROOT}/runtime/transformers-3.8.1.min.mjs`;
-const WASM = `${ROOT}/runtime/ort-wasm-simd-threaded.jsep.wasm`;
+const ROOT = "/profile/fast-key-sentence-annotator/ollama";
+const summaryRepo = "Qwen/Qwen2.5-0.5B-Instruct-GGUF";
+const embeddingRepo = "Qwen/Qwen3-Embedding-0.6B-GGUF";
 
 function bytes(value = "asset") {
   return new TextEncoder().encode(value);
 }
 
-function response(value = "asset", { ok = true, status = 200, stream = false, length = true } = {}) {
-  const data = bytes(value);
+function response(value = {}, { ok = true, status = 200 } = {}) {
+  const data = bytes(typeof value === "string" ? value : JSON.stringify(value));
   return {
     ok,
     status,
-    headers: { get: name => name === "content-length" && length ? String(data.length) : null },
-    body: stream ? {
-      getReader: () => {
-        let read = 0;
-        return { read: async () => read++ ? { done: true } : { value: data, done: false } };
-      }
-    } : null,
+    headers: { get: name => name === "content-length" ? String(data.length) : null },
+    body: null,
     arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
-    text: async () => String(value),
+    text: async () => typeof value === "string" ? value : JSON.stringify(value),
     json: async () => value
   };
 }
 
-function hostModule(overrides = {}) {
-  return {
-    env: { backends: { onnx: { wasm: {} } } },
-    pipeline: vi.fn(async task => task === "feature-extraction"
-      ? async input => ({ tolist: () => input.length === 1 ? [1, 2] : input.map((_, i) => [i, i + 1]) })
-      : async () => ({ labels: ["empirical result"], scores: [0.8] })),
-    AutoTokenizer: { from_pretrained: vi.fn(async () => async (queries, options) => ({ queries, options })) },
-    AutoModelForSequenceClassification: { from_pretrained: vi.fn(async () => async () => ({ logits: { data: [0.1, 0.9] } })) },
-    ...overrides
-  };
-}
-
-function manager({ module = hostModule(), fetchImpl, owner = true, worker = null, existingHost = true, files: initial = [RUNTIME, WASM] } = {}) {
-  const files = new Map(initial.map(path => [path, bytes(path)]));
-  const listeners = new Map();
-  const frameWindow = {
-    ...(existingHost ? { FastKeySentenceTransformers: module } : {}),
-    URL: { createObjectURL: vi.fn(() => "blob:asset"), revokeObjectURL: vi.fn() }, Blob, Response,
-    addEventListener: vi.fn((name, fn) => listeners.set(name, fn)),
-    removeEventListener: vi.fn(name => listeners.delete(name))
-  };
-  const frame = { contentWindow: frameWindow, contentDocument: {}, id: "", setAttribute: vi.fn(), style: {}, remove: vi.fn() };
-  const script = { addEventListener: vi.fn(), type: "", src: "" };
-  const document = {
-    getElementById: vi.fn(() => existingHost ? frame : null),
-    createElementNS: vi.fn((ns, name) => name === "iframe" ? frame : script),
-    documentElement: { appendChild: vi.fn() },
-    head: { appendChild: vi.fn(() => { frameWindow.FastKeySentenceTransformers = module; listeners.get("fast-key-sentence-transformers-ready")?.(); }) }
-  };
-  frame.contentDocument = document;
+function manager({ fetchImpl, path = "/usr/bin/ollama" } = {}) {
+  const files = new Map();
+  const subprocess = { pathSearch: vi.fn(async () => path), call: vi.fn(async () => ({ kill: vi.fn() })) };
   const Zotero = {
     debug: vi.fn(),
-    Promise: { delay: vi.fn(async () => {}) },
-    getMainWindow: vi.fn(() => owner ? { document, setTimeout: fn => fn(), ...(worker ? { Worker: worker } : {}) } : null)
+    launchURL: vi.fn(),
+    Promise: { delay: vi.fn(async () => {}) }
   };
   const IOUtils = {
-    exists: vi.fn(async path => files.has(path)), read: vi.fn(async path => files.get(path)),
-    write: vi.fn(async (path, value) => files.set(path, value)),
-    writeJSON: vi.fn(async (path, value) => files.set(path, value)),
-    makeDirectory: vi.fn(async () => {}), remove: vi.fn(async path => files.delete(path)),
+    exists: vi.fn(async name => files.has(name)),
+    read: vi.fn(async name => files.get(name)),
+    write: vi.fn(async (name, value) => files.set(name, value)),
+    writeJSON: vi.fn(async (name, value) => files.set(name, value)),
+    makeDirectory: vi.fn(async () => {}),
+    remove: vi.fn(async name => files.delete(name)),
     move: vi.fn(async (from, to) => { files.set(to, files.get(from)); files.delete(from); })
   };
   const PathUtils = {
-    profileDir: "/profile", join: (...parts) => parts.join("/"),
-    parent: path => path.slice(0, path.lastIndexOf("/")), filename: path => path.slice(path.lastIndexOf("/") + 1)
+    profileDir: "/profile",
+    join: (...parts) => parts.join("/"),
+    parent: name => name.slice(0, name.lastIndexOf("/")),
+    filename: name => name.slice(name.lastIndexOf("/") + 1)
   };
-  const fetch = vi.fn(fetchImpl || (async () => response()));
-  const context = loadScript("content/model-manager.js", { Zotero, IOUtils, PathUtils, Services: {}, fetch });
-  context.FastKeySentenceModels.init({ rootURI: "resource://addon/" });
-  return { api: context.FastKeySentenceModels, Zotero, IOUtils, files, fetch, module, frame, frameWindow, document };
+  const fetch = vi.fn(fetchImpl || (async url => {
+    if (url.endsWith("/api/version")) return response({ version: "test" });
+    if (url.includes(summaryRepo) && url.includes("/api/models/")) return response({ sha: "summary-revision", siblings: [{ rfilename: "qwen2.5-0.5b-instruct-q4_k_m.gguf" }] });
+    if (url.includes(embeddingRepo) && url.includes("/api/models/")) return response({ sha: "embedding-revision", siblings: [{ rfilename: "qwen3-embedding-0.6b-q8_0.gguf" }] });
+    if (url.endsWith("/api/create")) return response({ status: "success" });
+    if (url.endsWith("/api/generate")) return response({ response: "A local summary." });
+    if (url.endsWith("/api/embed")) return response({ embeddings: [[1, 0], [0, 1]] });
+    return response("gguf");
+  }));
+  const context = loadScript("content/model-manager.js", {
+    Zotero, IOUtils, PathUtils, fetch, crypto,
+    ChromeUtils: { importESModule: () => ({ Subprocess: subprocess }) }
+  });
+  context.FastKeySentenceModels.init();
+  return { api: context.FastKeySentenceModels, Zotero, IOUtils, files, fetch, subprocess };
 }
 
-const settings = { llmEmbeddings: true, llmClassification: true, multilingual: false };
-
-describe("FastKeySentenceModels", () => {
-  it("exposes its pinned local-inference contract and model names", () => {
-    const { api, Zotero } = manager();
-    expect(api.supportsInference()).toBe(true);
-    expect(api.DTYPE).toBe("q8");
-    expect(api.modelName("embeddings", false)).toBe("Xenova/all-MiniLM-L6-v2");
-    expect(api.modelName("embeddings", true)).toBe("Xenova/multilingual-e5-small");
-    expect(api.modelName("classification", false)).toBe("Xenova/mobilebert-uncased-mnli");
-    expect(api.modelName("summarization", false)).toBe("onnx-community/Qwen2.5-0.5B-Instruct");
-    api.log("ready");
-    expect(Zotero.debug).toHaveBeenCalledWith(expect.stringContaining("ready"));
+describe("FastKeySentenceModels Ollama", () => {
+  it("downloads and imports the two required GGUF models", async () => {
+    const { api, files, fetch } = manager();
+    await expect(api.updateModels({ mapReduceInputTokens: 4096 })).resolves.toBe(true);
+    expect([...files.keys()]).toContain(`${ROOT}/models/zotero-skimming-summary/qwen2.5-0.5b-instruct-q4_k_m.gguf`);
+    expect([...files.keys()]).toContain(`${ROOT}/models/zotero-skimming-embedding/qwen3-embedding-0.6b-q8_0.gguf`);
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/api/create"), expect.any(Object));
   });
 
-  it("downloads runtime assets through stream and array-buffer responses", async () => {
-    const events = [];
-    const manifest = { siblings: [{ rfilename: "config.json" }, { rfilename: "onnx/model_q8.onnx" }] };
-    const { api, files, fetch } = manager({ files: [], fetchImpl: async url => url.includes("/api/models/") ? response(manifest) : response(url.includes("wasm") ? "wasm" : "runtime", { stream: !url.includes("wasm") }) });
-    await expect(api.ensureRuntimeDownloaded(events.push.bind(events))).resolves.toBe(RUNTIME);
-    await expect(api.ensureRuntimeDownloaded(events.push.bind(events))).resolves.toBe(RUNTIME);
-    await api.updateModels({ ...settings, llmClassification: false }, () => {});
-    expect(files.has(RUNTIME)).toBe(true);
-    expect(events.map(event => event.stage)).toContain("done");
+  it("uses a configured command to launch Ollama", async () => {
+    let healthChecks = 0;
+    const { api, subprocess, fetch } = manager({ fetchImpl: async url => {
+      if (url.endsWith("/api/version")) return healthChecks++ ? response({ version: "test" }) : response("offline", { ok: false, status: 503 });
+      if (url.endsWith("/api/create")) return response({ status: "success" });
+      if (url.includes("/api/models/")) return response({ sha: "revision", siblings: [{ rfilename: url.includes("Embedding") ? "qwen3-embedding-0.6b-q8_0.gguf" : "qwen2.5-0.5b-instruct-q4_k_m.gguf" }] });
+      return response("gguf");
+    } });
+    await api.updateModels({ mapReduceInputTokens: 4096, ollamaCommand: "mise exec -- ollama" });
+    expect(subprocess.pathSearch).toHaveBeenCalledWith("mise");
+    expect(subprocess.call).toHaveBeenCalledWith(expect.objectContaining({ arguments: ["exec", "--", "ollama", "serve"] }));
     expect(fetch).toHaveBeenCalled();
   });
 
-  it("reports download failures and empty assets", async () => {
-    const failed = manager({ files: [], fetchImpl: async () => response("", { ok: false, status: 503 }) });
-    await expect(failed.api.ensureRuntimeDownloaded()).rejects.toThrow("503");
-    const empty = manager({ files: [], fetchImpl: async () => response("", { length: false }) });
-    await expect(empty.api.ensureRuntimeDownloaded()).rejects.toThrow("empty file");
-  });
-
-  it("creates an isolated module host and resolves local model-cache URLs", async () => {
-    const local = `${ROOT}/models/Xenova/all-MiniLM-L6-v2/config.json`;
-    const { api, files, module, document } = manager({ existingHost: false, files: [RUNTIME, WASM, local] });
-    files.set(local, bytes("{}"));
-    await api.embeddings(["x"]);
-    expect(document.createElementNS).toHaveBeenCalled();
-    const cached = await module.env.customCache.match("https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/config.json");
-    expect(await cached.text()).toBe("{}");
-    expect(await module.env.customCache.match("https://example.test/nope")).toBeUndefined();
-    await expect(module.env.customCache.put()).resolves.toBeUndefined();
-  });
-
-  it("runs inference in a dedicated worker when available", async () => {
-    const messages = [];
-    class MockWorker {
-      constructor(url, options) { this.url = url; this.options = options; }
-      postMessage(message) {
-        messages.push(message);
-        if (message.type === "init") queueMicrotask(() => this.onmessage({ data: { type: "ready" } }));
-        if (message.type === "infer") queueMicrotask(() => this.onmessage({
-          data: { type: "result", requestId: message.requestId, result: [[7, 8]] }
-        }));
-      }
-      terminate() {}
-    }
-    const { api, document } = manager({ worker: MockWorker });
-    await expect(api.embeddings(["x"])).resolves.toEqual([[7, 8]]);
-    expect(messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "init" }),
-      expect.objectContaining({ type: "infer", operation: "embeddings", dtype: "q8" })
-    ]));
-    expect(document.createElementNS).not.toHaveBeenCalled();
-  });
-
-  it("runs embeddings in batches, prefixes multilingual E5 input, and reuses pipelines", async () => {
-    const { api, module, Zotero } = manager();
-    const progress = vi.fn();
-    expect(await api.embeddings([])).toEqual([]);
-    expect(await api.embeddings(["a", "b"], false, progress)).toEqual([[0, 1], [1, 2]]);
-    expect(await api.embeddings(["a"], true)).toEqual([[1, 2]]);
-    expect(await api.embeddings(Array.from({ length: 25 }, (_, i) => String(i)), false)).toHaveLength(25);
-    const multilingualCall = module.pipeline.mock.results[1].value;
-    expect(module.pipeline).toHaveBeenCalledTimes(2);
-    expect(Zotero.Promise.delay).toHaveBeenCalled();
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ progress: 100 }));
-    await multilingualCall;
-  });
-
-  it("generates a local Qwen summary using int8 ONNX", async () => {
-    const generator = vi.fn(async () => [{ generated_text: "A local summary." }]);
-    const module = hostModule({ pipeline: vi.fn(async task => task === "text-generation" ? generator : async () => ({ tolist: () => [1, 2] })) });
-    const { api, module: loaded, files } = manager({ module });
-    files.set(`${ROOT}/models/onnx-community/Qwen2.5-0.5B-Instruct/download-manifest.json`, bytes("{}"));
-    await expect(api.summarize("Paper text.")).resolves.toBe("A local summary.");
-    expect(loaded.pipeline).toHaveBeenCalledWith("text-generation", "onnx-community/Qwen2.5-0.5B-Instruct", expect.objectContaining({ dtype: "int8" }));
-    expect(generator).toHaveBeenCalledWith(expect.stringContaining("<|im_start|>system"), expect.objectContaining({ do_sample: false, max_new_tokens: 240 }));
-  });
-
-  it("maps and reduces local Qwen input within a small context window", async () => {
-    const generator = vi.fn(async () => [{ generated_text: "A chunk summary." }]);
-    const module = hostModule({ pipeline: vi.fn(async task => task === "text-generation" ? generator : async () => ({ tolist: () => [1, 2] })) });
-    const { api, files } = manager({ module });
-    files.set(`${ROOT}/models/onnx-community/Qwen2.5-0.5B-Instruct/download-manifest.json`, bytes("{}"));
-    const progress = vi.fn();
-    const text = Array.from({ length: 50 }, () => "word.").join(" ");
-
-    await expect(api.summarize(text, progress, { mapReduce: true, contextWindow: 256, sentenceCount: 4 })).resolves.toBe("A chunk summary.");
-    expect(generator.mock.calls.length).toBeGreaterThan(1);
-    expect(generator.mock.calls.every(([, options]) => options.max_new_tokens <= 48)).toBe(true);
-    expect(generator.mock.calls[1][0]).toContain("Here is a summary of the first part of an article: A chunk summary.");
-    expect(generator.mock.calls[1][0]).toContain(`Create a summary of this next part of the same article. Use ${Math.max(1, 4 - (generator.mock.calls.length - 1))} sentences.`);
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "mapping" }));
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "reducing" }));
-  });
-
-  it("rejects local summarization when the model has not been downloaded", async () => {
-    const module = hostModule({ pipeline: vi.fn(async () => async () => ({ generated_text: "A local summary." })) });
-    const { api } = manager({ module });
-    await expect(api.summarize("Paper text.")).rejects.toThrow("Download/update the model first.");
-  });
-
-  it("classifies sentence batches, defaults missing outputs, and reports inference", async () => {
-    const classifier = vi.fn()
-      .mockResolvedValueOnce([
-        { labels: ["method, approach, algorithm, architecture, or experimental design"], scores: ["0.4"] },
-        { labels: [], scores: [] }
-      ])
-      .mockResolvedValueOnce([{ labels: ["unknown"], scores: [0] }]);
-    const { api, Zotero } = manager({ module: hostModule({ pipeline: vi.fn(async () => classifier) }) });
-    expect(await api.classify([])).toEqual([]);
-    expect(await api.classify(["a", "b", "c", "d", "e"], false, vi.fn(), 2)).toEqual([
-      { role: "method", score: 0.4 }, { role: "background", score: 0 }, { role: "background", score: 0 }, { role: "background", score: 0 }, { role: "background", score: 0 }
-    ]);
-    expect(classifier.mock.calls.map(([batch]) => batch.length)).toEqual([2, 2, 1]);
-    expect(Zotero.Promise.delay).toHaveBeenCalledTimes(3);
-  });
-
-  it("wraps pipeline failures and permits retries", async () => {
-    const badPipeline = hostModule({ pipeline: vi.fn().mockRejectedValueOnce(new Error("broken")).mockResolvedValue(async () => ({ tolist: () => [1] })) });
-    const first = manager({ module: badPipeline });
-    await expect(first.api.embeddings(["x"])).rejects.toThrow("Could not load");
-    await expect(first.api.embeddings(["x"])).resolves.toEqual([[1]]);
-  });
-
-  it("reports pipeline loading variants", async () => {
-    const progress = vi.fn();
-    const module = hostModule({
-      pipeline: vi.fn(async (task, name, options) => {
-        options.progress_callback({ status: "ready", file: "weights.onnx", progress: "50", loaded: "4", total: "8" });
-        options.progress_callback({ stage: "", name: "fallback", progress: "bad", loaded: null, total: undefined });
-        return task === "feature-extraction" ? async () => ({ tolist: () => [1, 2] }) : async () => ({ labels: ["method"], scores: [1] });
-      })
+  it("opens Ollama download when the executable is unavailable", async () => {
+    const { api, Zotero } = manager({
+      path: null,
+      fetchImpl: async url => url.endsWith("/api/version") ? response("offline", { ok: false, status: 503 }) : response({})
     });
-    const { api } = manager({ module });
-    await api.embeddings(["x"], false, progress);
-    await api.classify(["x"], false, progress);
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "ready", progress: 50, loaded: 4, total: 8 }));
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "loading", progress: null, loaded: 0, total: 0 }));
+    await expect(api.summarize("Paper text.")).rejects.toThrow("Ollama is not installed");
+    expect(Zotero.launchURL).toHaveBeenCalledWith("https://ollama.com/download");
   });
 
-  it("ignores model progress when no progress callback was requested", async () => {
-    const module = hostModule({ pipeline: vi.fn(async (_task, _name, options) => {
-      options.progress_callback({ progress: 1 });
-      return async () => ({ tolist: () => [1] });
-    }) });
-    const { api } = manager({ module });
-    await expect(api.embeddings(["x"])).resolves.toEqual([[1]]);
+  it("generates local summaries and embeds sentence batches through Ollama", async () => {
+    const { api } = manager();
+    await expect(api.summarize("Paper text.", null, { sentenceCount: 4 })).resolves.toBe("A local summary.");
+    await expect(api.embeddings(["summary", "sentence"])).resolves.toEqual([[1, 0], [0, 1]]);
   });
 
-  it("forces runtime downloads and accepts legacy model manifests with cached assets", async () => {
-    const manifest = { siblings: [{ path: "config.json" }, { rfilename: "onnx/model_quantized.onnx" }] };
-    const config = `${ROOT}/models/Xenova/all-MiniLM-L6-v2/config.json`;
-    const model = `${ROOT}/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx`;
-    const { api, fetch, files } = manager({
-      files: [RUNTIME, WASM, config, model],
-      fetchImpl: async url => url.includes("/api/models/") ? response(manifest) : response("fresh")
-    });
-    await api.ensureRuntimeDownloaded(undefined, true);
-    await api.updateModels({ ...settings, llmClassification: false }, undefined, true);
-    expect(files.has(model)).toBe(true);
-    expect(fetch.mock.calls.filter(([url]) => url.includes("model_quantized.onnx"))).toHaveLength(0);
-  });
-
-  it("uses request objects, cache miss paths, and runtimes without ONNX WASM", async () => {
-    const onnx = `${ROOT}/models/Xenova/all-MiniLM-L6-v2/onnx/model_q8.onnx`;
-    const module = hostModule({ env: { backends: {} } });
-    const { api, files, module: loaded } = manager({ module, files: [RUNTIME, WASM, onnx] });
-    files.set(onnx, bytes("onnx"));
-    await api.embeddings(["x"]);
-    const cache = loaded.env.customCache;
-    expect(await cache.match({ url: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_q8.onnx" })).toBeInstanceOf(Response);
-    expect(await cache.match({ url: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main" })).toBeUndefined();
-    expect(await cache.match({ url: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/missing.json" })).toBeUndefined();
-    expect(await cache.match({})).toBeUndefined();
-  });
-
-  it("initializes without options and reports chunked downloads with unknown size", async () => {
-    let reads = 0;
-    const { api } = manager({
-      files: [],
-      fetchImpl: async () => ({
-        ok: true, status: 200, headers: { get: () => null },
-        body: { getReader: () => ({ read: async () => ++reads === 1 ? { value: new Uint8Array(), done: false } : reads === 2 ? { value: bytes("x"), done: false } : { done: true } }) }
-      })
-    });
-    const events = [];
-    api.init();
-    await api.ensureRuntimeDownloaded(events.push.bind(events), true);
-    expect(events).toContainEqual(expect.objectContaining({ total: 0, progress: null }));
-  });
-
-  it("updates individual model stages and shuts down before host creation", async () => {
-    const manifest = { siblings: [{ rfilename: "config.json" }, { rfilename: "onnx/model_q8.onnx" }] };
-    const cached = [RUNTIME, WASM, `${ROOT}/models/Xenova/all-MiniLM-L6-v2/config.json`, `${ROOT}/models/Xenova/all-MiniLM-L6-v2/onnx/model_q8.onnx`];
-    const { api } = manager({ files: cached, fetchImpl: async () => response(manifest) });
-    await api.updateModels({ ...settings, llmClassification: false });
-    await expect(api.updateModels({ ...settings, llmEmbeddings: false, llmClassification: false })).rejects.toThrow("Select at least");
-  });
-
-  it("downloads selected q8 model files, skips cached files, and emits aggregate progress", async () => {
-    const manifest = { sha: "abc", siblings: [
-      { rfilename: "config.json" }, { rfilename: "tokenizer.json" }, { rfilename: "onnx/model_q8.onnx" }, { rfilename: "ignored.bin" }
-    ] };
-    const events = [];
-    const { api, IOUtils, files } = manager({ files: [], fetchImpl: async url => url.includes("/api/models/") ? response(manifest) : response("model") });
-    await expect(api.updateModels({ ...settings, llmClassification: false }, event => events.push(event), true)).resolves.toBe(true);
-    expect(IOUtils.writeJSON).toHaveBeenCalledWith(expect.stringContaining("download-manifest.json"), expect.objectContaining({ dtype: "q8", revision: "abc" }));
-    expect([...files.keys()].some(path => path.endsWith("model_q8.onnx"))).toBe(true);
-    expect(events).toContainEqual(expect.objectContaining({ operation: "all", stage: "complete" }));
-  });
-
-  it("downloads Qwen's int8 ONNX model when local summarization is selected", async () => {
-    const manifest = { sha: "qwen", siblings: [
-      { rfilename: "config.json" }, { rfilename: "tokenizer.json" }, { rfilename: "onnx/model_int8.onnx" }, { rfilename: "onnx/model_q4.onnx" }
-    ] };
-    const { api, files, IOUtils } = manager({ files: [], fetchImpl: async url => url.includes("/api/models/") ? response(manifest) : response("model") });
-    await api.updateModels({ llmEmbeddings: false, llmClassification: false, multilingual: false, summarySource: "local" });
-    expect([...files.keys()]).toContain(`${ROOT}/models/onnx-community/Qwen2.5-0.5B-Instruct/onnx/model_int8.onnx`);
-    expect(IOUtils.writeJSON).toHaveBeenCalledWith(expect.stringContaining("Qwen2.5-0.5B-Instruct/download-manifest.json"), expect.objectContaining({ dtype: "int8" }));
-  });
-
-  it("rejects invalid model selections and manifests", async () => {
-    const none = manager();
-    await expect(none.api.updateModels({ ...settings, llmEmbeddings: false, llmClassification: false })).rejects.toThrow("Select at least");
-    const missing = manager({ fetchImpl: async () => response({ siblings: [{ rfilename: "config.json" }] }) });
-    await expect(missing.api.updateModels({ ...settings, llmClassification: false })).rejects.toThrow("quantized");
-    const manifestError = manager({ fetchImpl: async () => response("", { ok: false, status: 404 }) });
-    await expect(manifestError.api.updateModels({ ...settings, llmClassification: false })).rejects.toThrow("manifest");
-  });
-
-  it("fails inference cleanly when host creation or runtime prerequisites fail", async () => {
-    const unavailable = manager({ owner: false });
-    await expect(unavailable.api.embeddings(["x"])).rejects.toThrow("No Zotero main window");
-    const missingWasm = manager({ files: [RUNTIME] });
-    await expect(missingWasm.api.embeddings(["x"])).rejects.toThrow("WASM is missing");
-  });
-
-  it("releases cached models and host resources on shutdown", async () => {
-    const dispose = vi.fn();
-    const { api, module, frame, frameWindow } = manager();
-    const extractor = async () => ({ tolist: () => [1] });
-    extractor.dispose = dispose;
-    module.pipeline.mockResolvedValue(extractor);
-    await api.embeddings(["x"]);
-    api.shutdown();
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(frame.remove).toHaveBeenCalled();
-    expect(frameWindow.URL.revokeObjectURL).toHaveBeenCalled();
-    expect(dispose).toHaveBeenCalled();
-    expect(api.shutdown()).toBeUndefined();
+  it("keeps five-percent overlap and running-summary prompts in map-reduce", async () => {
+    let calls = 0;
+    const { api, fetch } = manager({ fetchImpl: async url => {
+      if (url.endsWith("/api/version")) return response({ version: "test" });
+      if (url.endsWith("/api/generate")) return response({ response: `summary ${++calls}` });
+      return response({});
+    } });
+    await api.summarize(Array.from({ length: 50 }, () => "word.").join(" "), null, { mapReduce: true, contextWindow: 256, sentenceCount: 4 });
+    const bodies = fetch.mock.calls.filter(([url]) => url.endsWith("/api/generate")).map(([, options]) => JSON.parse(options.body));
+    expect(bodies.length).toBeGreaterThan(1);
+    expect(bodies[1].prompt).toContain("Here is a summary of the first part of an article: summary 1");
   });
 });

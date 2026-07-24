@@ -18,9 +18,8 @@ export function loadScript(file, globals = {}) {
       selection: { importance: 0.65, redundancy: 0.35, sectionPenalty: 0.06 }
     },
     FastKeySentenceModelIdentifiers: {
-      embeddings: { en: "Xenova/all-MiniLM-L6-v2", multilingual: "Xenova/multilingual-e5-small" },
-      classification: { en: "Xenova/mobilebert-uncased-mnli", multilingual: "onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX" },
-      summarization: { en: "onnx-community/Qwen2.5-0.5B-Instruct", multilingual: "onnx-community/Qwen2.5-0.5B-Instruct" }
+      embeddings: { repository: "Qwen/Qwen3-Embedding-0.6B-GGUF", model: "zotero-skimming-embedding" },
+      summarization: { repository: "Qwen/Qwen2.5-0.5B-Instruct-GGUF", model: "zotero-skimming-summary" }
     },
     ...globals
   });

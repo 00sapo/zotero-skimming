@@ -1,6 +1,7 @@
 # Findings & Decisions
 
-## Incremental Qwen map-reduce
-- Local map-reduce previously summarized chunks independently, then recursively reduced the generated summaries; it had no source overlap.
-- Decision: adjacent local map windows overlap by 5% of the map-input token budget. The first chunk starts a summary; each later chunk receives the running summary in the exact requested prompt form.
-- Each local map call uses `max(1, requestedSentenceCount - (chunkCount - 1))` sentences, reserving a sentence per remaining map transition. NLP supplies approximately `annotationCount × 1.5`; visible summaries request 10 sentences.
+## Ollama local inference
+- Ollama resolves the official llama.cpp release/backend problem: it manages Metal, CUDA, ROCm, and Vulkan across supported platforms.
+- Ollama exposes generation and embeddings APIs but no documented reranking endpoint. User chose Qwen3 embeddings with cosine similarity instead of the requested reranker.
+- User chose a required existing Ollama installation: the add-on starts `ollama serve` when possible and opens Ollama’s download page if the executable is unavailable. It must not install software silently.
+- Local GGUF files are explicitly downloaded into the Zotero profile then imported through `/api/create` into named Ollama models. The former ONNX runtime, worker, and classification model are removed.

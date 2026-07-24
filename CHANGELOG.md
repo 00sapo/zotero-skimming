@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-- Moved local summarization, embeddings, and classification to a dedicated worker thread with per-stage progress bars.
-- Restored local summarization with int8 ONNX `onnx-community/Qwen2.5-0.5B-Instruct` and a local-or-remote source selector.
-- Applied map-reduce and a 256-token-minimum context window to local Qwen; remote credentials now hide in local mode.
-- Added 5% local Qwen map-window overlap and incremental summary prompts with the running summary context.
+- Replaced the local Transformers.js/ONNX runtime with Ollama.
+- Added explicit **Download Ollama models** provisioning for Qwen2.5 summary and Qwen3 semantic-relevance GGUF models.
+- Replaced local embedding/classification stages with optional summary and keyword-section relevance through Qwen3 embeddings.
+- Retained local map-reduce with a 256-token-minimum context window, 5% window overlap, and incremental summaries.
 - Added opt-in map-reduce remote summarization with a configurable 4096-token input window.
 - Renamed the project to **Zotero Skimming**.
 - Updated the project description and Codeberg metadata.

@@ -1,89 +1,126 @@
-/* global Zotero */
+/* global Zotero, ChromeUtils */
 
 var FastKeySentenceModels = (() => {
   "use strict";
 
-  // Pinned to the latest stable v3 release. The runtime is loaded only when an
-  // LLM stage is enabled. Model assets are fetched from Hugging Face and kept
-  // in Transformers.js' persistent browser cache.
-  const TRANSFORMERS_VERSION = "3.8.1";
-  const RUNTIME_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TRANSFORMERS_VERSION}`;
-  const DTYPE = "q8";
-  const IN_PROCESS_INFERENCE_ENABLED = true;
-  const WASM_FILENAME = "ort-wasm-simd-threaded.jsep.wasm";
+  const OLLAMA_URL = "http://127.0.0.1:11434";
+  const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
+  const SUMMARY_MODEL = "zotero-skimming-summary";
+  const EMBEDDING_MODEL = "zotero-skimming-embedding";
+  const SUMMARY_REPOSITORY = "Qwen/Qwen2.5-0.5B-Instruct-GGUF";
+  const EMBEDDING_REPOSITORY = "Qwen/Qwen3-Embedding-0.6B-GGUF";
+  const DEFAULT_CONTEXT_WINDOW = 4096;
+  const MIN_CONTEXT_WINDOW = 256;
+  const COMMAND_PREF = "extensions.fast-offline-key-sentence-annotator.ollamaCommand";
 
-  const MODELS = Object.freeze(FastKeySentenceModelIdentifiers);
-
-  let rootURI = null;
   let cacheDir = null;
   let logFile = null;
-  let runtimeFile = null;
-  let runtimePromise = null;
-  let wasmBlobURL = null;
-  let hostPromise = null;
-  let hostFrame = null;
-  let worker = null;
-  let workerPromise = null;
-  let workerScriptURL = null;
-  let nextWorkerRequest = 1;
-  const workerRequests = new Map();
-  const objectCache = new Map();
+  let ollamaProcess = null;
+  let subprocess = null;
 
   function errorDetail(error) {
-    const e = error || "";
-    const msg = typeof e === "object" && e !== null ? (e.message || String(e)) : String(e);
-    const stack = typeof e === "object" && e !== null ? e.stack : "";
-    return `${msg} (type: ${typeof e})${stack ? `\n${stack}` : ""}`;
+    return error?.stack || error?.message || String(error || "");
+  }
+
+  function init() {
+    cacheDir = PathUtils.join(PathUtils.profileDir, "fast-key-sentence-annotator", "ollama");
+    logFile = PathUtils.join(cacheDir, "logs", "ollama.log");
   }
 
   async function appendToLog(message) {
-    const line = `[${new Date().toISOString()}] ${message}`;
     try {
-      if (!logFile) init({});
+      if (!logFile) init();
       await IOUtils.makeDirectory(PathUtils.parent(logFile), { ignoreExisting: true });
       const previous = await IOUtils.exists(logFile) ? new TextDecoder().decode(await IOUtils.read(logFile)) : "";
-      const content = (previous + line + "\n").slice(-2 * 1024 * 1024);
-      await IOUtils.write(logFile, new TextEncoder().encode(content));
+      await IOUtils.write(logFile, new TextEncoder().encode((previous + `[${new Date().toISOString()}] ${message}\n`).slice(-2 * 1024 * 1024)));
     }
-    catch (error) {
-      Zotero.debug("Fast Offline Key-Sentence Annotator models: Could not write inference log: " + (error?.message || error));
-    }
+    catch (_) {}
   }
 
   function log(message) {
-    Zotero.debug("Fast Offline Key-Sentence Annotator models: " + message);
-    if (typeof IOUtils !== "undefined") void appendToLog(message);
+    Zotero.debug("Fast Offline Key-Sentence Annotator Ollama: " + message);
+    void appendToLog(message);
   }
 
-  function logRuntimeError(error) {
-    const detail = errorDetail(error);
-    log(`Runtime initialization error: ${detail}`);
+  function getSubprocess() {
+    if (subprocess) return subprocess;
+    if (globalThis.Subprocess) return globalThis.Subprocess;
+    if (!ChromeUtils?.importESModule) throw new Error("Zotero cannot launch Ollama on this platform.");
+    subprocess = ChromeUtils.importESModule("resource://gre/modules/Subprocess.sys.mjs").Subprocess;
+    return subprocess;
   }
 
-  function init(options = {}) {
-    rootURI = options.rootURI || rootURI;
-    cacheDir = PathUtils.join(PathUtils.profileDir, "fast-key-sentence-annotator");
-    logFile = PathUtils.join(cacheDir, "logs", "inference.log");
-    runtimeFile = PathUtils.join(cacheDir, "runtime", `transformers-${TRANSFORMERS_VERSION}.min.mjs`);
-  }
-
-  function formatDownloadEvent(callback, model, file, loaded, total, stage = "download") {
-    callback?.({
-      operation: "runtime",
-      stage,
-      model,
-      file,
-      loaded,
-      total,
-      progress: total > 0 ? 100 * loaded / total : null
+  async function ollamaRequest(path, body = null) {
+    const response = await fetch(OLLAMA_URL + path, {
+      method: body ? "POST" : "GET",
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      cache: "no-store"
     });
+    if (!response.ok) throw new Error(`Ollama returned ${response.status}: ${(await response.text()).slice(0, 300)}`);
+    return response.json();
   }
 
-  async function downloadToFile(url, destination, callback, label) {
-    await IOUtils.makeDirectory(PathUtils.parent(destination), { ignoreExisting: true });
-    const temp = destination + ".part";
-    await IOUtils.remove(temp, { ignoreAbsent: true });
+  async function isOllamaReady() {
+    try {
+      await ollamaRequest("/api/version");
+      return true;
+    }
+    catch (_) {
+      return false;
+    }
+  }
 
+  function configuredCommand(command = null) {
+    const value = command ?? Zotero.Prefs?.get(COMMAND_PREF, true) ?? "ollama";
+    const parts = String(value).trim().match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+    const parsed = parts.map(part => part.replace(/^("|')|("|')$/g, ""));
+    if (!parsed.length) throw new Error("Set an Ollama command before starting the local server.");
+    return parsed;
+  }
+
+  async function ensureOllama(callback, command = null) {
+    if (await isOllamaReady()) return;
+    const [binary, ...arguments_] = configuredCommand(command);
+    let executable = binary;
+    try {
+      const resolved = await getSubprocess().pathSearch(binary);
+      if (!resolved && binary === "ollama") {
+        Zotero.launchURL?.(OLLAMA_DOWNLOAD_URL);
+        throw new Error("Ollama is not installed. Its download page has been opened; install Ollama, then try again.");
+      }
+      executable = resolved || binary;
+    }
+    catch (error) {
+      if (/Ollama is not installed/.test(error.message || "")) throw error;
+    }
+    callback?.({ operation: "runtime", stage: "initiate", model: "Ollama", progress: 0 });
+    try {
+      ollamaProcess = await getSubprocess().call({ command: executable, arguments: [...arguments_, "serve"] });
+    }
+    catch (error) {
+      Zotero.launchURL?.(OLLAMA_DOWNLOAD_URL);
+      throw new Error(`Could not launch Ollama with “${configuredCommand(command).join(" ")} serve”. The Ollama download page has been opened. ${error.message || error}`);
+    }
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (await isOllamaReady()) {
+        callback?.({ operation: "runtime", stage: "done", model: "Ollama", progress: 100 });
+        return;
+      }
+      await Zotero.Promise.delay(250);
+    }
+    throw new Error("Ollama started but did not become ready. Check its local logs and GPU drivers.");
+  }
+
+  function modelDirectory() {
+    if (!cacheDir) init();
+    return PathUtils.join(cacheDir, "models");
+  }
+
+  async function downloadToFile(url, destination, callback, model, file) {
+    await IOUtils.makeDirectory(PathUtils.parent(destination), { ignoreExisting: true });
+    const temporary = destination + ".part";
+    await IOUtils.remove(temporary, { ignoreAbsent: true });
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`Download failed (${response.status}) for ${url}`);
     const total = Number(response.headers.get("content-length")) || 0;
@@ -94,449 +131,94 @@ var FastKeySentenceModels = (() => {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        if (value?.length) {
-          chunks.push(value);
-          loaded += value.length;
-          formatDownloadEvent(callback, label, PathUtils.filename(destination), loaded, total);
-        }
+        if (!value?.length) continue;
+        chunks.push(value);
+        loaded += value.length;
+        callback?.({ operation: "model-download", stage: "download", model, file, loaded, total, progress: total ? 100 * loaded / total : null });
       }
     }
     else {
       const bytes = new Uint8Array(await response.arrayBuffer());
       chunks.push(bytes);
       loaded = bytes.length;
-      formatDownloadEvent(callback, label, PathUtils.filename(destination), loaded, total || loaded);
     }
-    const size = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    const bytes = new Uint8Array(size);
+    const bytes = new Uint8Array(loaded);
     let offset = 0;
     for (const chunk of chunks) {
       bytes.set(chunk, offset);
       offset += chunk.length;
     }
-    if (!bytes.length) throw new Error(`Downloaded an empty file from ${url}`);
-    await IOUtils.write(temp, bytes);
-    await IOUtils.move(temp, destination, { noOverwrite: false });
-    formatDownloadEvent(callback, label, PathUtils.filename(destination), bytes.length, total || bytes.length, "done");
+    if (!bytes.length) throw new Error(`Downloaded an empty model file from ${url}`);
+    await IOUtils.write(temporary, bytes);
+    await IOUtils.move(temporary, destination, { noOverwrite: false });
+    callback?.({ operation: "model-download", stage: "done", model, file, loaded, total: total || loaded, progress: 100 });
     return destination;
   }
 
-  async function ensureRuntimeDownloaded(callback, force = false) {
-    if (!runtimeFile) init({});
-    if (!force && await IOUtils.exists(runtimeFile)) return runtimeFile;
-    callback?.({ operation: "runtime", stage: "initiate", model: "Transformers.js", progress: 0 });
-    return downloadToFile(RUNTIME_URL + "/dist/transformers.min.js", runtimeFile, callback, "Transformers.js");
+  async function resolveGGUF(repository, preference) {
+    const response = await fetch(`https://huggingface.co/api/models/${repository}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Could not read ${repository} (${response.status}).`);
+    const manifest = await response.json();
+    const files = (manifest.siblings || []).map(item => item.rfilename || item.path || "").filter(name => name.endsWith(".gguf"));
+    const file = files.find(name => preference.test(name)) || files[0];
+    if (!file) throw new Error(`No GGUF file was found in ${repository}.`);
+    return { file, revision: manifest.sha || "main" };
   }
 
-  async function ensureWasmDownloaded(callback, force = false) {
-    if (!cacheDir) init({});
-    const destination = PathUtils.join(cacheDir, "runtime", WASM_FILENAME);
-    if (!force && await IOUtils.exists(destination)) return destination;
-    callback?.({ operation: "runtime", stage: "initiate", model: "ONNX Runtime WASM", file: WASM_FILENAME, progress: 0 });
-    return downloadToFile(`${RUNTIME_URL}/dist/${WASM_FILENAME}`, destination, callback, "ONNX Runtime WASM");
-  }
-
-  function requestURL(request) {
-    if (typeof request === "string") return request;
-    return request?.url || String(request || "");
-  }
-
-  function modelFileFromURL(url) {
-    for (const name of Object.values(MODELS).flatMap(group => Object.values(group))) {
-      const encoded = name.split("/").map(encodeURIComponent).join("/");
-      for (const id of [name, encoded]) {
-        const marker = `/${id}/resolve/`;
-        const index = url.indexOf(marker);
-        if (index < 0) continue;
-        const tail = url.slice(index + marker.length);
-        const slash = tail.indexOf("/");
-        if (slash < 0) continue;
-        const file = decodeURIComponent(tail.slice(slash + 1).split(/[?#]/)[0]);
-        return { name, file };
-      }
-    }
-    return null;
-  }
-
-  function createLocalModelCache(hostWindow) {
-    return {
-      async match(request) {
-        const parsed = modelFileFromURL(requestURL(request));
-        if (!parsed) return undefined;
-        const path = PathUtils.join(cacheDir, "models", ...parsed.name.split("/"), ...parsed.file.split("/"));
-        if (!await IOUtils.exists(path)) return undefined;
-        const bytes = await IOUtils.read(path);
-        return new hostWindow.Response(bytes, {
-          status: 200,
-          headers: {
-            "content-type": parsed.file.endsWith(".json") ? "application/json" : "application/octet-stream",
-            "content-length": String(bytes.byteLength)
-          }
-        });
-      },
-      async put() {
-        // Downloads are managed explicitly by Update models.
-      }
-    };
-  }
-
-  function getHostModule(hostWindow) {
-    try {
-      return hostWindow?.FastKeySentenceTransformers
-        || hostWindow?.wrappedJSObject?.FastKeySentenceTransformers
-        || null;
-    }
-    catch (_) {
-      return null;
-    }
-  }
-
-  async function createModuleHost(callback) {
-    const runtimePath = await ensureRuntimeDownloaded(callback, false);
-    const owner = Zotero.getMainWindow?.();
-    if (!owner?.document) throw new Error("No Zotero main window is available for transformer inference.");
-
-    const doc = owner.document;
-    const HTML_NS = "http://www.w3.org/1999/xhtml";
-    hostFrame = doc.getElementById("fast-key-sentence-transformer-host");
-    if (!hostFrame) {
-      hostFrame = doc.createElementNS(HTML_NS, "iframe");
-      hostFrame.id = "fast-key-sentence-transformer-host";
-      hostFrame.setAttribute("aria-hidden", "true");
-      hostFrame.style.cssText = "position:fixed;width:1px;height:1px;left:-10000px;top:-10000px;border:0;visibility:hidden;pointer-events:none";
-      hostFrame.src = "about:blank";
-      doc.documentElement.appendChild(hostFrame);
-      await new Promise(resolve => owner.setTimeout(resolve, 0));
-    }
-
-    const hostWindow = hostFrame.contentWindow;
-    const hostDocument = hostFrame.contentDocument;
-    if (!hostWindow || !hostDocument) throw new Error("Could not create the transformer module context.");
-    const existing = getHostModule(hostWindow);
-    if (existing) return existing;
-
-    callback?.({ operation: "runtime", stage: "runtime", model: "Transformers.js", progress: 0 });
-    const sourceBytes = await IOUtils.read(runtimePath);
-    const source = new TextDecoder().decode(sourceBytes);
-    const runtimeBlobURL = hostWindow.URL.createObjectURL(new hostWindow.Blob([source], { type: "text/javascript" }));
-    const wrapper = `
-      try {
-        const Transformers = await import(${JSON.stringify(runtimeBlobURL)});
-        globalThis.FastKeySentenceTransformers = Transformers;
-        globalThis.dispatchEvent(new CustomEvent("fast-key-sentence-transformers-ready"));
-      }
-      catch (error) {
-        const detail = errorDetail(error);
-        globalThis.dispatchEvent(new CustomEvent("fast-key-sentence-transformers-error", { detail }));
-        globalThis.console?.error?.("Transformers.js runtime failed to load:", detail);
-      }
-    `;
-    const wrapperURL = hostWindow.URL.createObjectURL(new hostWindow.Blob([wrapper], { type: "text/javascript" }));
-
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const cleanup = () => {
-        hostWindow.removeEventListener("fast-key-sentence-transformers-ready", onReady);
-        hostWindow.removeEventListener("fast-key-sentence-transformers-error", onError);
-        hostWindow.URL.revokeObjectURL(wrapperURL);
-      };
-      const fail = error => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        hostWindow.URL.revokeObjectURL(runtimeBlobURL);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      };
-      const onReady = () => {
-        if (settled) return;
-        const mod = getHostModule(hostWindow);
-        if (!mod?.pipeline || !mod?.env) return fail(new Error("The local Transformers.js runtime is incomplete."));
-        settled = true;
-        cleanup();
-        callback?.({ operation: "runtime", stage: "runtime", model: "Transformers.js", progress: 100 });
-        resolve(mod);
-      };
-      const onError = event => fail(new Error(event?.detail || "The local Transformers.js runtime failed to load."));
-      hostWindow.addEventListener("fast-key-sentence-transformers-ready", onReady);
-      hostWindow.addEventListener("fast-key-sentence-transformers-error", onError);
-      const script = hostDocument.createElementNS(HTML_NS, "script");
-      script.type = "module";
-      script.src = wrapperURL;
-      script.addEventListener("error", () => fail(new Error("The local transformer module could not be executed.")), { once: true });
-      (hostDocument.head || hostDocument.documentElement).appendChild(script);
-      owner.setTimeout(() => fail(new Error("Transformer runtime initialization timed out.")), 120000);
+  async function createModel(name, ggufPath, callback) {
+    callback?.({ operation: "model-import", stage: "initiate", model: name, progress: 0 });
+    const bytes = await IOUtils.read(ggufPath);
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
+      .map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const blobResponse = await fetch(`${OLLAMA_URL}/api/blobs/sha256:${digest}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: bytes
     });
-  }
-
-  async function cachedModelResponse(url) {
-    const parsed = modelFileFromURL(url);
-    if (!parsed) return null;
-    const path = PathUtils.join(cacheDir, "models", ...parsed.name.split("/"), ...parsed.file.split("/"));
-    if (!await IOUtils.exists(path)) return null;
-    const bytes = await IOUtils.read(path);
-    return {
-      bytes: bytes.slice().buffer,
-      contentType: parsed.file.endsWith(".json") ? "application/json" : "application/octet-stream"
-    };
-  }
-
-  function supportsWorker() {
-    const owner = Zotero.getMainWindow?.();
-    return Boolean(rootURI && owner?.Worker);
-  }
-
-  async function createInferenceWorker(callback) {
-    const owner = Zotero.getMainWindow?.();
-    if (!owner?.Worker) throw new Error("This Zotero build does not support dedicated inference workers.");
-    const [runtimePath, wasmPath] = await Promise.all([
-      ensureRuntimeDownloaded(callback, false),
-      ensureWasmDownloaded(callback, false)
-    ]);
-    const [runtimeBytes, wasmBytes, workerResponse] = await Promise.all([
-      IOUtils.read(runtimePath),
-      IOUtils.read(wasmPath),
-      fetch(rootURI + "content/model-worker.mjs", { cache: "no-store" })
-    ]);
-    if (!workerResponse.ok) throw new Error(`Could not load inference worker (${workerResponse.status}).`);
-    const workerSource = await workerResponse.text();
-    const BlobCtor = owner.Blob || Blob;
-    const URLApi = owner.URL || URL;
-    workerScriptURL = URLApi.createObjectURL(new BlobCtor([workerSource], { type: "text/javascript" }));
-    const instance = new owner.Worker(workerScriptURL, { type: "module" });
-    worker = instance;
-    return new Promise((resolve, reject) => {
-      const fail = error => {
-        instance.terminate();
-        if (worker === instance) worker = null;
-        if (workerScriptURL) URLApi.revokeObjectURL(workerScriptURL);
-        workerScriptURL = null;
-        reject(error instanceof Error ? error : new Error(String(error)));
-      };
-      instance.onmessage = async event => {
-        const message = event.data || {};
-        if (message.type === "ready") return resolve(instance);
-        if (message.type === "init-error") return fail(new Error(message.error));
-        if (message.type === "cache-read") {
-          try {
-            const cached = await cachedModelResponse(message.url);
-            const transfer = cached?.bytes ? [cached.bytes] : [];
-            instance.postMessage({ type: "cache-result", id: message.id, cached }, transfer);
-          }
-          catch (error) {
-            log(`Worker cache read failed: ${errorDetail(error)}`);
-            instance.postMessage({ type: "cache-result", id: message.id, cached: null });
-          }
-          return;
-        }
-        const pending = workerRequests.get(message.requestId);
-        if (!pending) return;
-        if (message.type === "progress") return pending.callback?.(message);
-        workerRequests.delete(message.requestId);
-        if (message.type === "result") pending.resolve(message.result);
-        else pending.reject(new Error(message.error || "Inference worker failed."));
-      };
-      instance.onerror = event => fail(new Error(event.message || "Inference worker failed to start."));
-      instance.postMessage({
-        type: "init",
-        runtimeBytes: runtimeBytes.slice().buffer,
-        wasmBytes: wasmBytes.slice().buffer
-      });
-    });
-  }
-
-  async function inferenceWorker(callback) {
-    if (!supportsWorker()) return null;
-    if (!workerPromise) {
-      workerPromise = createInferenceWorker(callback).catch(error => {
-        workerPromise = null;
-        logRuntimeError(error);
-        throw error;
-      });
-    }
-    return workerPromise;
-  }
-
-  async function runInWorker(operation, payload, callback) {
-    const instance = await inferenceWorker(callback);
-    if (!instance) return null;
-    const requestId = nextWorkerRequest++;
-    return new Promise((resolve, reject) => {
-      workerRequests.set(requestId, { resolve, reject, callback });
-      instance.postMessage({ type: "infer", requestId, operation, ...payload });
-    });
-  }
-
-  async function runtime(callback) {
-    if (!runtimePromise) {
-      if (!hostPromise) hostPromise = createModuleHost(callback);
-      runtimePromise = hostPromise.then(async mod => {
-        if (!mod?.pipeline || !mod?.env) {
-          throw new Error("The downloaded Transformers.js module is incomplete.");
-        }
-        const hostWindow = hostFrame?.contentWindow;
-        if (!hostWindow) throw new Error("The transformer host window is unavailable.");
-
-        // Resolve every model request from the files downloaded by Update models.
-        // Remote access stays enabled only so Transformers.js constructs the
-        // canonical Hub URL used as the custom-cache key; cache misses fail
-        // before inference with a clear error instead of silently re-downloading.
-        mod.env.allowRemoteModels = true;
-        mod.env.allowLocalModels = false;
-        mod.env.useBrowserCache = false;
-        mod.env.useCustomCache = true;
-        mod.env.customCache = createLocalModelCache(hostWindow);
-
-        if (mod.env.backends?.onnx?.wasm) {
-          const wasmPath = PathUtils.join(cacheDir, "runtime", WASM_FILENAME);
-          if (!await IOUtils.exists(wasmPath)) {
-            throw new Error("ONNX Runtime WASM is missing. Use Update models first.");
-          }
-          const wasmBytes = await IOUtils.read(wasmPath);
-          if (wasmBlobURL) hostWindow.URL.revokeObjectURL(wasmBlobURL);
-          wasmBlobURL = hostWindow.URL.createObjectURL(
-            new hostWindow.Blob([wasmBytes], { type: "application/wasm" })
-          );
-          mod.env.backends.onnx.wasm.wasmPaths = { wasm: wasmBlobURL };
-          mod.env.backends.onnx.wasm.numThreads = 1;
-          mod.env.backends.onnx.wasm.proxy = false;
-        }
-        return mod;
-      }).catch(error => {
-        runtimePromise = null;
-        hostPromise = null;
-        logRuntimeError(error);
-        throw new Error(
-          "Could not initialize the locally downloaded Transformers.js runtime. "
-          + errorDetail(error)
-        );
-      });
-    }
-    return runtimePromise;
-  }
-
-  function modelName(kind, multilingual) {
-    return MODELS[kind][multilingual ? "multilingual" : "en"];
-  }
-
-  function report(callback, model, event) {
-    if (!callback || !event) return;
-    const progress = Number(event.progress);
-    const loaded = Number(event.loaded);
-    const total = Number(event.total);
-    callback({
-      stage: event.status || event.stage || "loading",
-      model,
-      file: event.file || event.name || "",
-      progress: Number.isFinite(progress) ? progress : null,
-      loaded: Number.isFinite(loaded) ? loaded : 0,
-      total: Number.isFinite(total) ? total : 0
-    });
-  }
-
-  function modelDtype(name) {
-    return name === modelName("summarization", false) ? "int8" : DTYPE;
-  }
-
-  function inferenceOptions(name, callback) {
-    return {
-      dtype: modelDtype(name),
-      progress_callback: event => report(callback, name, event)
-    };
-  }
-
-  async function getPipeline(task, kind, multilingual, callback) {
-    const name = modelName(kind, multilingual);
-    const mod = await runtime(callback);
-    const key = `pipeline:${task}:${name}:${modelDtype(name)}:wasm`;
-    if (!objectCache.has(key)) {
-      const pending = mod.pipeline(task, name, inferenceOptions(name, callback))
-        .catch(error => {
-          objectCache.delete(key);
-          log(`Pipeline failed for ${name}: ${errorDetail(error)}`);
-          throw new Error(`Could not load ${name}: ${error?.message || error}`);
-        });
-      objectCache.set(key, pending);
-    }
-    return objectCache.get(key);
-  }
-
-  async function embeddings(texts, multilingual, callback) {
-    if (!texts.length) return [];
-    const name = modelName("embeddings", multilingual);
-    const workerResult = await runInWorker("embeddings", {
-      texts,
-      multilingual,
+    if (!blobResponse.ok) throw new Error(`Ollama rejected ${PathUtils.filename(ggufPath)} (${blobResponse.status}).`);
+    await ollamaRequest("/api/create", {
       model: name,
-      dtype: modelDtype(name)
-    }, callback);
-    if (workerResult) return workerResult;
-    const extractor = await getPipeline("feature-extraction", "embeddings", multilingual, callback);
-    const vectors = [];
-    const batchSize = multilingual ? 10 : 24;
-
-    for (let start = 0; start < texts.length; start += batchSize) {
-      let batch = texts.slice(start, start + batchSize);
-      if (multilingual) batch = batch.map(text => `passage: ${text}`);
-      let output;
-      try {
-        output = await extractor(batch, {
-          pooling: "mean",
-          normalize: true
-        });
-      }
-      catch (error) {
-        log(`Inference call failed in embeddings batch ${start / batchSize}: ${errorDetail(error)}`);
-        throw error;
-      }
-      const rows = output.tolist();
-      if (batch.length === 1 && typeof rows[0] === "number") vectors.push(rows);
-      else vectors.push(...rows);
-      callback?.({
-        stage: "inference",
-        model: modelName("embeddings", multilingual),
-        progress: 100 * Math.min(1, (start + batch.length) / texts.length)
-      });
-      await Zotero.Promise.delay(0);
-    }
-    return vectors;
+      files: { [PathUtils.filename(ggufPath)]: `sha256:${digest}` },
+      stream: false
+    });
+    callback?.({ operation: "model-import", stage: "done", model: name, progress: 100 });
   }
 
-  const ROLE_LABELS = [
-    "background context, related work, or prior art",
-    "method, approach, algorithm, architecture, or experimental design",
-    "main contribution, novel proposal, or key innovation",
-    "empirical result, quantitative finding, accuracy, or performance measurement",
-    "conclusion, takeaway, key insight, or summary of findings",
-    "research objective, aim, goal, or research question"
-  ];
-  const ROLE_MAP = Object.freeze({
-    "background context, related work, or prior art": "background",
-    "method, approach, algorithm, architecture, or experimental design": "method",
-    "main contribution, novel proposal, or key innovation": "contribution",
-    "empirical result, quantitative finding, accuracy, or performance measurement": "result",
-    "conclusion, takeaway, key insight, or summary of findings": "takeaway",
-    "research objective, aim, goal, or research question": "goal"
-  });
+  async function provisionModel(name, repository, preference, contextWindow, callback) {
+    const { file, revision } = await resolveGGUF(repository, preference);
+    const destination = PathUtils.join(modelDirectory(), name, file);
+    if (!await IOUtils.exists(destination)) {
+      await downloadToFile(`https://huggingface.co/${repository}/resolve/${revision}/${file}`, destination, callback, name, file);
+    }
+    await createModel(name, destination, callback);
+    await IOUtils.writeJSON(PathUtils.join(modelDirectory(), name, "download-manifest.json"), {
+      name, repository, revision, file, downloadedAt: new Date().toISOString()
+    });
+  }
 
-  const DEFAULT_CONTEXT_WINDOW = 4096;
-  const MIN_CONTEXT_WINDOW = 256;
+  async function updateModels(settings, callback) {
+    const contextWindow = validContextWindow(settings.mapReduceInputTokens);
+    await ensureOllama(callback, settings.ollamaCommand);
+    await provisionModel(SUMMARY_MODEL, SUMMARY_REPOSITORY, /q4[_-]k[_-]m/i, contextWindow, callback);
+    await provisionModel(EMBEDDING_MODEL, EMBEDDING_REPOSITORY, /q8[_-]0/i, contextWindow, callback);
+    callback?.({ operation: "all", stage: "complete", model: "Ollama models", progress: 100 });
+    return true;
+  }
+
+  function validContextWindow(value) {
+    const number = Number(value);
+    return Number.isInteger(number) && number >= MIN_CONTEXT_WINDOW ? number : DEFAULT_CONTEXT_WINDOW;
+  }
 
   function contextBudget(contextWindow) {
-    const window = Number.isInteger(contextWindow) && contextWindow >= MIN_CONTEXT_WINDOW
-      ? contextWindow
-      : DEFAULT_CONTEXT_WINDOW;
+    const window = validContextWindow(contextWindow);
     const reserve = Math.max(128, Math.min(512, Math.floor(window / 2)));
-    return {
-      input: Math.max(1, window - reserve),
-      output: Math.max(32, Math.min(240, reserve - 80))
-    };
+    return { input: Math.max(1, window - reserve), output: Math.max(32, Math.min(240, reserve - 80)) };
   }
 
   function estimateTokens(text) {
     const units = String(text || "").match(/[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu) || [];
-    return units.reduce((total, unit) => total + (/^[\p{L}\p{N}]+$/u.test(unit)
-      ? Math.max(1, Math.ceil(unit.length / 3))
-      : 1), 0);
+    return units.reduce((total, unit) => total + (/^[\p{L}\p{N}]+$/u.test(unit) ? Math.max(1, Math.ceil(unit.length / 3)) : 1), 0);
   }
 
   function overlapTail(text, targetTokens) {
@@ -555,267 +237,90 @@ var FastKeySentenceModels = (() => {
     let chunk = "";
     let tokens = 0;
     for (const part of String(text || "").match(/[^.!?]+[.!?]*|.+$/g) || []) {
-      const words = part.match(/\S+\s*/g) || [];
-      for (const word of words) {
+      for (const word of part.match(/\S+\s*/g) || []) {
         const wordTokens = estimateTokens(word);
         if (chunk && tokens + wordTokens > limit) {
           chunks.push(chunk.trim());
-          chunk = overlap > 0 ? overlapTail(chunk, Math.max(1, Math.floor(limit * overlap))) : "";
+          chunk = overlap ? overlapTail(chunk, Math.max(1, Math.floor(limit * overlap))) : "";
           tokens = estimateTokens(chunk);
         }
-        if (wordTokens > limit) {
-          for (let start = 0; start < word.length; start += limit * 2) chunks.push(word.slice(start, start + limit * 2));
-        }
-        else {
-          chunk += word;
-          tokens += wordTokens;
-        }
+        chunk += word;
+        tokens += wordTokens;
       }
     }
     if (chunk.trim()) chunks.push(chunk.trim());
     return chunks;
   }
 
-  async function generateSummary(text, callback, { summaryUpToThisPoint = "", sentenceCount = 10, maxNewTokens = 240 } = {}) {
-    const prompt = [
-      "<|im_start|>system",
-      "You are a research assistant. Write a precise, factual academic-article summary without filler.",
-      "<|im_end|>",
-      "<|im_start|>user",
-      summaryUpToThisPoint
-        ? `Here is a summary of the first part of an article: ${summaryUpToThisPoint}\n\nCreate a summary of this next part of the same article. Use ${sentenceCount} sentences.\n\nHere is the next part:\n${text}`
-        : `Create a summary of this article. Use ${sentenceCount} sentences.\n\nHere is the first part:\n${text}`,
-      "<|im_end|>",
-      "<|im_start|>assistant"
-    ].join("\n");
-    const name = modelName("summarization", false);
-    const workerOutput = await runInWorker("generate", {
-      model: name,
-      dtype: modelDtype(name),
+  async function generateSummary(text, callback, { summaryUpToThisPoint = "", sentenceCount = 10, maxNewTokens = 240, contextWindow } = {}) {
+    const prompt = summaryUpToThisPoint
+      ? `Here is a summary of the first part of an article: ${summaryUpToThisPoint}\n\nCreate a summary of this next part of the same article. Use ${sentenceCount} sentences.\n\nHere is the next part:\n${text}`
+      : `Create a precise, factual academic-article summary without filler. Use ${sentenceCount} sentences.\n\nHere is the first part:\n${text}`;
+    callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 0 });
+    const result = await ollamaRequest("/api/generate", {
+      model: SUMMARY_MODEL,
       prompt,
-      maxNewTokens
-    }, callback);
-    const generator = workerOutput ? null : await getPipeline("text-generation", "summarization", false, callback);
-    const output = workerOutput || await generator(prompt, {
-      max_new_tokens: maxNewTokens,
-      do_sample: false,
-      return_full_text: false
+      system: "You are a research assistant.",
+      stream: false,
+      keep_alive: "5m",
+      options: { temperature: 0, num_predict: maxNewTokens, num_ctx: validContextWindow(contextWindow) }
     });
-    const generated = Array.isArray(output) ? output[0]?.generated_text : output?.generated_text;
-    return String(generated || "").replace(prompt, "").replace(/\s+/g, " ").trim();
+    callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 100 });
+    return String(result.response || "").replace(/\s+/g, " ").trim();
   }
 
   async function summarize(text, callback, { mapReduce = false, contextWindow = DEFAULT_CONTEXT_WINDOW, sentenceCount = 10 } = {}) {
     if (!text) return "";
-    const name = modelName("summarization", false);
-    const manifestPath = PathUtils.join(cacheDir || PathUtils.join(PathUtils.profileDir, "fast-key-sentence-annotator"), "models", ...name.split("/"), "download-manifest.json");
-    if (!await IOUtils.exists(manifestPath)) {
-      throw new Error("Download/update the model first.");
-    }
-
+    await ensureOllama(callback);
     const budget = contextBudget(contextWindow);
     const totalSentences = Math.max(1, Math.round(Number(sentenceCount) || 10));
     const chunks = splitByTokenLimit(text, budget.input, mapReduce ? 0.05 : 0);
     if (!chunks.length) return "";
-    if (!mapReduce) return generateSummary(chunks[0], callback, {
-      sentenceCount: totalSentences,
-      maxNewTokens: budget.output
-    });
-
-    const mapSteps = Math.max(0, chunks.length - 1);
-    const mapSentences = Math.max(1, totalSentences - mapSteps);
+    if (!mapReduce) return generateSummary(chunks[0], callback, { sentenceCount: totalSentences, maxNewTokens: budget.output, contextWindow });
+    const mapSentences = Math.max(1, totalSentences - (chunks.length - 1));
     let summary = "";
     for (let index = 0; index < chunks.length; index++) {
-      const stage = index === 0 ? "mapping" : "reducing";
-      callback?.({ stage, model: modelName("summarization", false), completed: index, total: chunks.length, progress: 100 * index / chunks.length });
-      summary = await generateSummary(chunks[index], callback, {
-        summaryUpToThisPoint: summary,
-        sentenceCount: mapSentences,
-        maxNewTokens: budget.output
-      });
-      callback?.({ stage, model: modelName("summarization", false), completed: index + 1, total: chunks.length, progress: 100 * (index + 1) / chunks.length });
+      const stage = index ? "reducing" : "mapping";
+      callback?.({ stage, model: SUMMARY_MODEL, completed: index, total: chunks.length, progress: 100 * index / chunks.length });
+      summary = await generateSummary(chunks[index], callback, { summaryUpToThisPoint: summary, sentenceCount: mapSentences, maxNewTokens: budget.output, contextWindow });
+      callback?.({ stage, model: SUMMARY_MODEL, completed: index + 1, total: chunks.length, progress: 100 * (index + 1) / chunks.length });
     }
-    callback?.({ stage: "inference", model: modelName("summarization", false), progress: 100 });
     return summary;
   }
 
-  async function classify(texts, multilingual, callback, batchSize = 8) {
+  async function embeddings(texts, callback) {
     if (!texts.length) return [];
-    const name = modelName("classification", multilingual);
-    const workerOutput = await runInWorker("classification", {
-      texts,
-      multilingual,
-      batchSize,
-      labels: ROLE_LABELS,
-      model: name,
-      dtype: modelDtype(name)
-    }, callback);
-    if (workerOutput) {
-      return workerOutput.map(prediction => {
-        const label = prediction?.labels?.[0] || "background context";
-        return { role: ROLE_MAP[label] || "background", score: Number(prediction?.scores?.[0]) || 0 };
-      });
-    }
-    const classifier = await getPipeline(
-      "zero-shot-classification",
-      "classification",
-      multilingual,
-      callback
-    );
-    const results = [];
-    const size = Math.max(1, Math.min(32, Math.floor(Number(batchSize) || 8)));
-    for (let start = 0; start < texts.length; start += size) {
-      const batch = texts.slice(start, start + size);
-      const output = await classifier(batch, ROLE_LABELS, {
-        multi_label: false,
-        hypothesis_template: "This sentence is about {}."
-      });
-      const predictions = Array.isArray(output) ? output : [output];
-      for (let i = 0; i < batch.length; i++) {
-        const prediction = predictions[i] || {};
-        const label = prediction.labels?.[0] || "background context";
-        results.push({
-          role: ROLE_MAP[label] || "background",
-          score: Number(prediction.scores?.[0]) || 0
-        });
-      }
-      callback?.({
-        stage: "inference",
-        model: modelName("classification", multilingual),
-        progress: 100 * Math.min(1, (start + batch.length) / texts.length)
-      });
-      await Zotero.Promise.delay(0);
-    }
-    return results;
-  }
-
-  function selectedModelNames(settings) {
-    const names = [];
-    if (settings.llmEmbeddings) names.push(modelName("embeddings", settings.multilingual));
-    if (settings.llmClassification) names.push(modelName("classification", settings.multilingual));
-    if (settings.summarySource === "local") names.push(modelName("summarization", false));
-    return [...new Set(names)];
-  }
-
-  function wantedModelFiles(siblings, dtype = DTYPE) {
-    const names = siblings.map(item => item.rfilename || item.path || "").filter(Boolean);
-    const rootFiles = new Set([
-      "config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json",
-      "added_tokens.json", "vocab.txt", "vocab.json", "merges.txt", "modules.json",
-      "sentence_bert_config.json", "sentencepiece.bpe.model", "tokenizer.model"
-    ]);
-    const selected = names.filter(name => rootFiles.has(name));
-    const q8 = names.filter(name => /^onnx\/.+_q8\.onnx$/i.test(name));
-    const int8 = names.filter(name => /^onnx\/.+_int8\.onnx$/i.test(name));
-    const legacyQ8 = names.filter(name => /^onnx\/model_quantized\.onnx$/i.test(name));
-    const seq2seqQ8 = names.filter(name => /^onnx\/.+_quantized\.onnx$/i.test(name));
-    const onnx = dtype === "int8"
-      ? int8
-      : q8.length ? q8 : legacyQ8.length ? legacyQ8 : seq2seqQ8;
-    if (!onnx.length) {
-      throw new Error("No quantized ONNX model was found in the selected Hugging Face repository.");
-    }
-    selected.push(...onnx);
-    return [...new Set(selected)];
-  }
-
-  async function fetchModelManifest(name) {
-    const url = `https://huggingface.co/api/models/${name}`;
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Could not read model manifest for ${name} (${response.status}).`);
-    return response.json();
-  }
-
-  async function downloadModelFiles(name, callback) {
-    const manifest = await fetchModelManifest(name);
-    const siblings = Array.isArray(manifest.siblings) ? manifest.siblings : [];
-    const files = wantedModelFiles(siblings, modelDtype(name));
-    const baseDir = PathUtils.join(cacheDir, "models", ...name.split("/"));
-    let completed = 0;
-    for (const file of files) {
-      const destination = PathUtils.join(baseDir, ...file.split("/"));
-      const source = `https://huggingface.co/${name}/resolve/main/${file}`;
-      callback?.({ operation: "model-download", stage: "initiate", model: name, file, progress: 100 * completed / files.length });
-      if (!await IOUtils.exists(destination)) {
-        await downloadToFile(source, destination, event => {
-          callback?.({ ...event, operation: "model-download", model: name, file });
-        }, name);
-      }
-      completed++;
-      callback?.({ operation: "model-download", stage: "file-complete", model: name, file, progress: 100 * completed / files.length });
-    }
-    const metadata = {
-      model: name,
-      dtype: modelDtype(name),
-      revision: manifest.sha || "main",
-      downloadedAt: new Date().toISOString(),
-      files
-    };
-    await IOUtils.writeJSON(PathUtils.join(baseDir, "download-manifest.json"), metadata);
-  }
-
-  async function updateModels(settings, callback, forceRuntime = false) {
-    const names = selectedModelNames(settings);
-    if (!names.length) throw new Error("Select at least one LLM stage before updating models.");
-    await ensureRuntimeDownloaded(callback, !!forceRuntime);
-    await ensureWasmDownloaded(callback, !!forceRuntime);
-    for (let i = 0; i < names.length; i++) {
-      await downloadModelFiles(names[i], event => callback?.({ ...event, modelIndex: i, modelCount: names.length }));
-    }
-    callback?.({
-      operation: "all",
-      stage: "complete",
-      model: "Selected models",
-      progress: 100,
-      inferenceAvailable: IN_PROCESS_INFERENCE_ENABLED
-    });
-    return true;
+    await ensureOllama(callback);
+    callback?.({ stage: "inference", model: EMBEDDING_MODEL, progress: 0 });
+    const result = await ollamaRequest("/api/embed", { model: EMBEDDING_MODEL, input: texts, keep_alive: "5m" });
+    const vectors = Array.isArray(result.embeddings) ? result.embeddings.map(vector => vector.map(Number)) : [];
+    if (vectors.length !== texts.length) throw new Error("Ollama returned an incomplete embedding response.");
+    callback?.({ stage: "inference", model: EMBEDDING_MODEL, progress: 100 });
+    return vectors;
   }
 
   function supportsInference() {
-    return IN_PROCESS_INFERENCE_ENABLED;
+    return true;
   }
 
   function shutdown() {
-    for (const pending of workerRequests.values()) pending.reject(new Error("Inference worker shut down."));
-    workerRequests.clear();
-    worker?.terminate();
-    worker = null;
-    if (workerScriptURL) {
-      const owner = Zotero.getMainWindow?.();
-      (owner?.URL || URL).revokeObjectURL(workerScriptURL);
-    }
-    workerScriptURL = null;
-    workerPromise = null;
-    for (const value of objectCache.values()) {
-      Promise.resolve(value).then(object => object?.dispose?.()).catch(() => {});
-    }
-    objectCache.clear();
-    if (wasmBlobURL && hostFrame?.contentWindow) {
-      try { hostFrame.contentWindow.URL.revokeObjectURL(wasmBlobURL); } catch (_) {}
-    }
-    wasmBlobURL = null;
-    logFile = null;
-    hostFrame?.remove();
-    hostFrame = null;
-    hostPromise = null;
-    runtimePromise = null;
+    try { ollamaProcess?.kill?.(); } catch (_) {}
+    ollamaProcess = null;
   }
 
   return {
-    MODELS,
-    TRANSFORMERS_VERSION,
-    DTYPE,
+    SUMMARY_MODEL,
+    EMBEDDING_MODEL,
+    OLLAMA_URL,
     init,
     shutdown,
-    embeddings,
     summarize,
-    classify,
+    embeddings,
     updateModels,
-    ensureRuntimeDownloaded,
-    modelName,
     supportsInference,
     log,
-    appendToLog
+    appendToLog,
+    estimateTokens,
+    splitByTokenLimit
   };
 })();

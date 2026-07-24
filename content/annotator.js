@@ -109,10 +109,8 @@ FastOfflineKeySentenceAnnotator = {
     perPage: 1.9,
     minimum: 12,
     maximum: 80,
-    llmEmbeddings: false,
-    llmClassification: false,
-    classificationBatchSize: 8,
-    multilingual: false,
+    localRelevance: false,
+    ollamaCommand: "ollama",
     remoteEndpoint: "",
     remoteApiKey: "",
     remoteModel: "",
@@ -130,10 +128,8 @@ FastOfflineKeySentenceAnnotator = {
       perPage: Number.isFinite(perPage) ? perPage : defaults.perPage,
       minimum: Number.isInteger(minimum) ? minimum : defaults.minimum,
       maximum: Number.isInteger(maximum) ? maximum : defaults.maximum,
-      llmEmbeddings: Zotero.Prefs.get(this.prefBranch + "llmEmbeddings", true) ?? defaults.llmEmbeddings,
-      llmClassification: Zotero.Prefs.get(this.prefBranch + "llmClassification", true) ?? defaults.llmClassification,
-      classificationBatchSize: Number(Zotero.Prefs.get(this.prefBranch + "classificationBatchSize", true)) || defaults.classificationBatchSize,
-      multilingual: Zotero.Prefs.get(this.prefBranch + "multilingual", true) ?? defaults.multilingual,
+      localRelevance: Zotero.Prefs.get(this.prefBranch + "localRelevance", true) ?? defaults.localRelevance,
+      ollamaCommand: Zotero.Prefs.get(this.prefBranch + "ollamaCommand", true) || defaults.ollamaCommand,
       remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
       remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel,
@@ -141,9 +137,7 @@ FastOfflineKeySentenceAnnotator = {
       mapReduce: Zotero.Prefs.get(this.prefBranch + "mapReduce", true) ?? defaults.mapReduce,
       mapReduceInputTokens: Number(Zotero.Prefs.get(this.prefBranch + "mapReduceInputTokens", true)) || defaults.mapReduceInputTokens
     };
-    settings.llmEmbeddings = settings.llmEmbeddings === true;
-    settings.llmClassification = settings.llmClassification === true;
-    settings.multilingual = settings.multilingual === true;
+    settings.localRelevance = settings.localRelevance === true;
     settings.mapReduce = settings.mapReduce === true;
     settings.summarySource = settings.summarySource === "local" ? "local" : "remote";
     return this.isValidSettings(settings) ? settings : { ...defaults };
@@ -163,12 +157,11 @@ FastOfflineKeySentenceAnnotator = {
 
   isValidSettings(settings) {
     return this.isValidDensity(settings)
-      && Number.isInteger(settings.classificationBatchSize)
-      && settings.classificationBatchSize >= 1
-      && settings.classificationBatchSize <= 32
-      && ["llmEmbeddings", "llmClassification", "multilingual", "mapReduce"]
+      && ["localRelevance", "mapReduce"]
         .every(key => typeof settings[key] === "boolean")
       && ["local", "remote"].includes(settings.summarySource)
+      && typeof settings.ollamaCommand === "string"
+      && settings.ollamaCommand.trim().length > 0
       && Number.isInteger(settings.mapReduceInputTokens)
       && settings.mapReduceInputTokens >= 256
       && settings.mapReduceInputTokens <= 131072
@@ -181,10 +174,8 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "annotationsPerPage", settings.perPage, true);
     Zotero.Prefs.set(this.prefBranch + "minimumAnnotations", settings.minimum, true);
     Zotero.Prefs.set(this.prefBranch + "maximumAnnotations", settings.maximum, true);
-    Zotero.Prefs.set(this.prefBranch + "llmEmbeddings", settings.llmEmbeddings, true);
-    Zotero.Prefs.set(this.prefBranch + "llmClassification", settings.llmClassification, true);
-    Zotero.Prefs.set(this.prefBranch + "classificationBatchSize", settings.classificationBatchSize, true);
-    Zotero.Prefs.set(this.prefBranch + "multilingual", settings.multilingual, true);
+    Zotero.Prefs.set(this.prefBranch + "localRelevance", settings.localRelevance, true);
+    Zotero.Prefs.set(this.prefBranch + "ollamaCommand", (settings.ollamaCommand || this.settingsDefaults.ollamaCommand).trim(), true);
     Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteModel", settings.remoteModel || "", true);
@@ -311,11 +302,9 @@ FastOfflineKeySentenceAnnotator = {
     density.appendChild(densityGrid);
     form.appendChild(density);
 
-    const stages = makeFieldset("Optional transformer stages");
+    const stages = makeFieldset("Local Ollama relevance");
     const options = [
-      ["llm-embeddings", "LLM embeddings", "Use semantic sentence vectors instead of TF-IDF for ranking and MMR diversity.", initialSettings.llmEmbeddings],
-      ["llm-classification", "LLM classification", "Classify selected sentences by scholarly discourse role.", initialSettings.llmClassification],
-      ["multilingual", "Multilingual", "Use multilingual alternatives for enabled stages.", initialSettings.multilingual]
+      ["local-relevance", "Semantic relevance", "Compare sentences with the paper summary and configured scholarly keyword sections using local Ollama embeddings.", initialSettings.localRelevance]
     ];
     const checks = {};
     for (const [id, labelText, helpText, checked] of options) {
@@ -339,24 +328,19 @@ FastOfflineKeySentenceAnnotator = {
       row.append(check, label, help);
       stages.appendChild(row);
     }
-    const batchSizeRow = create("div", {
-      style: "display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 10px 18px; align-items: center; margin: 0 0 12px"
+    const ollamaCommandInput = create("input", {
+      id: "ollama-command",
+      type: "text",
+      value: initialSettings.ollamaCommand,
+      placeholder: "ollama",
+      style: "width: 100%; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
     });
-    const batchSizeInput = create("input", {
-      id: "classification-batch-size",
-      type: "number",
-      value: String(initialSettings.classificationBatchSize),
-      min: "1",
-      max: "32",
-      step: "1",
-      style: "width: 72px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
-    });
-    batchSizeRow.append(
-      create("label", { htmlFor: "classification-batch-size" }, "Classification batch size"),
-      batchSizeInput
+    inputs["ollama-command"] = ollamaCommandInput;
+    stages.append(
+      create("label", { htmlFor: "ollama-command", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Ollama command"),
+      ollamaCommandInput,
+      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Default: ollama. For mise, use: mise exec -- ollama")
     );
-    inputs["classification-batch-size"] = batchSizeInput;
-    stages.appendChild(batchSizeRow);
     form.appendChild(stages);
 
     const remoteConfig = makeFieldset("Summarization");
@@ -369,7 +353,7 @@ FastOfflineKeySentenceAnnotator = {
     });
     summarySource.append(
       create("option", { value: "remote" }, "Remote API"),
-      create("option", { value: "local" }, "Local Qwen")
+      create("option", { value: "local" }, "Local Ollama")
     );
     summarySource.value = initialSettings.summarySource;
     inputs["summary-source"] = summarySource;
@@ -431,7 +415,7 @@ FastOfflineKeySentenceAnnotator = {
     remoteConfig.appendChild(mapReduceRow);
     remoteConfig.appendChild(create("p", {
       style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Local Qwen uses onnx-community/Qwen2.5-0.5B-Instruct with its int8 ONNX model; select Local Qwen, then use Update models before summarizing. Remote mode uses any OpenAI compatible API. Map-reduce and the context window apply to both sources; token counts are conservatively estimated locally."));
+    }, "Local Ollama uses imported Qwen2.5 GGUF for summaries and Qwen3 embeddings for semantic relevance. Install Ollama first, then download Ollama models. Remote mode uses any OpenAI compatible API. Map-reduce and the context window apply to both sources."));
     form.appendChild(remoteConfig);
 
     const error = create("p", {
@@ -464,7 +448,7 @@ FastOfflineKeySentenceAnnotator = {
     const updateModelsButton = create("button", {
       type: "button",
       style: buttonStyle
-    }, "Update models");
+    }, "Download Ollama models");
     const summarizeButton = create("button", {
       type: "button",
       style: buttonStyle
@@ -500,10 +484,8 @@ FastOfflineKeySentenceAnnotator = {
       perPage: Number(inputs["per-page"].value),
       minimum: Number(inputs.minimum.value),
       maximum: Number(inputs.maximum.value),
-      llmEmbeddings: checks["llm-embeddings"].checked,
-      llmClassification: checks["llm-classification"].checked,
-      classificationBatchSize: Number(inputs["classification-batch-size"].value),
-      multilingual: checks.multilingual.checked,
+      localRelevance: checks["local-relevance"].checked,
+      ollamaCommand: inputs["ollama-command"].value.trim(),
       remoteEndpoint: inputs["remote-endpoint"].value.trim(),
       remoteApiKey: inputs["remote-api-key"].value.trim(),
       remoteModel: inputs["remote-model"].value.trim(),
@@ -581,20 +563,14 @@ FastOfflineKeySentenceAnnotator = {
           error.textContent = "Use valid density values before updating models.";
           return;
         }
-        if (!settings.llmEmbeddings && !settings.llmClassification && settings.summarySource !== "local") {
-          error.textContent = "Select a local model stage or Local Qwen to update.";
-          return;
-        }
         this.saveSettings(settings);
         setBusy(true);
         modelStatus.style.display = "block";
-        modelStatusText.textContent = "Preparing model update…";
+        modelStatusText.textContent = "Preparing Ollama models…";
         modelProgress.value = 0;
         try {
           await FastKeySentenceModels.updateModels(settings, updateModelProgress, false);
-          modelStatusText.textContent = FastKeySentenceModels.supportsInference?.()
-            ? "Selected models are ready for offline use."
-            : "Model files downloaded. Safe baseline remains active; ONNX inference is disabled in-process to prevent Zotero crashes.";
+          modelStatusText.textContent = "Ollama models are ready for local use.";
           modelProgress.value = 100;
         }
         catch (modelError) {
@@ -945,19 +921,16 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   modelProgressHandler(line, settings, stageLines = null) {
-    const enabled = [
-      settings.llmEmbeddings && "embeddings",
-      settings.llmClassification && "classification"
-    ].filter(Boolean);
+    const enabled = [settings.localRelevance && "summary-relevance", settings.localRelevance && "keyword-relevance"].filter(Boolean);
     const ranges = new Map();
     const width = enabled.length ? 25 / enabled.length : 25;
     enabled.forEach((operation, index) => {
       ranges.set(operation, [45 + index * width, 45 + (index + 1) * width]);
     });
     const names = {
-      summarization: settings.summarySource === "local" ? "Local Qwen summarization" : "Remote summarization",
-      embeddings: "LLM embeddings",
-      classification: "LLM classification"
+      summarization: settings.summarySource === "local" ? "Local Ollama summarization" : "Remote summarization",
+      "summary-relevance": "Summary relevance",
+      "keyword-relevance": "Keyword relevance"
     };
     const filesByOperation = new Map();
 
@@ -1064,10 +1037,7 @@ FastOfflineKeySentenceAnnotator = {
         sentences.filter(sentence => !sentence.frontMatter).map(sentence => sentence.pageIndex)
       ).size || pages.length;
       const count = this.calculateAnnotationTarget(eligiblePages, configuredSettings);
-      const enabledStages = [
-        configuredSettings.llmEmbeddings && "embeddings",
-        configuredSettings.llmClassification && "classification"
-      ].filter(Boolean);
+      const enabledStages = [configuredSettings.localRelevance && "semantic relevance"].filter(Boolean);
       line.setProgress(45);
       line.setText(
         `Ranking sentences (target: ${count}; ${configuredSettings.perPage}/eligible page, `
@@ -1077,15 +1047,14 @@ FastOfflineKeySentenceAnnotator = {
       const documentTitle = await this.getDocumentTitle(attachment);
       const stageLines = {
         summarization: new progress.ItemProgress(this.iconURI, "Summarization"),
-        ...(configuredSettings.llmEmbeddings ? { embeddings: new progress.ItemProgress(this.iconURI, "Embeddings") } : {}),
-        ...(configuredSettings.llmClassification ? { classification: new progress.ItemProgress(this.iconURI, "Classification") } : {})
+        ...(configuredSettings.localRelevance ? {
+          "summary-relevance": new progress.ItemProgress(this.iconURI, "Summary relevance"),
+          "keyword-relevance": new progress.ItemProgress(this.iconURI, "Keyword relevance")
+        } : {})
       };
       for (const stageLine of Object.values(stageLines)) stageLine.setProgress(0);
       const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
-        llmEmbeddings: configuredSettings.llmEmbeddings,
-        llmClassification: configuredSettings.llmClassification,
-        classificationBatchSize: configuredSettings.classificationBatchSize,
-        multilingual: configuredSettings.multilingual,
+        localRelevance: configuredSettings.localRelevance,
         summarySource: configuredSettings.summarySource,
         mapReduce: configuredSettings.mapReduce,
         contextWindow: configuredSettings.mapReduceInputTokens,

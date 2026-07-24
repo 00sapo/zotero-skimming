@@ -1,7 +1,9 @@
 # Progress Log
 
-## Incremental Qwen map-reduce
-- Added local 5% token-budget overlap via `overlapTail()` and sequential running-summary reduction.
-- Updated Qwen prompts to include the prior summary where present and an explicit computed sentence target.
-- Propagated sentence targets from ranking and visible-summary paths; targeted tests, syntax checks, and `git diff --check` pass.
-- Full `yarn test`, all project JavaScript syntax checks, and `git diff --check` pass.
+## Ollama local summaries and embeddings
+- Revised the llama.cpp plan after confirming Ollama has no reranking API.
+- User selected Qwen3 embeddings instead of reranking, and a required user-installed Ollama with autonomous service startup/download-page fallback.
+- Implemented Ollama model provisioning, summary generation, and dual summary/keyword cosine relevance; removed the ONNX worker/classification stack.
+- Updated settings, tests, model identifiers, scoring keywords, README, and changelog.
+- Added a configurable Ollama launch command; use `mise exec -- ollama` when mise owns the executable.
+- Full `yarn test`, project JavaScript syntax checks, and `git diff --check` pass.

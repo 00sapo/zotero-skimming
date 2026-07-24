@@ -135,21 +135,20 @@ describe("FastKeySentenceNLP", () => {
     expect(paperText).toBe("Body result one. Body result two.");
   });
 
-  it("uses local models and relays progress", async () => {
+  it("uses Ollama relevance twice and relays progress", async () => {
     const progress = vi.fn();
-    const classify = vi.fn(async () => [{ role: "result", score: 0.9 }]);
+    const embeddings = vi.fn(async texts => texts.map((_, index) => [index + 1, 1]));
     const models = {
       supportsInference: () => true,
-      remote: { summarize: vi.fn(async (_text, _title, _count, callback) => { callback({ stage: "sending" }); callback({ stage: "done" }); return "A compact paper synopsis."; }) },
-      embeddings: async () => prose.map((_, i) => [i + 1, 1]),
-      classify
+      remote: { summarize: vi.fn(async (_text, _title, _count, callback) => { callback({ stage: "sending" }); return "A compact paper synopsis."; }) },
+      embeddings
     };
     const selected = await nlp(models).analyzeAsync(prose.map((text, order) => sentence(text, order, order < 2 ? "abstract" : "results")), 3, {
-      llmEmbeddings: true, llmClassification: true, classificationBatchSize: 12, multilingual: true, documentTitle: "A study", onModelProgress: progress
+      localRelevance: true, documentTitle: "A study", onModelProgress: progress
     });
     expect(selected.length).toBeGreaterThanOrEqual(1);
     expect(models.remote.summarize).toHaveBeenCalledWith(expect.not.stringContaining("A study"), "A study", 3, expect.any(Function));
-    expect(classify).toHaveBeenCalled();
+    expect(embeddings).toHaveBeenCalledTimes(2);
     expect(progress).toHaveBeenCalled();
   });
 
@@ -173,14 +172,14 @@ describe("FastKeySentenceNLP", () => {
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "unavailable", operation: "summarization" }));
   });
 
-  it("falls back cleanly when local models are unavailable", async () => {
+  it("falls back cleanly when local Ollama relevance is unavailable", async () => {
     const unavailable = nlp({ supportsInference: () => false, remote: { summarize: async () => "A synopsis." } });
     const progress = vi.fn();
-    await expect(unavailable.analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, { llmEmbeddings: true, onModelProgress: progress })).resolves.toHaveLength(2);
+    await expect(unavailable.analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, { localRelevance: true, onModelProgress: progress })).resolves.toHaveLength(2);
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "unavailable" }));
   });
 
-  it("rejects requested models when the remote module is absent", async () => {
-    await expect(nlp().analyzeAsync(prose.map((text, order) => sentence(text, order)), 1, { llmEmbeddings: true })).rejects.toThrow("not loaded");
+  it("rejects requested local relevance when the model manager is absent", async () => {
+    await expect(nlp().analyzeAsync(prose.map((text, order) => sentence(text, order)), 1, { localRelevance: true })).rejects.toThrow("not loaded");
   });
 });

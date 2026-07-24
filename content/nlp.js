@@ -5,6 +5,13 @@ var FastKeySentenceNLP = (() => {
 
   const STOP_WORDS = new Set(`a an and are as at be been being but by can could did do does doing for from had has have having he her hers herself him himself his how i if in into is it its itself may might more most must my myself no nor not of off on once only or other our ours ourselves out over own same she should so some such than that the their theirs them themselves then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yourself yourselves`.split(/\s+/));
   const SCORING = Object.freeze(FastKeySentenceScoringConfig);
+  const KEYWORD_SECTIONS = Object.freeze([
+    "research objective, aim, goal, or question",
+    "method, approach, experiment, or design",
+    "main contribution, innovation, or proposal",
+    "empirical result, finding, performance, or measurement",
+    "conclusion, implication, limitation, or future work"
+  ]);
 
   function normalizeText(text) {
     return String(text || "")
@@ -333,7 +340,8 @@ var FastKeySentenceNLP = (() => {
     if (!filtered.length) return [];
 
     const useLocalSummary = options.summarySource === "local";
-    const useLocalModels = options.llmEmbeddings || options.llmClassification || useLocalSummary;
+    const useLocalRelevance = options.localRelevance === true;
+    const useLocalModels = useLocalSummary || useLocalRelevance;
     if (useLocalModels && typeof FastKeySentenceModels === "undefined") {
       throw new Error("The transformer model manager was not loaded.");
     }
@@ -384,25 +392,52 @@ var FastKeySentenceNLP = (() => {
       );
     }
 
-    // 2. Build embeddings
-    let scored;
-    if (options.llmEmbeddings && inferenceAvailable && !localSummaryFailed) {
-      options.onModelProgress?.({ stage: "preparing", operation: "embeddings" });
-      const allTexts = [summary, ...filtered.map(sentence => sentence.text)];
-      const allEmbeddings = await FastKeySentenceModels.embeddings(
-        allTexts,
-        !!options.multilingual,
-        event => options.onModelProgress?.({ ...event, operation: "embeddings" })
-      );
-      const summaryEmbedding = allEmbeddings[0];
-      const sentenceEmbeddings = allEmbeddings.slice(1);
-      const summaryScores = summarySimilarityDense(sentenceEmbeddings,
-        sentenceEmbeddings.map(denseNorm), summaryEmbedding);
-      scored = scoreDense(filtered, sentenceEmbeddings, count, summaryScores);
-    }
-    else {
-      const summaryScores = summarySimilaritySpares(filtered, summary);
-      scored = scoreSparse(filtered, count, summaryScores);
+    // 2. Score sparse baseline, then apply local Ollama relevance against summary and configured sections.
+    const summaryScores = summarySimilaritySpares(filtered, summary);
+    const scored = scoreSparse(filtered, count, summaryScores);
+    if (useLocalRelevance && inferenceAvailable && !localSummaryFailed && summary) {
+      try {
+        options.onModelProgress?.({ stage: "preparing", operation: "summary-relevance" });
+        const texts = filtered.map(sentence => sentence.text);
+        const [summaryEmbedding, ...sentenceEmbeddings] = await FastKeySentenceModels.embeddings(
+          [summary, ...texts],
+          event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
+        );
+        const sentenceNorms = sentenceEmbeddings.map(denseNorm);
+        const summaryRelevance = summarySimilarityDense(sentenceEmbeddings, sentenceNorms, summaryEmbedding);
+        const keywords = Array.isArray(SCORING.initial?.keywordSections)
+          ? SCORING.initial.keywordSections.filter(Boolean)
+          : KEYWORD_SECTIONS;
+        let keywordRelevance = new Array(filtered.length).fill(0);
+        if (keywords.length) {
+          options.onModelProgress?.({ stage: "preparing", operation: "keyword-relevance" });
+          const vectors = await FastKeySentenceModels.embeddings(
+            [...keywords, ...texts],
+            event => options.onModelProgress?.({ ...event, operation: "keyword-relevance" })
+          );
+          const keywordVectors = vectors.slice(0, keywords.length);
+          const sentenceVectors = vectors.slice(keywords.length);
+          keywordRelevance = sentenceVectors.map((vector, index) => Math.max(...keywordVectors.map(keyword =>
+            vectorCosine(vector, keyword, denseNorm(vector), denseNorm(keyword))
+          ), 0));
+        }
+        const baseline = filtered.map(sentence => sentence.importance || 0);
+        const maximum = Math.max(...baseline, 1);
+        filtered.forEach((sentence, index) => {
+          sentence.summaryRelevance = summaryRelevance[index] || 0;
+          sentence.keywordRelevance = keywordRelevance[index] || 0;
+          sentence.importance = 0.5 * baseline[index] / maximum
+            + 0.35 * Math.max(0, summaryRelevance[index] || 0)
+            + 0.15 * Math.max(0, keywordRelevance[index] || 0);
+        });
+      }
+      catch (error) {
+        options.onModelProgress?.({
+          stage: "unavailable",
+          operation: "local-relevance",
+          message: `Ollama relevance failed; using the baseline ranker. ${error.message || error}`
+        });
+      }
     }
 
     const shortlistSize = Math.min(filtered.length, Math.max(count * 4, 60), 160);
@@ -412,33 +447,7 @@ var FastKeySentenceNLP = (() => {
       .slice(0, shortlistSize)
       .map(entry => entry.index);
 
-    // Build summary sentence embeddings for coverage encouragement in MMR
-    let summaryParts = null;
-    if (options.llmEmbeddings && inferenceAvailable && !localSummaryFailed && summary) {
-      const summarySentences = sentenceRanges(summary).map(([s, e]) => summary.slice(s, e)).filter(Boolean);
-      if (summarySentences.length > 1) {
-        const partVecs = await FastKeySentenceModels.embeddings(summarySentences, false, () => {});
-        summaryParts = partVecs.map((vec, i) => ({ vector: vec.map(Number), norm: denseNorm(vec), text: summarySentences[i] }));
-      }
-    }
-
-    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length), summaryParts);
-
-    // 3. Classify selected sentences (if enabled)
-    if (options.llmClassification && inferenceAvailable && selected.length) {
-      options.onModelProgress?.({ stage: "preparing", operation: "classification" });
-      const predictions = await FastKeySentenceModels.classify(
-        selected.map(s => summary + " " + s.text),
-        !!options.multilingual,
-        event => options.onModelProgress?.({ ...event, operation: "classification" }),
-        options.classificationBatchSize
-      );
-      selected.forEach((sentence, position) => {
-        const prediction = predictions[position] || { role: "background", score: 0 };
-        sentence.role = prediction.role || "background";
-        sentence.classificationConfidence = Number(prediction.score) || 0;
-      });
-    }
+    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
 
     // Attach summary to each selected sentence for downstream use
     selected.forEach(s => { s._paperSummary = summary; });
