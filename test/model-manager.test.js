@@ -22,7 +22,21 @@ function response(value = {}, { ok = true, status = 200 } = {}) {
   };
 }
 
-function manager({ fetchImpl, path = "/usr/bin/ollama" } = {}) {
+function makeXHR(responseData = bytes("gguf"), status = 200) {
+  return vi.fn(function mockXHR() {
+    this.open = vi.fn();
+    this.send = vi.fn(function () {
+      if (typeof this.onload === "function") {
+        Object.defineProperty(this, "response", { value: responseData.buffer.slice(responseData.byteOffset, responseData.byteOffset + responseData.byteLength) });
+        this.status = status;
+        this.statusText = "OK";
+        this.onload();
+      }
+    });
+  });
+}
+
+function manager({ path = "/usr/bin/ollama", xhr = makeXHR() } = {}) {
   const files = new Map();
   const subprocess = { pathSearch: vi.fn(async () => path), call: vi.fn(async () => ({ kill: vi.fn() })) };
   const Zotero = {
@@ -33,7 +47,7 @@ function manager({ fetchImpl, path = "/usr/bin/ollama" } = {}) {
   const IOUtils = {
     exists: vi.fn(async name => files.has(name)),
     read: vi.fn(async name => files.get(name)),
-    write: vi.fn(async (name, value) => files.set(name, value)),
+    write: vi.fn(async (name, value) => { files.set(name, value); }),
     writeJSON: vi.fn(async (name, value) => files.set(name, value)),
     makeDirectory: vi.fn(async () => {}),
     remove: vi.fn(async name => files.delete(name)),
@@ -45,17 +59,17 @@ function manager({ fetchImpl, path = "/usr/bin/ollama" } = {}) {
     parent: name => name.slice(0, name.lastIndexOf("/")),
     filename: name => name.slice(name.lastIndexOf("/") + 1)
   };
-  const fetch = vi.fn(fetchImpl || (async url => {
+  const XMLHttpRequest = xhr;
+  const fetch = vi.fn(async url => {
     if (url.endsWith("/api/version")) return response({ version: "test" });
-    if (url.includes(summaryRepo) && url.includes("/api/models/")) return response({ sha: "summary-revision", siblings: [{ rfilename: "qwen2.5-0.5b-instruct-q4_k_m.gguf" }] });
-    if (url.includes(embeddingRepo) && url.includes("/api/models/")) return response({ sha: "embedding-revision", siblings: [{ rfilename: "qwen3-embedding-0.6b-q8_0.gguf" }] });
+    if (url.includes("/api/blobs/")) return response({ status: "success" });
     if (url.endsWith("/api/create")) return response({ status: "success" });
     if (url.endsWith("/api/generate")) return response({ response: "A local summary." });
     if (url.endsWith("/api/embed")) return response({ embeddings: [[1, 0], [0, 1]] });
     return response("gguf");
-  }));
+  });
   const context = loadScript("content/model-manager.js", {
-    Zotero, IOUtils, PathUtils, fetch, crypto,
+    Zotero, IOUtils, PathUtils, fetch, crypto, XMLHttpRequest,
     ChromeUtils: { importESModule: () => ({ Subprocess: subprocess }) }
   });
   context.FastKeySentenceModels.init();
@@ -72,13 +86,14 @@ describe("FastKeySentenceModels Ollama", () => {
   });
 
   it("uses a configured command to launch Ollama", async () => {
-    let healthChecks = 0;
-    const { api, subprocess, fetch } = manager({ fetchImpl: async url => {
-      if (url.endsWith("/api/version")) return healthChecks++ ? response({ version: "test" }) : response("offline", { ok: false, status: 503 });
+    let healthCheckCalls = 0;
+    const { api, subprocess, fetch } = manager();
+    fetch.mockImplementation(async url => {
+      if (url.endsWith("/api/version")) return healthCheckCalls++ ? response({ version: "test" }) : response("offline", { ok: false, status: 503 });
+      if (url.includes("/api/blobs/")) return response({ status: "success" });
       if (url.endsWith("/api/create")) return response({ status: "success" });
-      if (url.includes("/api/models/")) return response({ sha: "revision", siblings: [{ rfilename: url.includes("Embedding") ? "qwen3-embedding-0.6b-q8_0.gguf" : "qwen2.5-0.5b-instruct-q4_k_m.gguf" }] });
       return response("gguf");
-    } });
+    });
     await api.updateModels({ mapReduceInputTokens: 4096, ollamaCommand: "mise exec -- ollama" });
     expect(subprocess.pathSearch).toHaveBeenCalledWith("mise");
     expect(subprocess.call).toHaveBeenCalledWith(expect.objectContaining({ arguments: ["exec", "--", "ollama", "serve"] }));
@@ -86,10 +101,8 @@ describe("FastKeySentenceModels Ollama", () => {
   });
 
   it("opens Ollama download when the executable is unavailable", async () => {
-    const { api, Zotero } = manager({
-      path: null,
-      fetchImpl: async url => url.endsWith("/api/version") ? response("offline", { ok: false, status: 503 }) : response({})
-    });
+    const { api, Zotero, fetch } = manager({ path: null });
+    fetch.mockImplementation(async url => url.endsWith("/api/version") ? response("offline", { ok: false, status: 503 }) : response({}));
     await expect(api.summarize("Paper text.")).rejects.toThrow("Ollama is not installed");
     expect(Zotero.launchURL).toHaveBeenCalledWith("https://ollama.com/download");
   });
@@ -100,13 +113,14 @@ describe("FastKeySentenceModels Ollama", () => {
     await expect(api.embeddings(["summary", "sentence"])).resolves.toEqual([[1, 0], [0, 1]]);
   });
 
-  it("keeps five-percent overlap and running-summary prompts in map-reduce", async () => {
+  it("maps and reduces independent chunks in map-reduce", async () => {
     let calls = 0;
-    const { api, fetch } = manager({ fetchImpl: async url => {
+    const { api, fetch } = manager();
+    fetch.mockImplementation(async url => {
       if (url.endsWith("/api/version")) return response({ version: "test" });
       if (url.endsWith("/api/generate")) return response({ response: `summary ${++calls}` });
       return response({});
-    } });
+    });
     await api.summarize(Array.from({ length: 50 }, () => "word.").join(" "), null, { mapReduce: true, contextWindow: 256, sentenceCount: 4 });
     const bodies = fetch.mock.calls.filter(([url]) => url.endsWith("/api/generate")).map(([, options]) => JSON.parse(options.body));
     expect(bodies.length).toBeGreaterThan(1);

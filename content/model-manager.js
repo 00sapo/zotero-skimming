@@ -7,8 +7,18 @@ var FastKeySentenceModels = (() => {
   const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
   const SUMMARY_MODEL = "zotero-skimming-summary";
   const EMBEDDING_MODEL = "zotero-skimming-embedding";
-  const SUMMARY_REPOSITORY = "Qwen/Qwen2.5-0.5B-Instruct-GGUF";
-  const EMBEDDING_REPOSITORY = "Qwen/Qwen3-Embedding-0.6B-GGUF";
+  const MODELS = {
+    "zotero-skimming-summary": {
+      repository: "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+      file: "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      revision: "main"
+    },
+    "zotero-skimming-embedding": {
+      repository: "Qwen/Qwen3-Embedding-0.6B-GGUF",
+      file: "qwen3-embedding-0.6b-q8_0.gguf",
+      revision: "main"
+    }
+  };
   const DEFAULT_CONTEXT_WINDOW = 4096;
   const MIN_CONTEXT_WINDOW = 256;
   const COMMAND_PREF = "extensions.fast-offline-key-sentence-annotator.ollamaCommand";
@@ -117,90 +127,74 @@ var FastKeySentenceModels = (() => {
     return PathUtils.join(cacheDir, "models");
   }
 
-  async function downloadToFile(url, destination, callback, model, file) {
-    await IOUtils.makeDirectory(PathUtils.parent(destination), { ignoreExisting: true });
-    const temporary = destination + ".part";
-    await IOUtils.remove(temporary, { ignoreAbsent: true });
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Download failed (${response.status}) for ${url}`);
-    const total = Number(response.headers.get("content-length")) || 0;
-    const chunks = [];
-    let loaded = 0;
-    if (response.body?.getReader) {
-      const reader = response.body.getReader();
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (!value?.length) continue;
-        chunks.push(value);
-        loaded += value.length;
-        callback?.({ operation: "model-download", stage: "download", model, file, loaded, total, progress: total ? 100 * loaded / total : null });
+  async function zoteroFetch(url, callback, label) {
+    return new Promise((resolve, reject) => {
+      try {
+        const req = new XMLHttpRequest();
+        req.open("GET", url, true);
+        req.responseType = "arraybuffer";
+        if (callback) {
+          req.onprogress = event => {
+            if (event.lengthComputable) {
+              callback({ stage: "download", model: label || "", file: "", loaded: event.loaded, total: event.total, progress: 100 * event.loaded / event.total });
+            }
+          };
+        }
+        req.onload = () => {
+          if (req.status >= 200 && req.status < 300) resolve({ ok: true, status: req.status, data: new Uint8Array(req.response), headers: { get: () => null } });
+          else reject(new Error(`HTTP ${req.status}: ${req.statusText}`));
+        };
+        req.onerror = () => reject(new Error(`Network error fetching ${url}. Check your connection.`));
+        req.ontimeout = () => reject(new Error(`Timeout fetching ${url}.`));
+        req.timeout = 60000;
+        req.send();
       }
-    }
-    else {
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      chunks.push(bytes);
-      loaded = bytes.length;
-    }
-    const bytes = new Uint8Array(loaded);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.length;
-    }
-    if (!bytes.length) throw new Error(`Downloaded an empty model file from ${url}`);
-    await IOUtils.write(temporary, bytes);
-    await IOUtils.move(temporary, destination, { noOverwrite: false });
-    callback?.({ operation: "model-download", stage: "done", model, file, loaded, total: total || loaded, progress: 100 });
-    return destination;
+      catch (error) {
+        reject(error);
+      }
+    });
   }
 
-  async function resolveGGUF(repository, preference) {
-    const response = await fetch(`https://huggingface.co/api/models/${repository}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Could not read ${repository} (${response.status}).`);
-    const manifest = await response.json();
-    const files = (manifest.siblings || []).map(item => item.rfilename || item.path || "").filter(name => name.endsWith(".gguf"));
-    const file = files.find(name => preference.test(name)) || files[0];
-    if (!file) throw new Error(`No GGUF file was found in ${repository}.`);
-    return { file, revision: manifest.sha || "main" };
-  }
-
-  async function createModel(name, ggufPath, callback) {
-    callback?.({ operation: "model-import", stage: "initiate", model: name, progress: 0 });
-    const bytes = await IOUtils.read(ggufPath);
+  async function provisionModel(name, callback) {
+    const info = MODELS[name];
+    if (!info) throw new Error(`Unknown model: ${name}`);
+    const destination = PathUtils.join(modelDirectory(), name, info.file);
+    if (!await IOUtils.exists(destination)) {
+      const url = `https://huggingface.co/${info.repository}/resolve/${info.revision}/${info.file}`;
+      await IOUtils.makeDirectory(PathUtils.parent(destination), { ignoreExisting: true });
+      const temporary = destination + ".part";
+      await IOUtils.remove(temporary, { ignoreAbsent: true });
+      const response = await zoteroFetch(url, callback, name);
+      await IOUtils.write(temporary, response.data);
+      await IOUtils.move(temporary, destination, { noOverwrite: false });
+      callback?.({ operation: "model-download", stage: "done", model: name, file: info.file, progress: 100 });
+    }
+    // Upload blob to Ollama
+    const bytes = await IOUtils.read(destination);
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
       .map(byte => byte.toString(16).padStart(2, "0")).join("");
+    callback?.({ operation: "model-import", stage: "initiate", model: name, progress: 0 });
     const blobResponse = await fetch(`${OLLAMA_URL}/api/blobs/sha256:${digest}`, {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },
       body: bytes
     });
-    if (!blobResponse.ok) throw new Error(`Ollama rejected ${PathUtils.filename(ggufPath)} (${blobResponse.status}).`);
+    if (!blobResponse.ok) throw new Error(`Ollama rejected ${info.file} (${blobResponse.status}).`);
     await ollamaRequest("/api/create", {
       model: name,
-      files: { [PathUtils.filename(ggufPath)]: `sha256:${digest}` },
+      files: { [info.file]: `sha256:${digest}` },
       stream: false
     });
     callback?.({ operation: "model-import", stage: "done", model: name, progress: 100 });
-  }
-
-  async function provisionModel(name, repository, preference, contextWindow, callback) {
-    const { file, revision } = await resolveGGUF(repository, preference);
-    const destination = PathUtils.join(modelDirectory(), name, file);
-    if (!await IOUtils.exists(destination)) {
-      await downloadToFile(`https://huggingface.co/${repository}/resolve/${revision}/${file}`, destination, callback, name, file);
-    }
-    await createModel(name, destination, callback);
     await IOUtils.writeJSON(PathUtils.join(modelDirectory(), name, "download-manifest.json"), {
-      name, repository, revision, file, downloadedAt: new Date().toISOString()
+      name, repository: info.repository, revision: info.revision, file: info.file, downloadedAt: new Date().toISOString()
     });
   }
 
   async function updateModels(settings, callback) {
-    const contextWindow = validContextWindow(settings.mapReduceInputTokens);
     await ensureOllama(callback, settings.ollamaCommand);
-    await provisionModel(SUMMARY_MODEL, SUMMARY_REPOSITORY, /q4[_-]k[_-]m/i, contextWindow, callback);
-    await provisionModel(EMBEDDING_MODEL, EMBEDDING_REPOSITORY, /q8[_-]0/i, contextWindow, callback);
+    await provisionModel(SUMMARY_MODEL, callback);
+    await provisionModel(EMBEDDING_MODEL, callback);
     callback?.({ operation: "all", stage: "complete", model: "Ollama models", progress: 100 });
     return true;
   }
