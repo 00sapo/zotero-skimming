@@ -467,7 +467,7 @@ FastOfflineKeySentenceAnnotator = {
     const summarizeButton = create("button", {
       type: "button",
       style: buttonStyle
-    }, "Test API credentials");
+    }, "Test summary");
     const cancelButton = create("button", {
       type: "button",
       style: buttonStyle
@@ -490,7 +490,6 @@ FastOfflineKeySentenceAnnotator = {
       remoteEndpointInput.disabled = local;
       remoteModelInput.disabled = local;
       remoteApiKeyInput.disabled = local;
-      summarizeButton.hidden = local;
     };
     summarySource.addEventListener("change", syncSummarySource);
     syncSummarySource();
@@ -608,10 +607,6 @@ FastOfflineKeySentenceAnnotator = {
         const settings = readSettings();
         if (!this.isValidSettings(settings)) {
           error.textContent = "Use valid density values before summarising.";
-          return;
-        }
-        if (!settings.remoteApiKey) {
-          error.textContent = "Set a remote API key to generate a summary.";
           return;
         }
         finish({ ...settings, action: "summarize" });
@@ -860,19 +855,24 @@ FastOfflineKeySentenceAnnotator = {
     }, title);
     panel.appendChild(subtitle);
 
-    const body = create("div", {
+    const body = create("textarea", {
+      value: summary,
       style: [
+        "width: 100%",
+        "box-sizing: border-box",
         "margin: 0 0 18px",
         "padding: 14px 16px",
         "border: 1px solid color-mix(in srgb, CanvasText 18%, transparent)",
         "border-radius: 7px",
         "background: color-mix(in srgb, Canvas 96%, AccentColor 4%)",
+        "color: CanvasText",
+        "font: inherit",
         "line-height: 1.6",
-        "white-space: pre-wrap",
-        "max-height: 72vh",
-        "overflow: auto"
+        "resize: vertical",
+        "min-height: 160px",
+        "max-height: 76vh"
       ].join(";")
-    }, summary);
+    });
     panel.appendChild(body);
 
     const footer = create("footer", {

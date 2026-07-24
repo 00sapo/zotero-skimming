@@ -299,7 +299,6 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     byId(window, "summary-source").value = "local";
     byId(window, "summary-source").dispatch("change");
     expect(byId(window, "remote-endpoint").disabled).toBe(true);
-    expect(byText(window, "Test API credentials").hidden).toBe(true);
     await byText(window, "Download Ollama models").listeners.click[0]();
     expect(descendants(window.document.documentElement).find(x => x.role === "alert").textContent).toContain("Use valid density");
     api.isValidSettings = settings => settings.perPage > 0;
