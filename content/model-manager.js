@@ -81,32 +81,27 @@ var FastKeySentenceModels = (() => {
     }
   }
 
+  const DEFAULT_COMMAND = "/usr/bin/ollama";
+
   function configuredCommand(command = null) {
-    const value = command ?? Zotero.Prefs?.get(COMMAND_PREF, true) ?? "ollama";
+    const value = command ?? Zotero.Prefs?.get(COMMAND_PREF, true) ?? DEFAULT_COMMAND;
     const parts = String(value).trim().match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
     const parsed = parts.map(part => part.replace(/^("|')|("|')$/g, ""));
     if (!parsed.length) throw new Error("Set an Ollama command before starting the local server.");
+    if (!parsed[0].startsWith("/")) throw new Error(`Ollama command must be an absolute path: “${parsed[0]}”.`);
     return parsed;
   }
 
   async function ensureOllama(callback, command = null) {
     if (await isOllamaReady()) return;
     const [binary, ...arguments_] = configuredCommand(command);
-    let executable = binary;
-    try {
-      const resolved = await getSubprocess().pathSearch(binary);
-      if (!resolved && binary === "ollama") {
-        Zotero.launchURL?.(OLLAMA_DOWNLOAD_URL);
-        throw new Error("Ollama is not installed. Its download page has been opened; install Ollama, then try again.");
-      }
-      executable = resolved || binary;
-    }
-    catch (error) {
-      if (/Ollama is not installed/.test(error.message || "")) throw error;
+    if (!await IOUtils.exists(binary)) {
+      Zotero.launchURL?.(OLLAMA_DOWNLOAD_URL);
+      throw new Error(`Ollama was not found at “${binary}”. Its download page has been opened; install Ollama, then try again.`);
     }
     callback?.({ operation: "runtime", stage: "initiate", model: "Ollama", progress: 0 });
     try {
-      ollamaProcess = await getSubprocess().call({ command: executable, arguments: [...arguments_, "serve"] });
+      ollamaProcess = await getSubprocess().call({ command: binary, arguments: [...arguments_, "serve"] });
     }
     catch (error) {
       Zotero.launchURL?.(OLLAMA_DOWNLOAD_URL);

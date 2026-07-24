@@ -110,7 +110,7 @@ FastOfflineKeySentenceAnnotator = {
     minimum: 12,
     maximum: 80,
     localRelevance: false,
-    ollamaCommand: "ollama",
+    ollamaCommand: "/usr/bin/ollama",
     tagDefinitions: FastKeySentenceNLP.DEFAULT_TAG_DEFINITIONS,
     remoteEndpoint: "",
     remoteApiKey: "",
@@ -163,7 +163,7 @@ FastOfflineKeySentenceAnnotator = {
         .every(key => typeof settings[key] === "boolean")
       && ["local", "remote"].includes(settings.summarySource)
       && typeof settings.ollamaCommand === "string"
-      && settings.ollamaCommand.trim().length > 0
+      && settings.ollamaCommand.startsWith("/")
       && typeof settings.tagDefinitions === "string"
       && FastKeySentenceNLP.parseTagDefinitions(settings.tagDefinitions).length > 0
       && Number.isInteger(settings.mapReduceInputTokens)
@@ -337,7 +337,7 @@ FastOfflineKeySentenceAnnotator = {
       id: "ollama-command",
       type: "text",
       value: initialSettings.ollamaCommand,
-      placeholder: "ollama",
+      placeholder: "/usr/bin/ollama",
       style: "width: 100%; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
     });
     inputs["ollama-command"] = ollamaCommandInput;
@@ -351,7 +351,7 @@ FastOfflineKeySentenceAnnotator = {
     stages.append(
       create("label", { htmlFor: "ollama-command", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Ollama command"),
       ollamaCommandInput,
-      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Default: ollama. For mise, use: mise exec -- ollama"),
+      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Absolute path to the Ollama binary (required)."),
       create("label", { htmlFor: "tag-definitions", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Highlight tags"),
       tagDefinitionsInput,
       create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "One tag per line: name: description. Colors follow tag order.")

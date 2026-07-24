@@ -87,23 +87,24 @@ describe("FastKeySentenceModels Ollama", () => {
 
   it("uses a configured command to launch Ollama", async () => {
     let healthCheckCalls = 0;
-    const { api, subprocess, fetch } = manager();
+    const ollamaPath = "/usr/bin/ollama";
+    const { api, subprocess, fetch, IOUtils } = manager();
+    IOUtils.exists.mockImplementation(async path => path === ollamaPath || path.endsWith(".gguf"));
+    IOUtils.read.mockImplementation(async path => path.endsWith(".gguf") ? bytes("dummy gguf") : undefined);
     fetch.mockImplementation(async url => {
       if (url.endsWith("/api/version")) return healthCheckCalls++ ? response({ version: "test" }) : response("offline", { ok: false, status: 503 });
-      if (url.includes("/api/blobs/")) return response({ status: "success" });
       if (url.endsWith("/api/create")) return response({ status: "success" });
       return response("gguf");
     });
-    await api.updateModels({ mapReduceInputTokens: 4096, ollamaCommand: "mise exec -- ollama" });
-    expect(subprocess.pathSearch).toHaveBeenCalledWith("mise");
-    expect(subprocess.call).toHaveBeenCalledWith(expect.objectContaining({ arguments: ["exec", "--", "ollama", "serve"] }));
+    await api.updateModels({ mapReduceInputTokens: 4096, ollamaCommand: ollamaPath });
+    expect(subprocess.call).toHaveBeenCalledWith(expect.objectContaining({ command: ollamaPath, arguments: ["serve"] }));
     expect(fetch).toHaveBeenCalled();
   });
 
   it("opens Ollama download when the executable is unavailable", async () => {
     const { api, Zotero, fetch } = manager({ path: null });
     fetch.mockImplementation(async url => url.endsWith("/api/version") ? response("offline", { ok: false, status: 503 }) : response({}));
-    await expect(api.summarize("Paper text.")).rejects.toThrow("Ollama is not installed");
+    await expect(api.summarize("Paper text.")).rejects.toThrow("Ollama was not found at");
     expect(Zotero.launchURL).toHaveBeenCalledWith("https://ollama.com/download");
   });
 
