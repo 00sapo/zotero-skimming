@@ -36,9 +36,11 @@ The baseline ranker works without downloaded models. Local Qwen uses int8 ONNX a
 
 ### 1. Summarization
 
-Choose **Remote API** to send filtered paper body text (no authors, tables, figures, abstract, or references) to the configured remote LLM. Its summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations. Enable **Map-reduce long papers** to split long input into locally token-counted chunks before reducing their summaries; its input window defaults to 4096 tokens and can be changed in settings.
+Choose **Remote API** to send filtered paper body text (no authors, tables, figures, abstract, or references) to the configured remote LLM. Its summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations.
 
-Choose **Local Qwen** to summarize in Zotero with `onnx-community/Qwen2.5-0.5B-Instruct`. Download it first with **Update models**. It runs single-threaded through the add-on's local Transformers.js runtime using `onnx/model_int8.onnx`; no paper text is sent to a remote API.
+**Map-reduce long papers** and its shared context window apply to both sources. They split long input into locally token-counted chunks before reducing their summaries. The window defaults to 4096 tokens and accepts values from 256 to 131072.
+
+Choose **Local Qwen** to summarize in Zotero with `onnx-community/Qwen2.5-0.5B-Instruct`. Download it first with **Update models**. It runs single-threaded through the add-on's local Transformers.js runtime using `onnx/model_int8.onnx`; no paper text is sent to a remote API. Remote credentials are hidden when local summarization is selected.
 
 ### 2. Sentence embeddings
 

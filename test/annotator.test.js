@@ -290,8 +290,15 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(byId(window, "classification-batch-size").value).toBe("8");
     expect(byId(window, "remote-endpoint")).toBeDefined();
     expect(byId(window, "summary-source").value).toBe("remote");
+    expect(byId(window, "remote-endpoint").disabled).toBe(false);
     expect(byId(window, "map-reduce").checked).toBe("false");
     expect(byId(window, "map-reduce-input-tokens").value).toBe("4096");
+    expect(api.isValidSettings({ ...api.settingsDefaults, mapReduceInputTokens: 256 })).toBe(true);
+    expect(api.isValidSettings({ ...api.settingsDefaults, mapReduceInputTokens: 255 })).toBe(false);
+    byId(window, "summary-source").value = "local";
+    byId(window, "summary-source").dispatch("change");
+    expect(byId(window, "remote-endpoint").disabled).toBe(true);
+    expect(byText(window, "Test API credentials").hidden).toBe(true);
     await byText(window, "Update models").listeners.click[0]();
     expect(descendants(window.document.documentElement).find(x => x.role === "alert").textContent).toContain("Use valid density");
     api.isValidSettings = settings => settings.perPage > 0;

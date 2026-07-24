@@ -170,7 +170,7 @@ FastOfflineKeySentenceAnnotator = {
         .every(key => typeof settings[key] === "boolean")
       && ["local", "remote"].includes(settings.summarySource)
       && Number.isInteger(settings.mapReduceInputTokens)
-      && settings.mapReduceInputTokens >= 1024
+      && settings.mapReduceInputTokens >= 256
       && settings.mapReduceInputTokens <= 131072
       && typeof settings.remoteEndpoint === "string"
       && typeof settings.remoteApiKey === "string"
@@ -375,6 +375,7 @@ FastOfflineKeySentenceAnnotator = {
     inputs["summary-source"] = summarySource;
     sourceGrid.append(create("label", { htmlFor: "summary-source", style: "font-weight: 500" }, "Source"), summarySource);
     remoteConfig.appendChild(sourceGrid);
+    const remoteOptions = create("div");
     const remoteGrid = create("div", {
       style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center"
     });
@@ -399,7 +400,7 @@ FastOfflineKeySentenceAnnotator = {
       if (id === "remote-model") remoteModelInput = input;
       if (id === "remote-api-key") remoteApiKeyInput = input;
     }
-    remoteConfig.appendChild(remoteGrid);
+    remoteOptions.appendChild(remoteGrid);
     const mapReduceRow = create("div", {
       style: "display: grid; grid-template-columns: auto minmax(0, 1fr) 96px; column-gap: 10px; row-gap: 2px; margin-top: 12px; align-items: center"
     });
@@ -414,7 +415,7 @@ FastOfflineKeySentenceAnnotator = {
       type: "number",
       "aria-label": "Map input token limit",
       value: String(initialSettings.mapReduceInputTokens),
-      min: "1024",
+      min: "256",
       max: "131072",
       step: "1",
       style: "width: 96px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
@@ -426,10 +427,11 @@ FastOfflineKeySentenceAnnotator = {
       create("label", { htmlFor: "map-reduce", style: "font-weight: 500; line-height: 1.35" }, "Map-reduce long papers"),
       mapReduceTokens
     );
+    remoteConfig.appendChild(remoteOptions);
     remoteConfig.appendChild(mapReduceRow);
     remoteConfig.appendChild(create("p", {
       style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Local Qwen uses onnx-community/Qwen2.5-0.5B-Instruct with its int8 ONNX model; select Local Qwen, then use Update models before summarizing. Remote mode uses any OpenAI compatible API. Map-reduce keeps each remote request within the selected token window (4096 by default). Token counts are conservatively estimated locally."));
+    }, "Local Qwen uses onnx-community/Qwen2.5-0.5B-Instruct with its int8 ONNX model; select Local Qwen, then use Update models before summarizing. Remote mode uses any OpenAI compatible API. Map-reduce and the context window apply to both sources; token counts are conservatively estimated locally."));
     form.appendChild(remoteConfig);
 
     const error = create("p", {
@@ -483,6 +485,17 @@ FastOfflineKeySentenceAnnotator = {
     overlay.appendChild(panel);
     doc.documentElement.appendChild(overlay);
 
+    const syncSummarySource = () => {
+      const local = summarySource.value === "local";
+      remoteOptions.hidden = local;
+      remoteEndpointInput.disabled = local;
+      remoteModelInput.disabled = local;
+      remoteApiKeyInput.disabled = local;
+      summarizeButton.hidden = local;
+    };
+    summarySource.addEventListener("change", syncSummarySource);
+    syncSummarySource();
+
     const readSettings = () => ({
       perPage: Number(inputs["per-page"].value),
       minimum: Number(inputs.minimum.value),
@@ -506,6 +519,7 @@ FastOfflineKeySentenceAnnotator = {
       cancelButton.disabled = busy;
       for (const input of Object.values(inputs)) input.disabled = busy;
       for (const check of Object.values(checks)) check.disabled = busy;
+      if (!busy) syncSummarySource();
     };
 
     const formatBytes = value => {
@@ -744,7 +758,10 @@ FastOfflineKeySentenceAnnotator = {
         }
       };
       const summary = settings.summarySource === "local"
-        ? await FastKeySentenceModels.summarize(inputText, onSummaryProgress)
+        ? await FastKeySentenceModels.summarize(inputText, onSummaryProgress, {
+          mapReduce: settings.mapReduce,
+          contextWindow: settings.mapReduceInputTokens
+        })
         : await FastKeySentenceRemote.summarize(inputText, documentTitle, 10, onSummaryProgress);
 
       if (!summary) throw new Error("The summarization model returned an empty result.");
@@ -1052,6 +1069,8 @@ FastOfflineKeySentenceAnnotator = {
         classificationBatchSize: configuredSettings.classificationBatchSize,
         multilingual: configuredSettings.multilingual,
         summarySource: configuredSettings.summarySource,
+        mapReduce: configuredSettings.mapReduce,
+        contextWindow: configuredSettings.mapReduceInputTokens,
         documentTitle,
         onModelProgress: this.modelProgressHandler(line, configuredSettings)
       });

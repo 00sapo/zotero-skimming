@@ -27,6 +27,11 @@ describe("FastKeySentenceRemote", () => {
     expect(api.estimateTokens("longer-token, 42!")).toBeGreaterThan(3);
   });
 
+  it("allows a 256-token map input window", () => {
+    const api = remote(new Map([[prefix + "mapReduceInputTokens", 256]]));
+    expect(api.getConfig().mapInputTokens).toBe(256);
+  });
+
   it("uses the existing direct request when map-reduce is disabled", async () => {
     const fetch = vi.fn().mockResolvedValue(response());
     const api = remote(new Map([

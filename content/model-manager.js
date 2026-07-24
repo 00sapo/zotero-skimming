@@ -407,27 +407,99 @@ var FastKeySentenceModels = (() => {
     "research objective, aim, goal, or research question": "goal"
   });
 
-  async function summarize(text, callback) {
-    if (!text) return "";
+  const DEFAULT_CONTEXT_WINDOW = 4096;
+  const MIN_CONTEXT_WINDOW = 256;
+  const MAX_REDUCE_ROUNDS = 16;
+
+  function contextBudget(contextWindow) {
+    const window = Number.isInteger(contextWindow) && contextWindow >= MIN_CONTEXT_WINDOW
+      ? contextWindow
+      : DEFAULT_CONTEXT_WINDOW;
+    const reserve = Math.max(128, Math.min(512, Math.floor(window / 2)));
+    return {
+      input: Math.max(1, window - reserve),
+      output: Math.max(32, Math.min(240, reserve - 80))
+    };
+  }
+
+  function estimateTokens(text) {
+    const units = String(text || "").match(/[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu) || [];
+    return units.reduce((total, unit) => total + (/^[\p{L}\p{N}]+$/u.test(unit)
+      ? Math.max(1, Math.ceil(unit.length / 3))
+      : 1), 0);
+  }
+
+  function splitByTokenLimit(text, limit) {
+    const chunks = [];
+    let chunk = "";
+    let tokens = 0;
+    for (const part of String(text || "").match(/[^.!?]+[.!?]*|.+$/g) || []) {
+      const words = part.match(/\S+\s*/g) || [];
+      for (const word of words) {
+        const wordTokens = estimateTokens(word);
+        if (chunk && tokens + wordTokens > limit) {
+          chunks.push(chunk.trim());
+          chunk = "";
+          tokens = 0;
+        }
+        if (wordTokens > limit) {
+          for (let start = 0; start < word.length; start += limit * 2) chunks.push(word.slice(start, start + limit * 2));
+        }
+        else {
+          chunk += word;
+          tokens += wordTokens;
+        }
+      }
+    }
+    if (chunk.trim()) chunks.push(chunk.trim());
+    return chunks;
+  }
+
+  async function generateSummary(text, callback, { final = true, maxNewTokens = 240 } = {}) {
     const generator = await getPipeline("text-generation", "summarization", false, callback);
     const prompt = [
       "<|im_start|>system",
-      "You are a research assistant. Summarize the following academic paper in a compact factual paragraph. Cover its objective, method, main findings, and limitations. Be precise and concise.",
+      final
+        ? "You are a research assistant. Summarize the following academic paper in a compact factual paragraph. Cover its objective, method, main findings, and limitations. Be precise and concise."
+        : "Summarize this portion of an academic paper. Preserve its objective, methods, results, limitations, and conclusions for a later final summary.",
       "<|im_end|>",
       "<|im_start|>user",
-      String(text).slice(0, 60000),
+      text,
       "<|im_end|>",
       "<|im_start|>assistant"
     ].join("\n");
     const output = await generator(prompt, {
-      max_new_tokens: 240,
+      max_new_tokens: maxNewTokens,
       do_sample: false,
       return_full_text: false
     });
     const generated = Array.isArray(output) ? output[0]?.generated_text : output?.generated_text;
-    const summary = String(generated || "").replace(prompt, "").replace(/\s+/g, " ").trim();
-    callback?.({ stage: "inference", model: modelName("summarization", false), progress: 100 });
-    return summary;
+    return String(generated || "").replace(prompt, "").replace(/\s+/g, " ").trim();
+  }
+
+  async function summarize(text, callback, { mapReduce = false, contextWindow = DEFAULT_CONTEXT_WINDOW } = {}) {
+    if (!text) return "";
+    const budget = contextBudget(contextWindow);
+    let chunks = splitByTokenLimit(text, budget.input);
+    if (!chunks.length) return "";
+    if (!mapReduce) return generateSummary(chunks[0], callback, { maxNewTokens: budget.output });
+
+    for (let round = 0; round < MAX_REDUCE_ROUNDS; round++) {
+      const total = chunks.length;
+      const final = total === 1;
+      const summaries = [];
+      for (let index = 0; index < total; index++) {
+        callback?.({ stage: final ? "reducing" : "mapping", model: modelName("summarization", false), round: round + 1, completed: index, total, progress: 100 * index / total });
+        summaries.push(await generateSummary(chunks[index], callback, { final, maxNewTokens: budget.output }));
+        callback?.({ stage: final ? "reducing" : "mapping", model: modelName("summarization", false), round: round + 1, completed: index + 1, total, progress: 100 * (index + 1) / total });
+      }
+      if (final) {
+        callback?.({ stage: "inference", model: modelName("summarization", false), progress: 100 });
+        return summaries[0];
+      }
+      chunks = splitByTokenLimit(summaries.join("\n\n"), budget.input);
+    }
+    throw new Error("Local map-reduce summarization did not produce a final summary.");
   }
 
   async function classify(texts, multilingual, callback, batchSize = 8) {

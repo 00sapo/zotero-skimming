@@ -6,6 +6,7 @@ var FastKeySentenceRemote = (() => {
   const DEFAULT_MODEL = "gpt-4o-mini";
   const DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions";
   const DEFAULT_MAP_INPUT_TOKENS = 4096;
+  const MIN_MAP_INPUT_TOKENS = 256;
   const MAP_PROMPT_TOKEN_RESERVE = 512;
   const MAX_REDUCE_ROUNDS = 16;
   const MAX_RETRIES = 2;
@@ -30,7 +31,7 @@ var FastKeySentenceRemote = (() => {
       apiKey: Zotero.Prefs.get(pref + "remoteApiKey", true) || "",
       model: Zotero.Prefs.get(pref + "remoteModel", true) || DEFAULT_MODEL,
       mapReduce: Zotero.Prefs.get(pref + "mapReduce", true) === true,
-      mapInputTokens: Number.isInteger(mapInputTokens) && mapInputTokens >= 1024
+      mapInputTokens: Number.isInteger(mapInputTokens) && mapInputTokens >= MIN_MAP_INPUT_TOKENS
         ? mapInputTokens
         : DEFAULT_MAP_INPUT_TOKENS
     };
@@ -154,8 +155,17 @@ var FastKeySentenceRemote = (() => {
     ].join(" ");
   }
 
+  function mapBudget(contextWindow) {
+    const reserve = Math.max(128, Math.min(MAP_PROMPT_TOKEN_RESERVE, Math.floor(contextWindow / 2)));
+    return {
+      input: Math.max(1, contextWindow - reserve),
+      output: Math.max(32, Math.min(400, reserve - 80))
+    };
+  }
+
   async function summarizeMapReduce(paperText, documentTitle, targetSentences, targetTokens, config, onProgress) {
-    const inputLimit = config.mapInputTokens - MAP_PROMPT_TOKEN_RESERVE;
+    const budget = mapBudget(config.mapInputTokens);
+    const inputLimit = budget.input;
     const source = documentTitle ? `Title: ${documentTitle}\n\n${paperText}` : paperText;
     let chunks = splitByTokenLimit(source, inputLimit);
     if (!chunks.length) throw new Error("No paper text available for map-reduce summarization.");
@@ -166,7 +176,7 @@ var FastKeySentenceRemote = (() => {
       const prompt = isFinal
         ? summaryPrompt(targetSentences)
         : "Summarize this portion of an academic paper. Preserve objectives, methods, results, limitations, and conclusions needed for a final paper summary.";
-      const outputTokens = isFinal ? targetTokens : Math.min(targetTokens, 400);
+      const outputTokens = Math.min(targetTokens, budget.output);
       const summaries = [];
       for (let index = 0; index < chunks.length; index++) {
         onProgress?.({ stage: isFinal ? "reducing" : "mapping", model: config.model, round: round + 1, completed: index, total, progress: 100 * index / total });
@@ -221,6 +231,7 @@ var FastKeySentenceRemote = (() => {
     DEFAULT_ENDPOINT,
     DEFAULT_MAP_INPUT_TOKENS,
     MAP_PROMPT_TOKEN_RESERVE,
+    MIN_MAP_INPUT_TOKENS,
     getConfig,
     saveConfig,
     estimateTokens,

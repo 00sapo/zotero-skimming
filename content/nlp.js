@@ -357,7 +357,8 @@ var FastKeySentenceNLP = (() => {
         try {
           summary = await FastKeySentenceModels.summarize(
             paperText,
-            event => options.onModelProgress?.({ ...event, operation: "summarization" })
+            event => options.onModelProgress?.({ ...event, operation: "summarization" }),
+            { mapReduce: options.mapReduce === true, contextWindow: options.contextWindow }
           );
         }
         catch (error) {
