@@ -542,7 +542,7 @@ FastOfflineKeySentenceAnnotator = {
         ? ` (${formatBytes(Number(event.loaded) || 0)} / ${formatBytes(Number(event.total))})`
         : ` (${Math.round(percentage)}%)`;
       if (["download", "progress", "initiate"].includes(event.stage)) {
-        modelStatusText.textContent = `Downloading ${event.model || "model"}${file}${bytes}`;
+        modelStatusText.textContent = `Loading ${event.model || "model"}${file}${bytes}`;
       }
       else if (event.stage === "complete") {
         modelStatusText.textContent = event.inferenceAvailable === false
@@ -992,13 +992,13 @@ FastOfflineKeySentenceAnnotator = {
       if (["download", "progress", "initiate"].includes(event.stage)) {
         const file = event.file ? ` - ${String(event.file).split("/").pop()}` : "";
         const byteText = total > 0 ? ` (${formatBytes(loaded)} / ${formatBytes(total)})` : ` (${Math.round(percentage)}%)`;
-        line.setText(`${label}: downloading ${event.model || "model"}${file}${byteText}`);
+        line.setText(`${label}: loading ${event.model || "model"}${file}${byteText}`);
       }
       else if (event.stage === "sending" || event.stage === "retrying") {
         line.setText(`${label}: sending request to API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
       }
       else if (event.stage === "done") {
-        line.setText(`${label}: complete`);
+        // keep the existing in-progress text; no completion notification
       }
       else if (event.stage === "inference") {
         line.setText(`${label}: analysing sentences (${Math.round(percentage)}%)`);

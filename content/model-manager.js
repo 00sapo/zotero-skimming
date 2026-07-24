@@ -479,6 +479,12 @@ var FastKeySentenceModels = (() => {
 
   async function summarize(text, callback, { mapReduce = false, contextWindow = DEFAULT_CONTEXT_WINDOW } = {}) {
     if (!text) return "";
+    const name = modelName("summarization", false);
+    const manifestPath = PathUtils.join(cacheDir || PathUtils.join(PathUtils.profileDir, "fast-key-sentence-annotator"), "models", ...name.split("/"), "download-manifest.json");
+    if (!await IOUtils.exists(manifestPath)) {
+      throw new Error("Download/update the LLM models first");
+    }
+
     const budget = contextBudget(contextWindow);
     let chunks = splitByTokenLimit(text, budget.input);
     if (!chunks.length) return "";

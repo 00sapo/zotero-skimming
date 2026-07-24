@@ -141,7 +141,8 @@ describe("FastKeySentenceModels", () => {
   it("generates a local Qwen summary using int8 ONNX", async () => {
     const generator = vi.fn(async () => [{ generated_text: "A local summary." }]);
     const module = hostModule({ pipeline: vi.fn(async task => task === "text-generation" ? generator : async () => ({ tolist: () => [1, 2] })) });
-    const { api, module: loaded } = manager({ module });
+    const { api, module: loaded, files } = manager({ module });
+    files.set(`${ROOT}/models/onnx-community/Qwen2.5-0.5B-Instruct/download-manifest.json`, bytes("{}"));
     await expect(api.summarize("Paper text.")).resolves.toBe("A local summary.");
     expect(loaded.pipeline).toHaveBeenCalledWith("text-generation", "onnx-community/Qwen2.5-0.5B-Instruct", expect.objectContaining({ dtype: "int8" }));
     expect(generator).toHaveBeenCalledWith(expect.stringContaining("<|im_start|>system"), expect.objectContaining({ do_sample: false, max_new_tokens: 240 }));
@@ -150,7 +151,8 @@ describe("FastKeySentenceModels", () => {
   it("maps and reduces local Qwen input within a small context window", async () => {
     const generator = vi.fn(async () => [{ generated_text: "A chunk summary." }]);
     const module = hostModule({ pipeline: vi.fn(async task => task === "text-generation" ? generator : async () => ({ tolist: () => [1, 2] })) });
-    const { api } = manager({ module });
+    const { api, files } = manager({ module });
+    files.set(`${ROOT}/models/onnx-community/Qwen2.5-0.5B-Instruct/download-manifest.json`, bytes("{}"));
     const progress = vi.fn();
     const text = Array.from({ length: 300 }, () => "word.").join(" ");
 
@@ -159,6 +161,12 @@ describe("FastKeySentenceModels", () => {
     expect(generator.mock.calls.every(([, options]) => options.max_new_tokens <= 48)).toBe(true);
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "mapping" }));
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "reducing" }));
+  });
+
+  it("rejects local summarization when the model has not been downloaded", async () => {
+    const module = hostModule({ pipeline: vi.fn(async () => async () => ({ generated_text: "A local summary." })) });
+    const { api } = manager({ module });
+    await expect(api.summarize("Paper text.")).rejects.toThrow("Download/update the LLM models first.");
   });
 
   it("classifies sentence batches, defaults missing outputs, and reports inference", async () => {
