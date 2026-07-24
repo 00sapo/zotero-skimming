@@ -5,8 +5,8 @@ var FastKeySentenceModels = (() => {
 
   const OLLAMA_URL = "http://127.0.0.1:11434";
   const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
-  const SUMMARY_MODEL = "qwen2.5:0.5b";
-  const EMBEDDING_MODEL = "all-minilm:latest";
+  const SUMMARY_MODEL = "hf.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF";
+  const EMBEDDING_MODEL = "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF";
   const DEFAULT_CONTEXT_WINDOW = 4096;
   const MIN_CONTEXT_WINDOW = 256;
   const COMMAND_PREF = "extensions.fast-offline-key-sentence-annotator.ollamaCommand";

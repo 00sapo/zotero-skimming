@@ -76,8 +76,8 @@ function manager({ path = "/usr/bin/ollama", xhr, io } = {}) {
 describe("FastKeySentenceModels Ollama", () => {
   it("offers a summary and embedding model", () => {
     const { api } = manager();
-    expect(api.SUMMARY_MODEL).toBe("qwen2.5:0.5b");
-    expect(api.EMBEDDING_MODEL).toBe("all-minilm:latest");
+    expect(api.SUMMARY_MODEL).toBe("hf.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF");
+    expect(api.EMBEDDING_MODEL).toBe("hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF");
   });
 
   it("uses a configured command to launch Ollama via testOllama", async () => {
