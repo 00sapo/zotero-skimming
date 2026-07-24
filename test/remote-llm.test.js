@@ -62,10 +62,11 @@ describe("FastKeySentenceRemote", () => {
     expect(fetch.mock.calls.length).toBeGreaterThan(2);
     for (const [, request] of fetch.mock.calls) {
       const body = JSON.parse(request.body);
-      expect(api.estimateTokens(body.messages[1].content)).toBeLessThanOrEqual(1024 - api.MAP_PROMPT_TOKEN_RESERVE);
+      const userContent = body.messages[1].content;
+      const text = userContent.split("\n\nWrite a summary")[0];
+      expect(api.estimateTokens(text)).toBeLessThanOrEqual(1024 - api.MAP_PROMPT_TOKEN_RESERVE);
     }
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "mapping" }));
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "reducing" }));
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ stage: "done" }));
   });
 });

@@ -146,13 +146,15 @@ var FastKeySentenceRemote = (() => {
     throw new Error(`Remote summarization failed after ${MAX_RETRIES + 1} attempts: ${lastError?.message || lastError}`);
   }
 
+  const SYSTEM_PROMPT = [
+    "Return the summary directly without \"Here is...\" nor comments.",
+    "Return just the summary.",
+    "The summaries are made of one sentence per line, without blank lines, nor sections or titles.",
+    "Number the lines starting from 1."
+  ].join(" ");
+
   function summaryPrompt(targetSentences) {
-    return [
-      "You are a research assistant. Summarize the following academic paper.",
-      `Write exactly ${targetSentences} sentences, one per line, with no blank lines between them.`,
-      "Cover: the research objective, the method or approach, the main empirical findings,",
-      "and any key limitations or conclusions. Be precise, concise, and avoid filler."
-    ].join(" ");
+    return `Write a summary of exactly ${targetSentences} numbered sentences. Summary:`;
   }
 
   function mapBudget(contextWindow) {
@@ -172,22 +174,19 @@ var FastKeySentenceRemote = (() => {
     let round = 0;
     while (round < MAX_REDUCE_ROUNDS) {
       const total = chunks.length;
-      const isFinal = total === 1;
-      const prompt = isFinal
-        ? summaryPrompt(targetSentences)
-        : "Summarize this portion of an academic paper. Preserve objectives, methods, results, limitations, and conclusions needed for a final paper summary.";
+      const prompt = summaryPrompt(targetSentences);
       const outputTokens = Math.min(targetTokens, budget.output);
       const summaries = [];
       for (let index = 0; index < chunks.length; index++) {
-        onProgress?.({ stage: isFinal ? "reducing" : "mapping", model: config.model, round: round + 1, completed: index, total, progress: 100 * index / total });
-        summaries.push(await requestSummary(config, prompt, chunks[index], outputTokens, onProgress, {
+        onProgress?.({ stage: "mapping", model: config.model, round: round + 1, completed: index, total, progress: 100 * index / total });
+        summaries.push(await requestSummary(config, SYSTEM_PROMPT, chunks[index] + "\n\n" + prompt, outputTokens, onProgress, {
           round: round + 1,
           chunk: index + 1,
           total
         }));
-        onProgress?.({ stage: isFinal ? "reducing" : "mapping", model: config.model, round: round + 1, completed: index + 1, total, progress: 100 * (index + 1) / total });
+        onProgress?.({ stage: "mapping", model: config.model, round: round + 1, completed: index + 1, total, progress: 100 * (index + 1) / total });
       }
-      if (isFinal) return summaries[0];
+      if (total === 1) return summaries[0];
       chunks = splitByTokenLimit(summaries.join("\n\n"), inputLimit);
       round++;
     }
@@ -208,7 +207,8 @@ var FastKeySentenceRemote = (() => {
     }
     else {
       const userText = documentTitle ? `Title: ${documentTitle}\n\n${paperText}` : paperText;
-      summary = await requestSummary(config, summaryPrompt(targetSentences), userText.slice(0, 128000), targetTokens, onProgress);
+      const instruction = summaryPrompt(targetSentences);
+      summary = await requestSummary(config, SYSTEM_PROMPT, (userText + "\n\n" + instruction).slice(0, 128000), targetTokens, onProgress);
     }
     const responseSentences = (summary || "").split(/\n/).filter(line => line.trim()).length;
     Services.console.logStringMessage(`Zotero Skimming remote: summarize responseSentences=${responseSentences} responseChars=${(summary || "").length}`);
