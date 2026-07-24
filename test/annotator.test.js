@@ -3,8 +3,10 @@ import { loadScript } from "./helpers.js";
 
 function annotator(globals = {}) {
   const nlpContext = loadScript("content/nlp.js");
+  const defaultModels = { init: vi.fn(), shutdown: vi.fn(), summarize: async () => "A test summary.", embeddings: async () => [[1, 0], [0, 1]], testOllama: async () => {}, supportsInference: () => true, setModelOverrides: vi.fn(), appendToLog: vi.fn(), SUMMARY_MODEL: "test-summary", EMBEDDING_MODEL: "test-embed" };
   return loadScript("content/annotator.js", {
     FastKeySentenceNLP: nlpContext.FastKeySentenceNLP,
+    FastKeySentenceModels: defaultModels,
     FastKeySentenceRemote: { DEFAULT_ENDPOINT: "https://api.example.com", DEFAULT_MODEL: "test-model", summarize: async () => "A test summary.", getConfig: () => ({ endpoint: "", apiKey: "", model: "" }) },
     Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" } },
     ...globals
@@ -285,11 +287,11 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     const window = fakeWindow();
     const result = api.showSettingsOverlay(window, api.settingsDefaults);
     expect(window.document.documentElement.children[0].tag).toBe("div");
-    expect(byId(window, "compression-ratio").value).toBe("2");
+    expect(byId(window, "compression-ratio").value).toBe("10");
     expect(byId(window, "local-relevance")).toBeDefined();
     expect(byId(window, "remote-endpoint")).toBeDefined();
-    expect(byId(window, "summary-source").value).toBe("remote");
-    expect(byId(window, "remote-endpoint").disabled).toBe(false);
+    expect(byId(window, "summary-source").value).toBe("local");
+    expect(byId(window, "remote-endpoint").disabled).toBe(true);
     expect(byId(window, "map-reduce").checked).toBe("false");
     expect(api.isValidSettings({ ...api.settingsDefaults })).toBe(true);
     expect(api.isValidSettings({ ...api.settingsDefaults, compressionRatio: 1 })).toBe(false);

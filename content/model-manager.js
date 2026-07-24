@@ -220,6 +220,11 @@ var FastKeySentenceModels = (() => {
     ollamaProcess = null;
   }
 
+  function setModelOverrides({ summaryModel = "", embeddingModel = "" } = {}) {
+    if (summaryModel) SUMMARY_MODEL = summaryModel;
+    if (embeddingModel) EMBEDDING_MODEL = embeddingModel;
+  }
+
   return {
     SUMMARY_MODEL,
     EMBEDDING_MODEL,
@@ -230,6 +235,7 @@ var FastKeySentenceModels = (() => {
     embeddings,
     testOllama,
     supportsInference,
+    setModelOverrides,
     log,
     appendToLog
   };

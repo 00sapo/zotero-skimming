@@ -20,17 +20,19 @@ async function startup({ id, version, rootURI }) {
   Services.scriptloader.loadSubScript(rootURI + "content/annotator.js");
 
   const defaults = Services.prefs.getDefaultBranch("extensions.zotero-skimming.");
-  defaults.setIntPref("compressionRatio", 2);
+  defaults.setIntPref("compressionRatio", 10);
   defaults.setBoolPref("localRelevance", false);
   defaults.setStringPref("ollamaCommand", "/usr/bin/ollama");
   defaults.setStringPref("tagDefinitions", FastKeySentenceNLP.DEFAULT_TAG_DEFINITIONS);
   defaults.setStringPref("remoteEndpoint", "");
   defaults.setStringPref("remoteApiKey", "");
   defaults.setStringPref("remoteModel", "");
-  defaults.setStringPref("summarySource", "remote");
+  defaults.setStringPref("summarySource", "local");
   defaults.setBoolPref("mapReduce", false);
-  defaults.setIntPref("mapReduceSentences", 10);
+  defaults.setIntPref("mapReduceSentences", 40);
   defaults.setIntPref("mapReduceInputTokens", 4096);
+  defaults.setStringPref("summaryModel", "");
+  defaults.setStringPref("embeddingModel", "");
 
   FastKeySentenceModels.init(rootURI);
   FastOfflineKeySentenceAnnotator.init({ id, version, rootURI });

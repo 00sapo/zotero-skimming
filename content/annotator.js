@@ -107,16 +107,18 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   settingsDefaults: Object.freeze({
-    compressionRatio: 2,
+    compressionRatio: 10,
     localRelevance: false,
     ollamaCommand: "/usr/bin/ollama",
     tagDefinitions: FastKeySentenceNLP.DEFAULT_TAG_DEFINITIONS,
     remoteEndpoint: "",
     remoteApiKey: "",
     remoteModel: "",
-    summarySource: "remote",
+    summarySource: "local",
     mapReduce: false,
-    mapReduceSentences: 10
+    mapReduceSentences: 40,
+    summaryModel: "",
+    embeddingModel: ""
   }),
 
   getConfiguredSettings() {
@@ -132,7 +134,9 @@ FastOfflineKeySentenceAnnotator = {
       remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel,
       summarySource: Zotero.Prefs.get(this.prefBranch + "summarySource", true) || defaults.summarySource,
       mapReduce: Zotero.Prefs.get(this.prefBranch + "mapReduce", true) ?? defaults.mapReduce,
-      mapReduceSentences: Number(Zotero.Prefs.get(this.prefBranch + "mapReduceSentences", true)) || defaults.mapReduceSentences
+      mapReduceSentences: Number(Zotero.Prefs.get(this.prefBranch + "mapReduceSentences", true)) || defaults.mapReduceSentences,
+      summaryModel: Zotero.Prefs.get(this.prefBranch + "summaryModel", true) || defaults.summaryModel,
+      embeddingModel: Zotero.Prefs.get(this.prefBranch + "embeddingModel", true) || defaults.embeddingModel
     };
     settings.localRelevance = settings.localRelevance === true;
     settings.mapReduce = settings.mapReduce === true;
@@ -153,7 +157,9 @@ FastOfflineKeySentenceAnnotator = {
         && FastKeySentenceNLP.parseTagDefinitions(settings.tagDefinitions).length > 0
         && typeof settings.remoteEndpoint === "string"
         && typeof settings.remoteApiKey === "string"
-        && typeof settings.remoteModel === "string";
+        && typeof settings.remoteModel === "string"
+        && typeof settings.summaryModel === "string"
+        && typeof settings.embeddingModel === "string";
   },
 
   saveSettings(settings) {
@@ -167,6 +173,8 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "summarySource", settings.summarySource, true);
     Zotero.Prefs.set(this.prefBranch + "mapReduce", settings.mapReduce, true);
     Zotero.Prefs.set(this.prefBranch + "mapReduceSentences", settings.mapReduceSentences, true);
+    Zotero.Prefs.set(this.prefBranch + "summaryModel", settings.summaryModel || "", true);
+    Zotero.Prefs.set(this.prefBranch + "embeddingModel", settings.embeddingModel || "", true);
   },
 
   calculateAnnotationTarget(pageCount, settings) {
@@ -365,6 +373,29 @@ FastOfflineKeySentenceAnnotator = {
       if (id === "remote-api-key") remoteApiKeyInput = input;
     }
     remoteOptions.appendChild(remoteGrid);
+    const modelGrid = create("div", {
+      style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center; margin-top: 12px"
+    });
+    const modelFields = [
+      ["summary-model", "Summary model", initialSettings.summaryModel, "hf.co/unsloth/Qwen3.5-2B-GGUF:Q8_0"],
+      ["embedding-model", "Embedding model", initialSettings.embeddingModel, "hf.co/PeterAM4/Qwen3-Embedding-0.6B-GGUF:Q8_0"]
+    ];
+    let summaryModelInput, embeddingModelInput;
+    for (const [id, labelText, value, placeholder] of modelFields) {
+      modelGrid.appendChild(create("label", { htmlFor: id, style: "font-weight: 500" }, labelText));
+      const input = create("input", {
+        id,
+        type: "text",
+        value: String(value || ""),
+        placeholder,
+        style: "min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
+      });
+      inputs[id] = input;
+      modelGrid.appendChild(input);
+      if (id === "summary-model") summaryModelInput = input;
+      if (id === "embedding-model") embeddingModelInput = input;
+    }
+    remoteOptions.appendChild(modelGrid);
     const mapReduceRow = create("div", {
       style: "display: grid; grid-template-columns: auto minmax(0, 1fr) auto 80px; column-gap: 8px; row-gap: 2px; margin-top: 12px; align-items: center"
     });
@@ -395,7 +426,7 @@ FastOfflineKeySentenceAnnotator = {
     remoteConfig.appendChild(mapReduceRow);
     remoteConfig.appendChild(create("p", {
       style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Local Ollama uses HF Qwen2.5 GGUF for summaries and Qwen3 embeddings for semantic relevance. Remote mode uses any OpenAI compatible API."));
+    }, "Map-reduce is needed only when using smaller models with limited context windows. The default Qwen 3.5 has enough context for any paper."));
     form.appendChild(remoteConfig);
 
     const error = create("p", {
@@ -455,6 +486,8 @@ FastOfflineKeySentenceAnnotator = {
       remoteEndpointInput.disabled = local;
       remoteModelInput.disabled = local;
       remoteApiKeyInput.disabled = local;
+      if (summaryModelInput) summaryModelInput.disabled = !local;
+      if (embeddingModelInput) embeddingModelInput.disabled = !local;
     };
     summarySource.addEventListener("change", syncSummarySource);
     syncSummarySource();
@@ -469,7 +502,9 @@ FastOfflineKeySentenceAnnotator = {
       remoteModel: inputs["remote-model"].value.trim(),
       summarySource: inputs["summary-source"].value,
       mapReduce: checks["map-reduce"].checked,
-      mapReduceSentences: Number(inputs["map-reduce-sentences"].value)
+      mapReduceSentences: Number(inputs["map-reduce-sentences"].value),
+      summaryModel: inputs["summary-model"] ? inputs["summary-model"].value.trim() : "",
+      embeddingModel: inputs["embedding-model"] ? inputs["embedding-model"].value.trim() : ""
     });
 
     const setBusy = busy => {
@@ -1017,6 +1052,7 @@ FastOfflineKeySentenceAnnotator = {
       const configuredSettings = settings && this.isValidSettings(settings)
         ? settings
         : this.getConfiguredSettings();
+      FastKeySentenceModels.setModelOverrides(configuredSettings);
       const bodySentences = sentences.filter(s => !FastKeySentenceNLP.isNoise(s) && s.section !== "abstract");
       const count = this.calculateAnnotationTarget(bodySentences.length, configuredSettings);
       const enabledStages = [configuredSettings.localRelevance && "semantic relevance"].filter(Boolean);
