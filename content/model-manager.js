@@ -7,7 +7,7 @@ var FastKeySentenceModels = (() => {
   const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
   const SUMMARY_MODEL = "zotero-skimming-summary";
   const EMBEDDING_MODEL = "zotero-skimming-embedding";
-  const SUMMARY_REPOSITORY = "Qwen/Qwen2.5-0.5B-Instruct-GGUF";
+  const SUMMARY_REPOSITORY = "ar08/mT5_multilingual_XLSum-Q8_0-GGUF";
   const EMBEDDING_REPOSITORY = "Qwen/Qwen3-Embedding-0.6B-GGUF";
   const DEFAULT_CONTEXT_WINDOW = 4096;
   const MIN_CONTEXT_WINDOW = 256;
@@ -199,7 +199,7 @@ var FastKeySentenceModels = (() => {
   async function updateModels(settings, callback) {
     const contextWindow = validContextWindow(settings.mapReduceInputTokens);
     await ensureOllama(callback, settings.ollamaCommand);
-    await provisionModel(SUMMARY_MODEL, SUMMARY_REPOSITORY, /q4[_-]k[_-]m/i, contextWindow, callback);
+    await provisionModel(SUMMARY_MODEL, SUMMARY_REPOSITORY, /q8[_-]0/i, contextWindow, callback);
     await provisionModel(EMBEDDING_MODEL, EMBEDDING_REPOSITORY, /q8[_-]0/i, contextWindow, callback);
     callback?.({ operation: "all", stage: "complete", model: "Ollama models", progress: 100 });
     return true;
@@ -252,10 +252,8 @@ var FastKeySentenceModels = (() => {
     return chunks;
   }
 
-  async function generateSummary(text, callback, { summaryUpToThisPoint = "", sentenceCount = 10, maxNewTokens = 240, contextWindow } = {}) {
-    const prompt = summaryUpToThisPoint
-      ? `Here is a summary of the first part of an article: ${summaryUpToThisPoint}\n\nCreate a summary of this next part of the same article. Use ${sentenceCount} sentences.\n\nHere is the next part:\n${text}`
-      : `Create a precise, factual academic-article summary without filler. Use ${sentenceCount} sentences.\n\nHere is the first part:\n${text}`;
+  async function summarizeChunk(text, callback, { sentenceCount = 10, maxNewTokens = 240, contextWindow } = {}) {
+    const prompt = text;
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 0 });
     const result = await ollamaRequest("/api/generate", {
       model: SUMMARY_MODEL,
@@ -276,16 +274,31 @@ var FastKeySentenceModels = (() => {
     const totalSentences = Math.max(1, Math.round(Number(sentenceCount) || 10));
     const chunks = splitByTokenLimit(text, budget.input, mapReduce ? 0.05 : 0);
     if (!chunks.length) return "";
-    if (!mapReduce) return generateSummary(chunks[0], callback, { sentenceCount: totalSentences, maxNewTokens: budget.output, contextWindow });
-    const mapSentences = Math.max(1, totalSentences - (chunks.length - 1));
-    let summary = "";
-    for (let index = 0; index < chunks.length; index++) {
-      const stage = index ? "reducing" : "mapping";
-      callback?.({ stage, model: SUMMARY_MODEL, completed: index, total: chunks.length, progress: 100 * index / chunks.length });
-      summary = await generateSummary(chunks[index], callback, { summaryUpToThisPoint: summary, sentenceCount: mapSentences, maxNewTokens: budget.output, contextWindow });
-      callback?.({ stage, model: SUMMARY_MODEL, completed: index + 1, total: chunks.length, progress: 100 * (index + 1) / chunks.length });
+    if (!mapReduce || chunks.length < 2) {
+      return summarizeChunk(chunks[0], callback, { sentenceCount: totalSentences, maxNewTokens: budget.output, contextWindow });
     }
-    return summary;
+    // Map: summarize each chunk independently
+    const mapSentences = Math.max(3, Math.ceil(totalSentences * 1.5 / chunks.length));
+    const summaries = [];
+    for (let index = 0; index < chunks.length; index++) {
+      callback?.({ stage: "mapping", model: SUMMARY_MODEL, completed: index, total: chunks.length, progress: 100 * index / chunks.length });
+      summaries.push(await summarizeChunk(chunks[index], callback, { sentenceCount: mapSentences, maxNewTokens: budget.output, contextWindow }));
+      callback?.({ stage: "mapping", model: SUMMARY_MODEL, completed: index + 1, total: chunks.length, progress: 100 * (index + 1) / chunks.length });
+    }
+    // Reduce: combine chunk summaries
+    let combined = summaries.join("\n\n");
+    for (let round = 0; round < 8; round++) {
+      const parts = splitByTokenLimit(combined, Math.min(budget.input, Math.floor(budget.input * (1 + round) / 2)), 0);
+      if (parts.length < 2) return combined;
+      callback?.({ stage: "reducing", model: SUMMARY_MODEL, round: round + 1, completed: 0, total: parts.length });
+      const reduction = [];
+      for (let index = 0; index < parts.length; index++) {
+        callback?.({ stage: "reducing", model: SUMMARY_MODEL, round: round + 1, completed: index + 1, total: parts.length, progress: 100 * (index + 1) / parts.length });
+        reduction.push(await summarizeChunk(parts[index], callback, { sentenceCount: totalSentences, maxNewTokens: budget.output, contextWindow }));
+      }
+      combined = reduction.join("\n\n");
+    }
+    return combined;
   }
 
   async function embeddings(texts, callback) {

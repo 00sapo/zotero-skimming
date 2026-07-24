@@ -1,6 +1,6 @@
 {
   "summarization": {
-    "repository": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    "repository": "ar08/mT5_multilingual_XLSum-Q8_0-GGUF",
     "model": "zotero-skimming-summary"
   },
   "embeddings": {

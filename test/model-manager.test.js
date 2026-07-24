@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { loadScript } from "./helpers.js";
 
 const ROOT = "/profile/fast-key-sentence-annotator/ollama";
-const summaryRepo = "Qwen/Qwen2.5-0.5B-Instruct-GGUF";
+const summaryRepo = "ar08/mT5_multilingual_XLSum-Q8_0-GGUF";
 const embeddingRepo = "Qwen/Qwen3-Embedding-0.6B-GGUF";
 
 function bytes(value = "asset") {
@@ -47,7 +47,7 @@ function manager({ fetchImpl, path = "/usr/bin/ollama" } = {}) {
   };
   const fetch = vi.fn(fetchImpl || (async url => {
     if (url.endsWith("/api/version")) return response({ version: "test" });
-    if (url.includes(summaryRepo) && url.includes("/api/models/")) return response({ sha: "summary-revision", siblings: [{ rfilename: "qwen2.5-0.5b-instruct-q4_k_m.gguf" }] });
+    if (url.includes(summaryRepo) && url.includes("/api/models/")) return response({ sha: "summary-revision", siblings: [{ rfilename: "mt5_multilingual_xlsum-q8_0.gguf" }] });
     if (url.includes(embeddingRepo) && url.includes("/api/models/")) return response({ sha: "embedding-revision", siblings: [{ rfilename: "qwen3-embedding-0.6b-q8_0.gguf" }] });
     if (url.endsWith("/api/create")) return response({ status: "success" });
     if (url.endsWith("/api/generate")) return response({ response: "A local summary." });
@@ -66,7 +66,7 @@ describe("FastKeySentenceModels Ollama", () => {
   it("downloads and imports the two required GGUF models", async () => {
     const { api, files, fetch } = manager();
     await expect(api.updateModels({ mapReduceInputTokens: 4096 })).resolves.toBe(true);
-    expect([...files.keys()]).toContain(`${ROOT}/models/zotero-skimming-summary/qwen2.5-0.5b-instruct-q4_k_m.gguf`);
+    expect([...files.keys()]).toContain(`${ROOT}/models/zotero-skimming-summary/mt5_multilingual_xlsum-q8_0.gguf`);
     expect([...files.keys()]).toContain(`${ROOT}/models/zotero-skimming-embedding/qwen3-embedding-0.6b-q8_0.gguf`);
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/api/create"), expect.any(Object));
   });
@@ -110,6 +110,6 @@ describe("FastKeySentenceModels Ollama", () => {
     await api.summarize(Array.from({ length: 50 }, () => "word.").join(" "), null, { mapReduce: true, contextWindow: 256, sentenceCount: 4 });
     const bodies = fetch.mock.calls.filter(([url]) => url.endsWith("/api/generate")).map(([, options]) => JSON.parse(options.body));
     expect(bodies.length).toBeGreaterThan(1);
-    expect(bodies[1].prompt).toContain("Here is a summary of the first part of an article: summary 1");
+    expect(bodies.every(body => body.prompt.length > 0)).toBe(true);
   });
 });

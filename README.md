@@ -42,7 +42,7 @@ The baseline ranker works without downloaded models. When enabled, local semanti
 
 Choose **Remote API** to send filtered paper body text (no authors, tables, figures, abstract, or references) to the configured remote LLM. Its summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations.
 
-Choose **Local Ollama** to summarize with imported `Qwen/Qwen2.5-0.5B-Instruct-GGUF`. Ollama handles local GPU selection and execution; this add-on starts `ollama serve` when its executable is available. Remote credentials are hidden when local summarization is selected.
+Choose **Local Ollama** to summarize with imported `ar08/mT5_multilingual_XLSum-Q8_0-GGUF`. Ollama handles local GPU selection and execution; this add-on starts `ollama serve` when its executable is available. Remote credentials are hidden when local summarization is selected.
 
 **Map-reduce long papers** and its shared context window apply to both sources. They split long input into locally token-counted chunks before reducing their summaries. Local Ollama carries each partial summary into the next map step and overlaps adjacent chunks by 5%. The window defaults to 4096 tokens and accepts values from 256 to 131072.
 
@@ -77,7 +77,7 @@ Install Ollama separately, then use **Download Ollama models** to upload these H
 
 | Stage | Model |
 |-------|-------|
-| Summarization | `Qwen/Qwen2.5-0.5B-Instruct-GGUF` (Q4_K_M) |
+| Summarization | `ar08/mT5_multilingual_XLSum-Q8_0-GGUF` (Q8_0) |
 | Semantic relevance | `Qwen/Qwen3-Embedding-0.6B-GGUF` (Q8_0) |
 
 `model-identifiers.json` records the imported model names and source repositories. `scoring-config.json` contains relevance prompts plus scoring and selection weights.
