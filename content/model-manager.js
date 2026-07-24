@@ -7,8 +7,6 @@ var FastKeySentenceModels = (() => {
   const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
   let SUMMARY_MODEL = "hf.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF";
   let EMBEDDING_MODEL = "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF";
-  const DEFAULT_CONTEXT_WINDOW = 4096;
-  const MIN_CONTEXT_WINDOW = 256;
   const COMMAND_PREF = "extensions.fast-offline-key-sentence-annotator.ollamaCommand";
 
   let cacheDir = null;
@@ -123,96 +121,57 @@ var FastKeySentenceModels = (() => {
 
 
 
-  function validContextWindow(value) {
-    const number = Number(value);
-    return Number.isInteger(number) && number >= MIN_CONTEXT_WINDOW ? number : DEFAULT_CONTEXT_WINDOW;
-  }
-
-  function contextBudget(contextWindow) {
-    const window = validContextWindow(contextWindow);
-    const reserve = Math.max(128, Math.min(512, Math.floor(window / 2)));
-    return { input: Math.max(1, window - reserve), output: Math.max(32, Math.min(240, reserve - 80)) };
-  }
-
-  function estimateTokens(text) {
-    const units = String(text || "").match(/[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu) || [];
-    return units.reduce((total, unit) => total + (/^[\p{L}\p{N}]+$/u.test(unit) ? Math.max(1, Math.ceil(unit.length / 3)) : 1), 0);
-  }
-
-  function overlapTail(text, targetTokens) {
-    const words = String(text).match(/\S+\s*/g) || [];
-    let tail = "";
-    let tokens = 0;
-    for (let index = words.length - 1; index >= 0 && tokens < targetTokens; index--) {
-      tail = words[index] + tail;
-      tokens += estimateTokens(words[index]);
-    }
-    return tail;
-  }
-
-  function splitByTokenLimit(text, limit, overlap = 0) {
+  function splitBySentenceCount(text, maxSentences) {
+    const sentences = String(text || "").match(/[^.!?]+[.!?]*|.+$/g) || [];
     const chunks = [];
-    let chunk = "";
-    let tokens = 0;
-    for (const part of String(text || "").match(/[^.!?]+[.!?]*|.+$/g) || []) {
-      for (const word of part.match(/\S+\s*/g) || []) {
-        const wordTokens = estimateTokens(word);
-        if (chunk && tokens + wordTokens > limit) {
-          chunks.push(chunk.trim());
-          chunk = overlap ? overlapTail(chunk, Math.max(1, Math.floor(limit * overlap))) : "";
-          tokens = estimateTokens(chunk);
-        }
-        chunk += word;
-        tokens += wordTokens;
-      }
+    for (let i = 0; i < sentences.length; i += maxSentences) {
+      chunks.push(sentences.slice(i, i + maxSentences).join(" ").trim());
     }
-    if (chunk.trim()) chunks.push(chunk.trim());
-    return chunks;
+    return chunks.filter(Boolean);
   }
 
-  async function summarizeChunk(text, callback, { sentenceCount = 10, maxNewTokens = 240, contextWindow } = {}) {
-    const prompt = `Summarize this academic paper excerpt in ${sentenceCount} sentences. Keep only the essential findings and conclusions.\n\n${text}`;
+  async function summarizeChunk(text, callback, { sentenceCount = 10 } = {}) {
+    const prompt = `Summarize in ${sentenceCount} sentences: ${text}\n\nSummary:`;
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 0 });
     const result = await ollamaRequest("/api/generate", {
       model: SUMMARY_MODEL,
       prompt,
-      system: "You are a research assistant.",
       stream: false,
       keep_alive: "5m",
-      options: { temperature: 0, num_predict: maxNewTokens, num_ctx: validContextWindow(contextWindow) }
+      options: { temperature: 0, num_predict: Math.min(sentenceCount * 30, 512) }
     });
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 100 });
     return String(result.response || "").replace(/\s+/g, " ").trim();
   }
 
-  async function summarize(text, callback, { mapReduce = false, contextWindow = DEFAULT_CONTEXT_WINDOW, sentenceCount = 10 } = {}) {
+  async function summarize(text, callback, { mapReduce = false, sentenceCount = 10 } = {}) {
     if (!text) return "";
     await ensureOllama(callback);
-    const budget = contextBudget(contextWindow);
     const totalSentences = Math.max(1, Math.round(Number(sentenceCount) || 10));
-    const chunks = splitByTokenLimit(text, budget.input, mapReduce ? 0.05 : 0);
-    if (!chunks.length) return "";
-    if (!mapReduce || chunks.length < 2) {
-      return summarizeChunk(chunks[0], callback, { sentenceCount: totalSentences, maxNewTokens: budget.output, contextWindow });
+    if (!mapReduce) {
+      return summarizeChunk(text, callback, { sentenceCount: totalSentences });
     }
-    // Map: summarize each chunk independently
-    const mapSentences = Math.max(3, Math.ceil(totalSentences * 1.5 / chunks.length));
+    // Map-reduce: split by sentence count, summarize each chunk, then reduce
+    const chunkSize = Math.max(1, Math.ceil(totalSentences * 3));
+    const chunks = splitBySentenceCount(text, chunkSize);
+    if (!chunks.length) return "";
+    const mapSentences = Math.max(1, Math.ceil(totalSentences * 2 / chunks.length));
     const summaries = [];
     for (let index = 0; index < chunks.length; index++) {
       callback?.({ stage: "mapping", model: SUMMARY_MODEL, completed: index, total: chunks.length, progress: 100 * index / chunks.length });
-      summaries.push(await summarizeChunk(chunks[index], callback, { sentenceCount: mapSentences, maxNewTokens: budget.output, contextWindow }));
+      summaries.push(await summarizeChunk(chunks[index], callback, { sentenceCount: mapSentences }));
       callback?.({ stage: "mapping", model: SUMMARY_MODEL, completed: index + 1, total: chunks.length, progress: 100 * (index + 1) / chunks.length });
     }
     // Reduce: combine chunk summaries
-    let combined = summaries.join("\n\n");
+    let combined = summaries.join("\n");
     for (let round = 0; round < 8; round++) {
-      const parts = splitByTokenLimit(combined, Math.min(budget.input, Math.floor(budget.input * (1 + round) / 2)), 0);
+      const parts = splitBySentenceCount(combined, Math.max(1, Math.ceil(totalSentences * 2)));
       if (parts.length < 2) return combined;
       callback?.({ stage: "reducing", model: SUMMARY_MODEL, round: round + 1, completed: 0, total: parts.length });
       const reduction = [];
       for (let index = 0; index < parts.length; index++) {
         callback?.({ stage: "reducing", model: SUMMARY_MODEL, round: round + 1, completed: index + 1, total: parts.length, progress: 100 * (index + 1) / parts.length });
-        reduction.push(await summarizeChunk(parts[index], callback, { sentenceCount: totalSentences, maxNewTokens: budget.output, contextWindow }));
+        reduction.push(await summarizeChunk(parts[index], callback, { sentenceCount: totalSentences }));
       }
       combined = reduction.join("\n\n");
     }
@@ -265,8 +224,6 @@ var FastKeySentenceModels = (() => {
     testOllama,
     supportsInference,
     log,
-    appendToLog,
-    estimateTokens,
-    splitByTokenLimit
+    appendToLog
   };
 })();

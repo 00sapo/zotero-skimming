@@ -107,9 +107,7 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   settingsDefaults: Object.freeze({
-    perPage: 1.9,
-    minimum: 12,
-    maximum: 80,
+    compressionRatio: 2,
     localRelevance: false,
     ollamaCommand: "/usr/bin/ollama",
     tagDefinitions: FastKeySentenceNLP.DEFAULT_TAG_DEFINITIONS,
@@ -117,19 +115,14 @@ FastOfflineKeySentenceAnnotator = {
     remoteApiKey: "",
     remoteModel: "",
     summarySource: "remote",
-    mapReduce: false,
-    mapReduceInputTokens: 4096
+    mapReduce: false
   }),
 
   getConfiguredSettings() {
     const defaults = this.settingsDefaults;
-    const perPage = Number(Zotero.Prefs.get(this.prefBranch + "annotationsPerPage", true));
-    const minimum = Number(Zotero.Prefs.get(this.prefBranch + "minimumAnnotations", true));
-    const maximum = Number(Zotero.Prefs.get(this.prefBranch + "maximumAnnotations", true));
+    const compressionRatio = Number(Zotero.Prefs.get(this.prefBranch + "compressionRatio", true));
     const settings = {
-      perPage: Number.isFinite(perPage) ? perPage : defaults.perPage,
-      minimum: Number.isInteger(minimum) ? minimum : defaults.minimum,
-      maximum: Number.isInteger(maximum) ? maximum : defaults.maximum,
+      compressionRatio: Number.isFinite(compressionRatio) && compressionRatio >= 1.5 ? compressionRatio : defaults.compressionRatio,
       localRelevance: Zotero.Prefs.get(this.prefBranch + "localRelevance", true) ?? defaults.localRelevance,
       ollamaCommand: Zotero.Prefs.get(this.prefBranch + "ollamaCommand", true) || defaults.ollamaCommand,
       tagDefinitions: Zotero.Prefs.get(this.prefBranch + "tagDefinitions", true) || defaults.tagDefinitions,
@@ -137,8 +130,7 @@ FastOfflineKeySentenceAnnotator = {
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
       remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel,
       summarySource: Zotero.Prefs.get(this.prefBranch + "summarySource", true) || defaults.summarySource,
-      mapReduce: Zotero.Prefs.get(this.prefBranch + "mapReduce", true) ?? defaults.mapReduce,
-      mapReduceInputTokens: Number(Zotero.Prefs.get(this.prefBranch + "mapReduceInputTokens", true)) || defaults.mapReduceInputTokens
+      mapReduce: Zotero.Prefs.get(this.prefBranch + "mapReduce", true) ?? defaults.mapReduce
     };
     settings.localRelevance = settings.localRelevance === true;
     settings.mapReduce = settings.mapReduce === true;
@@ -146,39 +138,23 @@ FastOfflineKeySentenceAnnotator = {
     return this.isValidSettings(settings) ? settings : { ...defaults };
   },
 
-  isValidDensity({ perPage, minimum, maximum }) {
-    return Number.isFinite(perPage)
-      && perPage > 0
-      && perPage <= 20
-      && Number.isInteger(minimum)
-      && Number.isInteger(maximum)
-      && minimum >= 0
-      && maximum >= 1
-      && maximum <= 500
-      && minimum <= maximum;
-  },
-
   isValidSettings(settings) {
-    return this.isValidDensity(settings)
-      && ["localRelevance", "mapReduce"]
-        .every(key => typeof settings[key] === "boolean")
-      && ["local", "remote"].includes(settings.summarySource)
-      && typeof settings.ollamaCommand === "string"
-      && settings.ollamaCommand.startsWith("/")
-      && typeof settings.tagDefinitions === "string"
-      && FastKeySentenceNLP.parseTagDefinitions(settings.tagDefinitions).length > 0
-      && Number.isInteger(settings.mapReduceInputTokens)
-      && settings.mapReduceInputTokens >= 256
-      && settings.mapReduceInputTokens <= 131072
-      && typeof settings.remoteEndpoint === "string"
-      && typeof settings.remoteApiKey === "string"
-      && typeof settings.remoteModel === "string";
+    return Number.isFinite(settings.compressionRatio)
+        && settings.compressionRatio >= 1.5
+        && ["localRelevance", "mapReduce"]
+          .every(key => typeof settings[key] === "boolean")
+        && ["local", "remote"].includes(settings.summarySource)
+        && typeof settings.ollamaCommand === "string"
+        && settings.ollamaCommand.startsWith("/")
+        && typeof settings.tagDefinitions === "string"
+        && FastKeySentenceNLP.parseTagDefinitions(settings.tagDefinitions).length > 0
+        && typeof settings.remoteEndpoint === "string"
+        && typeof settings.remoteApiKey === "string"
+        && typeof settings.remoteModel === "string";
   },
 
   saveSettings(settings) {
-    Zotero.Prefs.set(this.prefBranch + "annotationsPerPage", settings.perPage, true);
-    Zotero.Prefs.set(this.prefBranch + "minimumAnnotations", settings.minimum, true);
-    Zotero.Prefs.set(this.prefBranch + "maximumAnnotations", settings.maximum, true);
+    Zotero.Prefs.set(this.prefBranch + "compressionRatio", settings.compressionRatio, true);
     Zotero.Prefs.set(this.prefBranch + "localRelevance", settings.localRelevance, true);
     Zotero.Prefs.set(this.prefBranch + "ollamaCommand", (settings.ollamaCommand || this.settingsDefaults.ollamaCommand).trim(), true);
     Zotero.Prefs.set(this.prefBranch + "tagDefinitions", (settings.tagDefinitions || this.settingsDefaults.tagDefinitions).trim(), true);
@@ -191,8 +167,7 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   calculateAnnotationTarget(pageCount, settings) {
-    const raw = Math.round(settings.perPage * Math.max(0, pageCount));
-    return Math.min(settings.maximum, Math.max(settings.minimum, raw));
+    return Math.max(1, Math.round(Math.max(0, pageCount) / settings.compressionRatio));
   },
 
   showSettingsOverlay(window, initialSettings) {
@@ -280,33 +255,19 @@ FastOfflineKeySentenceAnnotator = {
       return fieldset;
     };
 
-    const density = makeFieldset("Highlight density");
-    const densityGrid = create("div", {
-      style: "display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 10px 18px; align-items: center"
-    });
-
-    const numberFields = [
-      ["per-page", "Average annotations per eligible page", initialSettings.perPage, "0.1", "20", "0.1"],
-      ["minimum", "Minimum annotations per PDF", initialSettings.minimum, "0", "500", "1"],
-      ["maximum", "Maximum annotations per PDF", initialSettings.maximum, "1", "500", "1"]
-    ];
+    const compressionField = makeFieldset("Compression");
     const inputs = {};
-    for (const [id, labelText, value, min, max, step] of numberFields) {
-      const label = create("label", { htmlFor: id }, labelText);
-      const input = create("input", {
-        id,
-        type: "number",
-        value: String(value),
-        min,
-        max,
-        step,
-        style: "width: 112px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
-      });
-      inputs[id] = input;
-      densityGrid.append(label, input);
-    }
-    density.appendChild(densityGrid);
-    form.appendChild(density);
+    const crLabel = create("label", { htmlFor: "compression-ratio", style: "font-weight: 500; line-height: 1.35" }, "Compression ratio (e.g. 2 → half the sentences)");
+    const crInput = create("input", {
+      id: "compression-ratio",
+      type: "number",
+      value: String(initialSettings.compressionRatio),
+      min: "1.5", max: "20", step: "0.5",
+      style: "width: 96px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
+    });
+    inputs["compression-ratio"] = crInput;
+    compressionField.append(crLabel, crInput);
+    form.appendChild(compressionField);
 
     const stages = makeFieldset("Local Ollama relevance");
     const options = [
@@ -496,9 +457,7 @@ FastOfflineKeySentenceAnnotator = {
     syncSummarySource();
 
     const readSettings = () => ({
-      perPage: Number(inputs["per-page"].value),
-      minimum: Number(inputs.minimum.value),
-      maximum: Number(inputs.maximum.value),
+      compressionRatio: Number(inputs["compression-ratio"].value),
       localRelevance: checks["local-relevance"].checked,
       ollamaCommand: inputs["ollama-command"].value.trim(),
       tagDefinitions: inputs["tag-definitions"].value.trim(),
@@ -506,8 +465,7 @@ FastOfflineKeySentenceAnnotator = {
       remoteApiKey: inputs["remote-api-key"].value.trim(),
       remoteModel: inputs["remote-model"].value.trim(),
       summarySource: inputs["summary-source"].value,
-      mapReduce: checks["map-reduce"].checked,
-      mapReduceInputTokens: Number(inputs["map-reduce-input-tokens"].value)
+      mapReduce: checks["map-reduce"].checked
     });
 
     const setBusy = busy => {
@@ -623,7 +581,7 @@ FastOfflineKeySentenceAnnotator = {
         const settings = readSettings();
         if (!this.isValidSettings(settings)) {
           error.textContent = "Check the settings above.";
-          inputs["per-page"].focus();
+          inputs["compression-ratio"].focus();
           return;
         }
         finish(settings);
@@ -635,7 +593,7 @@ FastOfflineKeySentenceAnnotator = {
         });
       }
 
-      window.requestAnimationFrame(() => inputs["per-page"].focus());
+      window.requestAnimationFrame(() => inputs["compression-ratio"].focus());
     });
   },
 
@@ -756,11 +714,11 @@ FastOfflineKeySentenceAnnotator = {
           line.setText("Summary ready");
         }
       };
+      const summarySentenceCount = Math.max(1, Math.round(bodySentences.length / settings.compressionRatio));
       const summary = settings.summarySource === "local"
         ? await FastKeySentenceModels.summarize(inputText, onSummaryProgress, {
           mapReduce: settings.mapReduce,
-          contextWindow: settings.mapReduceInputTokens,
-          sentenceCount: 10
+          sentenceCount: summarySentenceCount
         })
         : await FastKeySentenceRemote.summarize(inputText, documentTitle, 10, onSummaryProgress);
 
@@ -1053,18 +1011,12 @@ FastOfflineKeySentenceAnnotator = {
       const configuredSettings = settings && this.isValidSettings(settings)
         ? settings
         : this.getConfiguredSettings();
-      // Base density on pages that still contain usable prose after front matter,
-      // tables, references, and back matter have been excluded. This prevents a
-      // long bibliography from inflating the number of highlights in the article.
-      const eligiblePages = new Set(
-        sentences.filter(sentence => !sentence.frontMatter).map(sentence => sentence.pageIndex)
-      ).size || pages.length;
-      const count = this.calculateAnnotationTarget(eligiblePages, configuredSettings);
+      const bodySentences = sentences.filter(s => !FastKeySentenceNLP.isNoise(s) && s.section !== "abstract");
+      const count = this.calculateAnnotationTarget(bodySentences.length, configuredSettings);
       const enabledStages = [configuredSettings.localRelevance && "semantic relevance"].filter(Boolean);
       line.setProgress(45);
       line.setText(
-        `Ranking sentences (target: ${count}; ${configuredSettings.perPage}/eligible page, `
-          + `min ${configuredSettings.minimum}, max ${configuredSettings.maximum}`
+        `Ranking sentences (target: ${count}; compression ${configuredSettings.compressionRatio}:1`
           + `${enabledStages.length ? `; LLM: ${enabledStages.join(", ")}` : "; fast mode"})`
       );
       const documentTitle = await this.getDocumentTitle(attachment);

@@ -234,12 +234,10 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     });
     api.init({ id: "id", version: "1", rootURI: "root" });
     expect(api.id).toBe("id");
-    expect(api.isValidDensity({ perPage: 1, minimum: 0, maximum: 1 })).toBe(true);
-    expect(api.isValidDensity({ perPage: 0, minimum: 2, maximum: 1 })).toBe(false);
     expect(api.getConfiguredSettings()).toEqual({ ...api.settingsDefaults });
-    api.saveSettings({ perPage: 2, minimum: 1, maximum: 3, localRelevance: true, remoteEndpoint: "https://api.example.com", remoteApiKey: "sk-test", remoteModel: "gpt-4o-mini", summarySource: "local", mapReduce: true, mapReduceInputTokens: 8192 });
-    expect(api.getConfiguredSettings()).toMatchObject({ perPage: 2, localRelevance: true, remoteEndpoint: "https://api.example.com", summarySource: "local", mapReduce: true, mapReduceInputTokens: 8192 });
-    expect(api.calculateAnnotationTarget(3, { perPage: 2, minimum: 1, maximum: 4 })).toBe(4);
+    api.saveSettings({ compressionRatio: 3, localRelevance: true, remoteEndpoint: "https://api.example.com", remoteApiKey: "sk-test", remoteModel: "gpt-4o-mini", summarySource: "local", mapReduce: true });
+    expect(api.getConfiguredSettings()).toMatchObject({ compressionRatio: 3, localRelevance: true, remoteEndpoint: "https://api.example.com", summarySource: "local", mapReduce: true });
+    expect(api.calculateAnnotationTarget(100, { compressionRatio: 2 })).toBe(50);
 
     const window = fakeWindow([{ isPDFAttachment: () => true }]);
     api.openAnnotationDialog = vi.fn().mockResolvedValue();
@@ -287,35 +285,27 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     const window = fakeWindow();
     const result = api.showSettingsOverlay(window, api.settingsDefaults);
     expect(window.document.documentElement.children[0].tag).toBe("div");
-    expect(byId(window, "per-page").value).toBe("1.9");
+    expect(byId(window, "compression-ratio").value).toBe("2");
     expect(byId(window, "local-relevance")).toBeDefined();
     expect(byId(window, "remote-endpoint")).toBeDefined();
     expect(byId(window, "summary-source").value).toBe("remote");
     expect(byId(window, "remote-endpoint").disabled).toBe(false);
     expect(byId(window, "map-reduce").checked).toBe("false");
-    expect(byId(window, "map-reduce-input-tokens").value).toBe("4096");
-    expect(api.isValidSettings({ ...api.settingsDefaults, mapReduceInputTokens: 256 })).toBe(true);
-    expect(api.isValidSettings({ ...api.settingsDefaults, mapReduceInputTokens: 255 })).toBe(false);
+    expect(api.isValidSettings({ ...api.settingsDefaults })).toBe(true);
+    expect(api.isValidSettings({ ...api.settingsDefaults, compressionRatio: 1 })).toBe(false);
     byId(window, "summary-source").value = "local";
     byId(window, "summary-source").dispatch("change");
     expect(byId(window, "remote-endpoint").disabled).toBe(true);
     await byText(window, "Test Ollama").listeners.click[0]();
     expect(testOllama).toHaveBeenCalled();
     byId(window, "local-relevance").checked = true;
-    api.isValidSettings = settings => settings.perPage > 0;
-    byId(window, "per-page").value = "0";
-    const submit = () => descendants(window.document.documentElement).find(x => x.tag === "form").listeners.submit[0]({ preventDefault: vi.fn() });
-    submit();
-    expect(byId(window, "per-page").focused).toBe(true);
-    byId(window, "per-page").value = "2";
-    byId(window, "minimum").value = "1";
-    byId(window, "maximum").value = "3";
+    byId(window, "compression-ratio").value = "3";
     byId(window, "remote-api-key").value = "sk-test";
     byId(window, "summary-source").value = "local";
     byId(window, "map-reduce").checked = true;
-    byId(window, "map-reduce-input-tokens").value = "8192";
+    const submit = () => descendants(window.document.documentElement).find(x => x.tag === "form").listeners.submit[0]({ preventDefault: vi.fn() });
     submit();
-    await expect(result).resolves.toMatchObject({ perPage: 2, localRelevance: true, remoteApiKey: "sk-test", summarySource: "local", mapReduce: true, mapReduceInputTokens: 8192 });
+    await expect(result).resolves.toMatchObject({ compressionRatio: 3, localRelevance: true, remoteApiKey: "sk-test", summarySource: "local", mapReduce: true });
 
     const cancelled = api.showSettingsOverlay(window, api.settingsDefaults);
     window.document.documentElement.children.at(-1).listeners.keydown?.[0]?.({ key: "Escape", preventDefault: vi.fn(), stopPropagation: vi.fn() });
@@ -338,7 +328,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     api.showSettingsOverlay = vi.fn().mockResolvedValue(null);
     await api.openAnnotationDialog(window);
     api.isValidSettings = () => false;
-    api.showSettingsOverlay.mockResolvedValueOnce({ perPage: 0 });
+    api.showSettingsOverlay.mockResolvedValueOnce({ compressionRatio: 0 });
     await expect(api.openAnnotationDialog(window)).rejects.toThrow("Invalid annotation settings");
     api.isValidSettings = () => true;
     api.showSettingsOverlay.mockResolvedValueOnce(api.settingsDefaults);
@@ -429,9 +419,9 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(api.extractPages({ pages: [[10, 20, [0, 1, 3, 4, ""], [0, 1, 3, 4, "Ok"]]] })[0].words).toHaveLength(1);
     const prose = ["doi: x", "Abstract", "A complete sentence has enough useful words to be considered here.", "A second paragraph starts with useful detail and continues clearly"].map((text, i) => ({ pageIndex: 0, width: 600, height: 800, words: text.split(" ").map((x, j) => word(x, j * 22 + (i === 3 ? 100 : 0), 750 - i * 45)) }));
     expect(api.buildSentences(prose).length).toBeGreaterThan(0);
-    for (const density of [{ perPage: NaN, minimum: 1, maximum: 2 }, { perPage: 0, minimum: 1, maximum: 2 }, { perPage: 21, minimum: 1, maximum: 2 }, { perPage: 1, minimum: 1.1, maximum: 2 }, { perPage: 1, minimum: 1, maximum: 1.1 }, { perPage: 1, minimum: -1, maximum: 2 }, { perPage: 1, minimum: 1, maximum: 0 }, { perPage: 1, minimum: 1, maximum: 501 }, { perPage: 1, minimum: 3, maximum: 2 }]) expect(api.isValidDensity(density)).toBe(false);
     expect(api.isValidSettings({ ...api.settingsDefaults, localRelevance: 1 })).toBe(false);
-    expect(api.calculateAnnotationTarget(-1, { perPage: 1, minimum: 2, maximum: 3 })).toBe(2);
+    expect(api.calculateAnnotationTarget(100, { compressionRatio: 2 })).toBe(50);
+    expect(api.calculateAnnotationTarget(0, { compressionRatio: 2 })).toBe(1);
     expect(api.makeAnnotation({ text: "x", pageIndex: -1, pageHeight: 1, rects: [[-1, 2, 3, 4]], section: "", importance: 0 })).toMatchObject({ color: "#aaaaaa", pageLabel: "0" });
   });
 
@@ -476,7 +466,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect((await api.extractAllPages(attachment, value => percentages.push(value))).map(page => page.pageIndex)).toEqual([0, 5]);
     expect(percentages).toEqual([5 / 6, 1]);
     api.extractAllPages = async () => [{ pageIndex: 0, width: 100, height: 100, words: "Abstract A sufficiently long result sentence demonstrates reliable findings across datasets.".split(" ").map((text, i) => word(text, i * 5, 70)) }];
-    await api.annotateAttachment(attachment, null, { perPage: 1, minimum: 1, maximum: 2, llmEmbeddings: false, llmClassification: false, multilingual: false });
+    await api.annotateAttachment(attachment, null, { compressionRatio: 2, llmEmbeddings: false, llmClassification: false, multilingual: false });
     expect(saved).toHaveLength(1);
     expect(commits).toHaveLength(1);
     attachment.getAnnotations = () => [{ getTags: () => [{ tag: "autoskim-key-sentence" }] }];
