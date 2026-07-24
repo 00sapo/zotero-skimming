@@ -121,7 +121,7 @@ describe("FastKeySentenceModels Ollama", () => {
     const { api } = manager({
       xhr: makeXHR({ "/api/generate": { body: () => ({ response: `summary ${++calls}` }) } })
     });
-    const result = await api.summarize(Array.from({ length: 50 }, () => "word.").join(" "), null, { mapReduce: true, contextWindow: 256, sentenceCount: 4 });
+    const result = await api.summarize(Array.from({ length: 50 }, () => "word.").join(" "), null, { mapReduce: true, mapReduceSentences: 4, sentenceCount: 4 });
     expect(result).toBeTruthy();
     expect(result.length).toBeGreaterThan(0);
   });

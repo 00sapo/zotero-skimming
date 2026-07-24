@@ -136,15 +136,16 @@ var FastKeySentenceModels = (() => {
     const result = await ollamaRequest("/api/generate", {
       model: SUMMARY_MODEL,
       prompt,
+      system: "Summarize directly without reasoning step by step.",
       stream: false,
       keep_alive: "5m",
-      options: { temperature: 0, num_predict: Math.min(sentenceCount * 30, 512) }
+      options: { temperature: 0 }
     });
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 100 });
     return String(result.response || "").replace(/\s+/g, " ").trim();
   }
 
-  async function summarize(text, callback, { mapReduce = false, sentenceCount = 10 } = {}) {
+  async function summarize(text, callback, { mapReduce = false, mapReduceSentences = 10, sentenceCount = 10 } = {}) {
     if (!text) return "";
     await ensureOllama(callback);
     const totalSentences = Math.max(1, Math.round(Number(sentenceCount) || 10));
@@ -152,7 +153,7 @@ var FastKeySentenceModels = (() => {
       return summarizeChunk(text, callback, { sentenceCount: totalSentences });
     }
     // Map-reduce: split by sentence count, summarize each chunk, then reduce
-    const chunkSize = Math.max(1, Math.ceil(totalSentences * 3));
+    const chunkSize = Math.max(2, Math.round(Number(mapReduceSentences) || 10));
     const chunks = splitBySentenceCount(text, chunkSize);
     if (!chunks.length) return "";
     const mapSentences = Math.max(1, Math.ceil(totalSentences * 2 / chunks.length));

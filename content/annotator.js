@@ -115,7 +115,8 @@ FastOfflineKeySentenceAnnotator = {
     remoteApiKey: "",
     remoteModel: "",
     summarySource: "remote",
-    mapReduce: false
+    mapReduce: false,
+    mapReduceSentences: 10
   }),
 
   getConfiguredSettings() {
@@ -130,7 +131,8 @@ FastOfflineKeySentenceAnnotator = {
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
       remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel,
       summarySource: Zotero.Prefs.get(this.prefBranch + "summarySource", true) || defaults.summarySource,
-      mapReduce: Zotero.Prefs.get(this.prefBranch + "mapReduce", true) ?? defaults.mapReduce
+      mapReduce: Zotero.Prefs.get(this.prefBranch + "mapReduce", true) ?? defaults.mapReduce,
+      mapReduceSentences: Number(Zotero.Prefs.get(this.prefBranch + "mapReduceSentences", true)) || defaults.mapReduceSentences
     };
     settings.localRelevance = settings.localRelevance === true;
     settings.mapReduce = settings.mapReduce === true;
@@ -141,6 +143,7 @@ FastOfflineKeySentenceAnnotator = {
   isValidSettings(settings) {
     return Number.isFinite(settings.compressionRatio)
         && settings.compressionRatio >= 1.5
+        && (!settings.mapReduce || (Number.isInteger(settings.mapReduceSentences) && settings.mapReduceSentences >= 2))
         && ["localRelevance", "mapReduce"]
           .every(key => typeof settings[key] === "boolean")
         && ["local", "remote"].includes(settings.summarySource)
@@ -163,6 +166,7 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "remoteModel", settings.remoteModel || "", true);
     Zotero.Prefs.set(this.prefBranch + "summarySource", settings.summarySource, true);
     Zotero.Prefs.set(this.prefBranch + "mapReduce", settings.mapReduce, true);
+    Zotero.Prefs.set(this.prefBranch + "mapReduceSentences", settings.mapReduceSentences, true);
     Zotero.Prefs.set(this.prefBranch + "mapReduceInputTokens", settings.mapReduceInputTokens, true);
   },
 
@@ -363,7 +367,7 @@ FastOfflineKeySentenceAnnotator = {
     }
     remoteOptions.appendChild(remoteGrid);
     const mapReduceRow = create("div", {
-      style: "display: grid; grid-template-columns: auto minmax(0, 1fr) 96px; column-gap: 10px; row-gap: 2px; margin-top: 12px; align-items: center"
+      style: "display: grid; grid-template-columns: auto minmax(0, 1fr) auto 80px; column-gap: 8px; row-gap: 2px; margin-top: 12px; align-items: center"
     });
     const mapReduceCheck = create("input", {
       id: "map-reduce",
@@ -371,28 +375,28 @@ FastOfflineKeySentenceAnnotator = {
       checked: initialSettings.mapReduce === true,
       style: "margin: 3px 0 0"
     });
-    const mapReduceTokens = create("input", {
-      id: "map-reduce-input-tokens",
+    const mapReduceSentences = create("input", {
+      id: "map-reduce-sentences",
       type: "number",
-      "aria-label": "Map input token limit",
-      value: String(initialSettings.mapReduceInputTokens),
-      min: "256",
-      max: "131072",
+      "aria-label": "Sentences per chunk",
+      value: String(initialSettings.mapReduceSentences || 10),
+      min: "2",
       step: "1",
-      style: "width: 96px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
+      style: "width: 80px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
     });
     checks["map-reduce"] = mapReduceCheck;
-    inputs["map-reduce-input-tokens"] = mapReduceTokens;
+    inputs["map-reduce-sentences"] = mapReduceSentences;
     mapReduceRow.append(
       mapReduceCheck,
-      create("label", { htmlFor: "map-reduce", style: "font-weight: 500; line-height: 1.35" }, "Map-reduce long papers"),
-      mapReduceTokens
+      create("label", { htmlFor: "map-reduce", style: "font-weight: 500; line-height: 1.35" }, "Map-reduce: analyze N sentences per chunk"),
+      create("span", { style: "font-weight: 500" }, "N ="),
+      mapReduceSentences
     );
     remoteConfig.appendChild(remoteOptions);
     remoteConfig.appendChild(mapReduceRow);
     remoteConfig.appendChild(create("p", {
       style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Local Ollama uses imported Qwen2.5 GGUF for summaries and Qwen3 embeddings for semantic relevance. Install Ollama first, then download Ollama models. Remote mode uses any OpenAI compatible API. Map-reduce and the context window apply to both sources."));
+    }, "Local Ollama uses HF Qwen2.5 GGUF for summaries and Qwen3 embeddings for semantic relevance. Remote mode uses any OpenAI compatible API."));
     form.appendChild(remoteConfig);
 
     const error = create("p", {
@@ -465,7 +469,8 @@ FastOfflineKeySentenceAnnotator = {
       remoteApiKey: inputs["remote-api-key"].value.trim(),
       remoteModel: inputs["remote-model"].value.trim(),
       summarySource: inputs["summary-source"].value,
-      mapReduce: checks["map-reduce"].checked
+      mapReduce: checks["map-reduce"].checked,
+      mapReduceSentences: Number(inputs["map-reduce-sentences"].value)
     });
 
     const setBusy = busy => {
@@ -718,6 +723,7 @@ FastOfflineKeySentenceAnnotator = {
       const summary = settings.summarySource === "local"
         ? await FastKeySentenceModels.summarize(inputText, onSummaryProgress, {
           mapReduce: settings.mapReduce,
+          mapReduceSentences: settings.mapReduceSentences || 10,
           sentenceCount: summarySentenceCount
         })
         : await FastKeySentenceRemote.summarize(inputText, documentTitle, 10, onSummaryProgress);
@@ -1034,7 +1040,7 @@ FastOfflineKeySentenceAnnotator = {
         tagDefinitions: configuredSettings.tagDefinitions,
         summarySource: configuredSettings.summarySource,
         mapReduce: configuredSettings.mapReduce,
-        contextWindow: configuredSettings.mapReduceInputTokens,
+        mapReduceSentences: configuredSettings.mapReduceSentences,
         documentTitle,
         onModelProgress: this.modelProgressHandler(line, configuredSettings, stageLines)
       });
