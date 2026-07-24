@@ -24,19 +24,21 @@ The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native
 
 1. Select a PDF attachment in the Zotero library.
 2. Right-click it and choose **Skim paper**. <img src="assets/context-menu.png" alt="Zotero PDF context menu with Skim paper selected" width="150" />
-3. Configure the remote summarization endpoint, API key, and model name. Any OpenAI compatible API works. <img src="assets/settings-dialog.png" alt="Paper skim settings dialog" width="400" />
+3. Choose **Remote API** or **Local Qwen** for summarization. Remote mode requires an OpenAI-compatible endpoint, API key, and model name; local mode uses `onnx-community/Qwen2.5-0.5B-Instruct`. <img src="assets/settings-dialog.png" alt="Paper skim settings dialog" width="400" />
 4. Set the average, minimum, and maximum annotations per PDF.
 5. Enable optional local transformer stages (embeddings, classification) as needed.
 6. Click **Update models** to download selected local model assets into the Zotero profile cache. This is required only once per selected model and revision.
-7. Click **Annotate** to extract, summarize, rank, and annotate. Or click **Test API credentials** to verify the remote API and preview just the paper synopsis.
+7. Click **Annotate** to extract, summarize, rank, and annotate. In remote mode, **Test API credentials** verifies the API and previews the paper synopsis.
 
-The baseline ranker works without downloaded models. Summarization always uses the configured remote API. Local transformer failures fall back to TF-IDF for embeddings and skip classification.
+The baseline ranker works without downloaded models. Local Qwen uses int8 ONNX and falls back to baseline ranking if it cannot run. Other local transformer failures fall back to TF-IDF for embeddings and skip classification.
 
 ## Workflow
 
-### 1. Remote summarization
+### 1. Summarization
 
-Paper body text (filtered: no authors, tables, figures, abstract, references) is sent to the configured remote LLM. The summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations.
+Choose **Remote API** to send filtered paper body text (no authors, tables, figures, abstract, or references) to the configured remote LLM. Its summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations. Enable **Map-reduce long papers** to split long input into locally token-counted chunks before reducing their summaries; its input window defaults to 4096 tokens and can be changed in settings.
+
+Choose **Local Qwen** to summarize in Zotero with `onnx-community/Qwen2.5-0.5B-Instruct`. Download it first with **Update models**. It runs single-threaded through the add-on's local Transformers.js runtime using `onnx/model_int8.onnx`; no paper text is sent to a remote API.
 
 ### 2. Sentence embeddings
 
@@ -84,10 +86,11 @@ Selected annotations are restored to PDF reading order and mapped back to their 
 
 ## Models
 
-All local model assets come from Hugging Face, use q8/legacy quantized ONNX artifacts, and are downloaded explicitly with **Update models**.
+All local model assets come from Hugging Face and are downloaded explicitly with **Update models**. Embeddings and classification use q8/legacy quantized ONNX artifacts; local Qwen summarization uses its int8 ONNX artifact.
 
 | Stage | English | Multilingual |
 |-------|---------|-------------|
+| Summarization | `onnx-community/Qwen2.5-0.5B-Instruct` (int8) | Same model |
 | Embeddings | `Xenova/all-MiniLM-L6-v2` | `Xenova/multilingual-e5-small` |
 | Classification | `Xenova/mobilebert-uncased-mnli` | `onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX` |
 

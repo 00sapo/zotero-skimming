@@ -153,6 +153,26 @@ describe("FastKeySentenceNLP", () => {
     expect(progress).toHaveBeenCalled();
   });
 
+  it("uses local Qwen summarization without contacting the remote API", async () => {
+    const summarize = vi.fn(async () => "A local paper synopsis.");
+    const remote = { summarize: vi.fn() };
+    const selected = await nlp({ supportsInference: () => true, summarize, remote }).analyzeAsync(
+      prose.map((text, order) => sentence(text, order)), 2, { summarySource: "local" }
+    );
+    expect(summarize).toHaveBeenCalledOnce();
+    expect(remote.summarize).not.toHaveBeenCalled();
+    expect(selected.every(item => item._paperSummary === "A local paper synopsis.")).toBe(true);
+  });
+
+  it("falls back to baseline ranking after local Qwen summarization fails", async () => {
+    const progress = vi.fn();
+    const selected = await nlp({ supportsInference: () => true, summarize: async () => { throw new Error("model unavailable"); }, remote: { summarize: vi.fn() } }).analyzeAsync(
+      prose.map((text, order) => sentence(text, order)), 2, { summarySource: "local", onModelProgress: progress }
+    );
+    expect(selected).toHaveLength(2);
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "unavailable", operation: "summarization" }));
+  });
+
   it("falls back cleanly when local models are unavailable", async () => {
     const unavailable = nlp({ supportsInference: () => false, remote: { summarize: async () => "A synopsis." } });
     const progress = vi.fn();

@@ -236,8 +236,8 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(api.isValidDensity({ perPage: 1, minimum: 0, maximum: 1 })).toBe(true);
     expect(api.isValidDensity({ perPage: 0, minimum: 2, maximum: 1 })).toBe(false);
     expect(api.getConfiguredSettings()).toEqual({ ...api.settingsDefaults });
-    api.saveSettings({ perPage: 2, minimum: 1, maximum: 3, llmEmbeddings: true, llmClassification: false, classificationBatchSize: 12, multilingual: true, remoteEndpoint: "https://api.example.com", remoteApiKey: "sk-test", remoteModel: "gpt-4o-mini" });
-    expect(api.getConfiguredSettings()).toMatchObject({ perPage: 2, classificationBatchSize: 12, remoteEndpoint: "https://api.example.com" });
+    api.saveSettings({ perPage: 2, minimum: 1, maximum: 3, llmEmbeddings: true, llmClassification: false, classificationBatchSize: 12, multilingual: true, remoteEndpoint: "https://api.example.com", remoteApiKey: "sk-test", remoteModel: "gpt-4o-mini", summarySource: "local", mapReduce: true, mapReduceInputTokens: 8192 });
+    expect(api.getConfiguredSettings()).toMatchObject({ perPage: 2, classificationBatchSize: 12, remoteEndpoint: "https://api.example.com", summarySource: "local", mapReduce: true, mapReduceInputTokens: 8192 });
     expect(api.calculateAnnotationTarget(3, { perPage: 2, minimum: 1, maximum: 4 })).toBe(4);
 
     const window = fakeWindow([{ isPDFAttachment: () => true }]);
@@ -289,6 +289,9 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(byId(window, "per-page").value).toBe("1.9");
     expect(byId(window, "classification-batch-size").value).toBe("8");
     expect(byId(window, "remote-endpoint")).toBeDefined();
+    expect(byId(window, "summary-source").value).toBe("remote");
+    expect(byId(window, "map-reduce").checked).toBe("false");
+    expect(byId(window, "map-reduce-input-tokens").value).toBe("4096");
     await byText(window, "Update models").listeners.click[0]();
     expect(descendants(window.document.documentElement).find(x => x.role === "alert").textContent).toContain("Use valid density");
     api.isValidSettings = settings => settings.perPage > 0;
@@ -304,8 +307,11 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     byId(window, "maximum").value = "3";
     byId(window, "classification-batch-size").value = "12";
     byId(window, "remote-api-key").value = "sk-test";
+    byId(window, "summary-source").value = "local";
+    byId(window, "map-reduce").checked = true;
+    byId(window, "map-reduce-input-tokens").value = "8192";
     submit();
-    await expect(result).resolves.toMatchObject({ perPage: 2, llmEmbeddings: true, classificationBatchSize: 12, remoteApiKey: "sk-test" });
+    await expect(result).resolves.toMatchObject({ perPage: 2, llmEmbeddings: true, classificationBatchSize: 12, remoteApiKey: "sk-test", summarySource: "local", mapReduce: true, mapReduceInputTokens: 8192 });
 
     const cancelled = api.showSettingsOverlay(window, api.settingsDefaults);
     window.document.documentElement.children.at(-1).listeners.keydown?.[0]?.({ key: "Escape", preventDefault: vi.fn(), stopPropagation: vi.fn() });

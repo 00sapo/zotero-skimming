@@ -6,5 +6,9 @@
   "classification": {
     "en": "Xenova/mobilebert-uncased-mnli",
     "multilingual": "onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX"
+  },
+  "summarization": {
+    "en": "onnx-community/Qwen2.5-0.5B-Instruct",
+    "multilingual": "onnx-community/Qwen2.5-0.5B-Instruct"
   }
 }

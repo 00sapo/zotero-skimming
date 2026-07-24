@@ -332,7 +332,8 @@ var FastKeySentenceNLP = (() => {
     const filtered = sentences.filter(sentence => !isNoise(sentence));
     if (!filtered.length) return [];
 
-    const useLocalModels = options.llmEmbeddings || options.llmClassification;
+    const useLocalSummary = options.summarySource === "local";
+    const useLocalModels = options.llmEmbeddings || options.llmClassification || useLocalSummary;
     if (useLocalModels && typeof FastKeySentenceModels === "undefined") {
       throw new Error("The transformer model manager was not loaded.");
     }
@@ -346,19 +347,41 @@ var FastKeySentenceNLP = (() => {
       });
     }
 
-    // 1. Summarize via remote LLM
+    // 1. Summarize via the selected source
     options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
     const paperText = paperTextForSummary(filtered);
-    const summary = await FastKeySentenceRemote.summarize(
-      paperText,
-      options.documentTitle || "",
-      count,
-      event => options.onModelProgress?.({ ...event, operation: "summarization" })
-    );
+    let summary = "";
+    let localSummaryFailed = false;
+    if (useLocalSummary) {
+      if (inferenceAvailable) {
+        try {
+          summary = await FastKeySentenceModels.summarize(
+            paperText,
+            event => options.onModelProgress?.({ ...event, operation: "summarization" })
+          );
+        }
+        catch (error) {
+          localSummaryFailed = true;
+          options.onModelProgress?.({
+            stage: "unavailable",
+            operation: "summarization",
+            message: `Local summarization failed; using the baseline ranker. ${error.message || error}`
+          });
+        }
+      }
+    }
+    else {
+      summary = await FastKeySentenceRemote.summarize(
+        paperText,
+        options.documentTitle || "",
+        count,
+        event => options.onModelProgress?.({ ...event, operation: "summarization" })
+      );
+    }
 
     // 2. Build embeddings
     let scored;
-    if (options.llmEmbeddings && inferenceAvailable) {
+    if (options.llmEmbeddings && inferenceAvailable && !localSummaryFailed) {
       options.onModelProgress?.({ stage: "preparing", operation: "embeddings" });
       const allTexts = [summary, ...filtered.map(sentence => sentence.text)];
       const allEmbeddings = await FastKeySentenceModels.embeddings(
@@ -386,7 +409,7 @@ var FastKeySentenceNLP = (() => {
 
     // Build summary sentence embeddings for coverage encouragement in MMR
     let summaryParts = null;
-    if (options.llmEmbeddings && inferenceAvailable && summary) {
+    if (options.llmEmbeddings && inferenceAvailable && !localSummaryFailed && summary) {
       const summarySentences = sentenceRanges(summary).map(([s, e]) => summary.slice(s, e)).filter(Boolean);
       if (summarySentences.length > 1) {
         const partVecs = await FastKeySentenceModels.embeddings(summarySentences, false, () => {});

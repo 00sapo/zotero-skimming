@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Restored local summarization with int8 ONNX `onnx-community/Qwen2.5-0.5B-Instruct` and a local-or-remote source selector.
+- Added opt-in map-reduce remote summarization with a configurable 4096-token input window.
 - Renamed the project to **Zotero Skimming**.
 - Updated the project description and Codeberg metadata.
 

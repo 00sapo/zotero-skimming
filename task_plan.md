@@ -1,15 +1,15 @@
-# Task Plan: Delete skim annotations
+# Task Plan: Local Qwen summarization
 
 ## Goal
-Add an iconic context-menu command that deletes all add-on-created annotations and migrate their tag prefix to `autoskim-`.
+Restore optional local paper summarization using `onnx-community/Qwen2.5-0.5B-Instruct` with its int8 ONNX asset, without changing the existing local cache/runtime safeguards.
 
 ## Phases
-- [completed] Inspect annotation creation, tag conventions, deletion APIs, and existing menu tests.
-- [completed] Add `Delete skim annotations` menu item and deletion behavior.
-- [completed] Change generated annotation tags to `autoskim-…`.
-- [completed] Add unit tests for visibility, icon, command binding, and deletion behavior.
-- [completed] Run full validation.
-- [pending] Commit on request.
+- [completed] Recover the prior Qwen implementation and assess current integration points.
+- [completed] Confirm coexistence: user chose a persisted local-or-remote source selector.
+- [completed] Restore model identifier, int8 download selection, local generation, settings, and ranking/visible-summary routing.
+- [completed] Add regression tests, document behavior, and validate.
 
-## Decisions
-- Deletion targets annotations carrying the add-on tag prefix only.
+## Constraints
+- Zotero 9 manifest-v2; Transformers.js runtime is locally cached and runs single-threaded WASM with ONNX proxy workers disabled.
+- Preserve explicit `Update models` downloads, existing q8 selection for embedding/classification models, and int8 selection for Qwen.
+- Preserve the existing remote map-reduce feature until the user explicitly elects to remove it.

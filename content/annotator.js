@@ -115,7 +115,10 @@ FastOfflineKeySentenceAnnotator = {
     multilingual: false,
     remoteEndpoint: "",
     remoteApiKey: "",
-    remoteModel: ""
+    remoteModel: "",
+    summarySource: "remote",
+    mapReduce: false,
+    mapReduceInputTokens: 4096
   }),
 
   getConfiguredSettings() {
@@ -133,11 +136,16 @@ FastOfflineKeySentenceAnnotator = {
       multilingual: Zotero.Prefs.get(this.prefBranch + "multilingual", true) ?? defaults.multilingual,
       remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
-      remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel
+      remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel,
+      summarySource: Zotero.Prefs.get(this.prefBranch + "summarySource", true) || defaults.summarySource,
+      mapReduce: Zotero.Prefs.get(this.prefBranch + "mapReduce", true) ?? defaults.mapReduce,
+      mapReduceInputTokens: Number(Zotero.Prefs.get(this.prefBranch + "mapReduceInputTokens", true)) || defaults.mapReduceInputTokens
     };
     settings.llmEmbeddings = settings.llmEmbeddings === true;
     settings.llmClassification = settings.llmClassification === true;
     settings.multilingual = settings.multilingual === true;
+    settings.mapReduce = settings.mapReduce === true;
+    settings.summarySource = settings.summarySource === "local" ? "local" : "remote";
     return this.isValidSettings(settings) ? settings : { ...defaults };
   },
 
@@ -158,8 +166,12 @@ FastOfflineKeySentenceAnnotator = {
       && Number.isInteger(settings.classificationBatchSize)
       && settings.classificationBatchSize >= 1
       && settings.classificationBatchSize <= 32
-      && ["llmEmbeddings", "llmClassification", "multilingual"]
+      && ["llmEmbeddings", "llmClassification", "multilingual", "mapReduce"]
         .every(key => typeof settings[key] === "boolean")
+      && ["local", "remote"].includes(settings.summarySource)
+      && Number.isInteger(settings.mapReduceInputTokens)
+      && settings.mapReduceInputTokens >= 1024
+      && settings.mapReduceInputTokens <= 131072
       && typeof settings.remoteEndpoint === "string"
       && typeof settings.remoteApiKey === "string"
       && typeof settings.remoteModel === "string";
@@ -176,6 +188,9 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteModel", settings.remoteModel || "", true);
+    Zotero.Prefs.set(this.prefBranch + "summarySource", settings.summarySource, true);
+    Zotero.Prefs.set(this.prefBranch + "mapReduce", settings.mapReduce, true);
+    Zotero.Prefs.set(this.prefBranch + "mapReduceInputTokens", settings.mapReduceInputTokens, true);
   },
 
   calculateAnnotationTarget(pageCount, settings) {
@@ -344,7 +359,22 @@ FastOfflineKeySentenceAnnotator = {
     stages.appendChild(batchSizeRow);
     form.appendChild(stages);
 
-    const remoteConfig = makeFieldset("Remote summarization (required)");
+    const remoteConfig = makeFieldset("Summarization");
+    const sourceGrid = create("div", {
+      style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center; margin-bottom: 12px"
+    });
+    const summarySource = create("select", {
+      id: "summary-source",
+      style: "min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
+    });
+    summarySource.append(
+      create("option", { value: "remote" }, "Remote API"),
+      create("option", { value: "local" }, "Local Qwen")
+    );
+    summarySource.value = initialSettings.summarySource;
+    inputs["summary-source"] = summarySource;
+    sourceGrid.append(create("label", { htmlFor: "summary-source", style: "font-weight: 500" }, "Source"), summarySource);
+    remoteConfig.appendChild(sourceGrid);
     const remoteGrid = create("div", {
       style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center"
     });
@@ -370,9 +400,36 @@ FastOfflineKeySentenceAnnotator = {
       if (id === "remote-api-key") remoteApiKeyInput = input;
     }
     remoteConfig.appendChild(remoteGrid);
+    const mapReduceRow = create("div", {
+      style: "display: grid; grid-template-columns: auto minmax(0, 1fr) 96px; column-gap: 10px; row-gap: 2px; margin-top: 12px; align-items: center"
+    });
+    const mapReduceCheck = create("input", {
+      id: "map-reduce",
+      type: "checkbox",
+      checked: initialSettings.mapReduce === true,
+      style: "margin: 3px 0 0"
+    });
+    const mapReduceTokens = create("input", {
+      id: "map-reduce-input-tokens",
+      type: "number",
+      "aria-label": "Map input token limit",
+      value: String(initialSettings.mapReduceInputTokens),
+      min: "1024",
+      max: "131072",
+      step: "1",
+      style: "width: 96px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
+    });
+    checks["map-reduce"] = mapReduceCheck;
+    inputs["map-reduce-input-tokens"] = mapReduceTokens;
+    mapReduceRow.append(
+      mapReduceCheck,
+      create("label", { htmlFor: "map-reduce", style: "font-weight: 500; line-height: 1.35" }, "Map-reduce long papers"),
+      mapReduceTokens
+    );
+    remoteConfig.appendChild(mapReduceRow);
     remoteConfig.appendChild(create("p", {
       style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Any OpenAI compatible API works. The summary guides sentence ranking via semantic similarity."));
+    }, "Local Qwen uses onnx-community/Qwen2.5-0.5B-Instruct with its int8 ONNX model; select Local Qwen, then use Update models before summarizing. Remote mode uses any OpenAI compatible API. Map-reduce keeps each remote request within the selected token window (4096 by default). Token counts are conservatively estimated locally."));
     form.appendChild(remoteConfig);
 
     const error = create("p", {
@@ -436,7 +493,10 @@ FastOfflineKeySentenceAnnotator = {
       multilingual: checks.multilingual.checked,
       remoteEndpoint: inputs["remote-endpoint"].value.trim(),
       remoteApiKey: inputs["remote-api-key"].value.trim(),
-      remoteModel: inputs["remote-model"].value.trim()
+      remoteModel: inputs["remote-model"].value.trim(),
+      summarySource: inputs["summary-source"].value,
+      mapReduce: checks["map-reduce"].checked,
+      mapReduceInputTokens: Number(inputs["map-reduce-input-tokens"].value)
     });
 
     const setBusy = busy => {
@@ -507,8 +567,8 @@ FastOfflineKeySentenceAnnotator = {
           error.textContent = "Use valid density values before updating models.";
           return;
         }
-        if (!settings.llmEmbeddings && !settings.llmClassification) {
-          error.textContent = "Select at least one LLM stage to update.";
+        if (!settings.llmEmbeddings && !settings.llmClassification && settings.summarySource !== "local") {
+          error.textContent = "Select a local model stage or Local Qwen to update.";
           return;
         }
         this.saveSettings(settings);
@@ -669,22 +729,23 @@ FastOfflineKeySentenceAnnotator = {
       const inputText = FastKeySentenceNLP.paperTextForSummary(bodySentences, documentTitle);
 
       line.setProgress(45);
-      line.setText("Generating summary via remote API…");
-
-      const summary = await FastKeySentenceRemote.summarize(
-        inputText,
-        documentTitle,
-        10,
-        event => {
-          if (["sending", "retrying"].includes(event.stage)) {
-            line.setText(`Sending to remote API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
-          }
-          else if (event.stage === "done") {
-            line.setProgress(100);
-            line.setText("Summary ready");
-          }
+      line.setText(settings.summarySource === "local" ? "Generating summary locally…" : "Generating summary via remote API…");
+      const onSummaryProgress = event => {
+        if (["sending", "retrying"].includes(event.stage)) {
+          line.setText(`Sending to remote API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
         }
-      );
+        else if (event.stage === "inference") {
+          line.setProgress(95);
+          line.setText("Generating summary locally…");
+        }
+        else if (event.stage === "done") {
+          line.setProgress(100);
+          line.setText("Summary ready");
+        }
+      };
+      const summary = settings.summarySource === "local"
+        ? await FastKeySentenceModels.summarize(inputText, onSummaryProgress)
+        : await FastKeySentenceRemote.summarize(inputText, documentTitle, 10, onSummaryProgress);
 
       if (!summary) throw new Error("The summarization model returned an empty result.");
 
@@ -870,7 +931,7 @@ FastOfflineKeySentenceAnnotator = {
       ranges.set(operation, [45 + index * width, 45 + (index + 1) * width]);
     });
     const names = {
-      summarization: "Remote summarization",
+      summarization: settings.summarySource === "local" ? "Local Qwen summarization" : "Remote summarization",
       embeddings: "LLM embeddings",
       classification: "LLM classification"
     };
@@ -990,6 +1051,7 @@ FastOfflineKeySentenceAnnotator = {
         llmClassification: configuredSettings.llmClassification,
         classificationBatchSize: configuredSettings.classificationBatchSize,
         multilingual: configuredSettings.multilingual,
+        summarySource: configuredSettings.summarySource,
         documentTitle,
         onModelProgress: this.modelProgressHandler(line, configuredSettings)
       });

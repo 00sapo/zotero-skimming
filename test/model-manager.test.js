@@ -88,6 +88,7 @@ describe("FastKeySentenceModels", () => {
     expect(api.modelName("embeddings", false)).toBe("Xenova/all-MiniLM-L6-v2");
     expect(api.modelName("embeddings", true)).toBe("Xenova/multilingual-e5-small");
     expect(api.modelName("classification", false)).toBe("Xenova/mobilebert-uncased-mnli");
+    expect(api.modelName("summarization", false)).toBe("onnx-community/Qwen2.5-0.5B-Instruct");
     api.log("ready");
     expect(Zotero.debug).toHaveBeenCalledWith(expect.stringContaining("ready"));
   });
@@ -135,6 +136,15 @@ describe("FastKeySentenceModels", () => {
     expect(Zotero.Promise.delay).toHaveBeenCalled();
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ progress: 100 }));
     await multilingualCall;
+  });
+
+  it("generates a local Qwen summary using int8 ONNX", async () => {
+    const generator = vi.fn(async () => [{ generated_text: "A local summary." }]);
+    const module = hostModule({ pipeline: vi.fn(async task => task === "text-generation" ? generator : async () => ({ tolist: () => [1, 2] })) });
+    const { api, module: loaded } = manager({ module });
+    await expect(api.summarize("Paper text.")).resolves.toBe("A local summary.");
+    expect(loaded.pipeline).toHaveBeenCalledWith("text-generation", "onnx-community/Qwen2.5-0.5B-Instruct", expect.objectContaining({ dtype: "int8" }));
+    expect(generator).toHaveBeenCalledWith(expect.stringContaining("<|im_start|>system"), expect.objectContaining({ do_sample: false, max_new_tokens: 240 }));
   });
 
   it("classifies sentence batches, defaults missing outputs, and reports inference", async () => {
@@ -245,6 +255,16 @@ describe("FastKeySentenceModels", () => {
     expect(IOUtils.writeJSON).toHaveBeenCalledWith(expect.stringContaining("download-manifest.json"), expect.objectContaining({ dtype: "q8", revision: "abc" }));
     expect([...files.keys()].some(path => path.endsWith("model_q8.onnx"))).toBe(true);
     expect(events).toContainEqual(expect.objectContaining({ operation: "all", stage: "complete" }));
+  });
+
+  it("downloads Qwen's int8 ONNX model when local summarization is selected", async () => {
+    const manifest = { sha: "qwen", siblings: [
+      { rfilename: "config.json" }, { rfilename: "tokenizer.json" }, { rfilename: "onnx/model_int8.onnx" }, { rfilename: "onnx/model_q4.onnx" }
+    ] };
+    const { api, files, IOUtils } = manager({ files: [], fetchImpl: async url => url.includes("/api/models/") ? response(manifest) : response("model") });
+    await api.updateModels({ llmEmbeddings: false, llmClassification: false, multilingual: false, summarySource: "local" });
+    expect([...files.keys()]).toContain(`${ROOT}/models/onnx-community/Qwen2.5-0.5B-Instruct/onnx/model_int8.onnx`);
+    expect(IOUtils.writeJSON).toHaveBeenCalledWith(expect.stringContaining("Qwen2.5-0.5B-Instruct/download-manifest.json"), expect.objectContaining({ dtype: "int8" }));
   });
 
   it("rejects invalid model selections and manifests", async () => {

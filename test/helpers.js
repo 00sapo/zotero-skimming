@@ -19,7 +19,8 @@ export function loadScript(file, globals = {}) {
     },
     FastKeySentenceModelIdentifiers: {
       embeddings: { en: "Xenova/all-MiniLM-L6-v2", multilingual: "Xenova/multilingual-e5-small" },
-      classification: { en: "Xenova/mobilebert-uncased-mnli", multilingual: "onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX" }
+      classification: { en: "Xenova/mobilebert-uncased-mnli", multilingual: "onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX" },
+      summarization: { en: "onnx-community/Qwen2.5-0.5B-Instruct", multilingual: "onnx-community/Qwen2.5-0.5B-Instruct" }
     },
     ...globals
   });

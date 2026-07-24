@@ -330,9 +330,13 @@ var FastKeySentenceModels = (() => {
     });
   }
 
+  function modelDtype(name) {
+    return name === modelName("summarization", false) ? "int8" : DTYPE;
+  }
+
   function inferenceOptions(name, callback) {
     return {
-      dtype: DTYPE,
+      dtype: modelDtype(name),
       progress_callback: event => report(callback, name, event)
     };
   }
@@ -340,7 +344,7 @@ var FastKeySentenceModels = (() => {
   async function getPipeline(task, kind, multilingual, callback) {
     const name = modelName(kind, multilingual);
     const mod = await runtime(callback);
-    const key = `pipeline:${task}:${name}:${DTYPE}:wasm`;
+    const key = `pipeline:${task}:${name}:${modelDtype(name)}:wasm`;
     if (!objectCache.has(key)) {
       const pending = mod.pipeline(task, name, inferenceOptions(name, callback))
         .catch(error => {
@@ -403,6 +407,29 @@ var FastKeySentenceModels = (() => {
     "research objective, aim, goal, or research question": "goal"
   });
 
+  async function summarize(text, callback) {
+    if (!text) return "";
+    const generator = await getPipeline("text-generation", "summarization", false, callback);
+    const prompt = [
+      "<|im_start|>system",
+      "You are a research assistant. Summarize the following academic paper in a compact factual paragraph. Cover its objective, method, main findings, and limitations. Be precise and concise.",
+      "<|im_end|>",
+      "<|im_start|>user",
+      String(text).slice(0, 60000),
+      "<|im_end|>",
+      "<|im_start|>assistant"
+    ].join("\n");
+    const output = await generator(prompt, {
+      max_new_tokens: 240,
+      do_sample: false,
+      return_full_text: false
+    });
+    const generated = Array.isArray(output) ? output[0]?.generated_text : output?.generated_text;
+    const summary = String(generated || "").replace(prompt, "").replace(/\s+/g, " ").trim();
+    callback?.({ stage: "inference", model: modelName("summarization", false), progress: 100 });
+    return summary;
+  }
+
   async function classify(texts, multilingual, callback, batchSize = 8) {
     if (!texts.length) return [];
     const classifier = await getPipeline(
@@ -442,10 +469,11 @@ var FastKeySentenceModels = (() => {
     const names = [];
     if (settings.llmEmbeddings) names.push(modelName("embeddings", settings.multilingual));
     if (settings.llmClassification) names.push(modelName("classification", settings.multilingual));
+    if (settings.summarySource === "local") names.push(modelName("summarization", false));
     return [...new Set(names)];
   }
 
-  function wantedModelFiles(siblings) {
+  function wantedModelFiles(siblings, dtype = DTYPE) {
     const names = siblings.map(item => item.rfilename || item.path || "").filter(Boolean);
     const rootFiles = new Set([
       "config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json",
@@ -454,9 +482,12 @@ var FastKeySentenceModels = (() => {
     ]);
     const selected = names.filter(name => rootFiles.has(name));
     const q8 = names.filter(name => /^onnx\/.+_q8\.onnx$/i.test(name));
+    const int8 = names.filter(name => /^onnx\/.+_int8\.onnx$/i.test(name));
     const legacyQ8 = names.filter(name => /^onnx\/model_quantized\.onnx$/i.test(name));
     const seq2seqQ8 = names.filter(name => /^onnx\/.+_quantized\.onnx$/i.test(name));
-    const onnx = q8.length ? q8 : legacyQ8.length ? legacyQ8 : seq2seqQ8;
+    const onnx = dtype === "int8"
+      ? int8
+      : q8.length ? q8 : legacyQ8.length ? legacyQ8 : seq2seqQ8;
     if (!onnx.length) {
       throw new Error("No quantized ONNX model was found in the selected Hugging Face repository.");
     }
@@ -474,7 +505,7 @@ var FastKeySentenceModels = (() => {
   async function downloadModelFiles(name, callback) {
     const manifest = await fetchModelManifest(name);
     const siblings = Array.isArray(manifest.siblings) ? manifest.siblings : [];
-    const files = wantedModelFiles(siblings);
+    const files = wantedModelFiles(siblings, modelDtype(name));
     const baseDir = PathUtils.join(cacheDir, "models", ...name.split("/"));
     let completed = 0;
     for (const file of files) {
@@ -491,7 +522,7 @@ var FastKeySentenceModels = (() => {
     }
     const metadata = {
       model: name,
-      dtype: DTYPE,
+      dtype: modelDtype(name),
       revision: manifest.sha || "main",
       downloadedAt: new Date().toISOString(),
       files
@@ -544,6 +575,7 @@ var FastKeySentenceModels = (() => {
     init,
     shutdown,
     embeddings,
+    summarize,
     classify,
     updateModels,
     ensureRuntimeDownloaded,
