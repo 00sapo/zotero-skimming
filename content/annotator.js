@@ -579,7 +579,7 @@ FastOfflineKeySentenceAnnotator = {
           return;
         }
         if (!this.isValidSettings(settings)) {
-          error.textContent = "Use valid density values before updating models.";
+          error.textContent = "Check the settings above: density values, Ollama command, and tags must be valid.";
           return;
         }
         this.saveSettings(settings);
@@ -614,7 +614,7 @@ FastOfflineKeySentenceAnnotator = {
           return;
         }
         if (!this.isValidSettings(settings)) {
-          error.textContent = "Use valid density values before summarising.";
+          error.textContent = "Check the settings above: density values, Ollama command, and tags must be valid.";
           return;
         }
         finish({ ...settings, action: "summarize" });
@@ -624,7 +624,7 @@ FastOfflineKeySentenceAnnotator = {
         event.preventDefault();
         const settings = readSettings();
         if (!this.isValidSettings(settings)) {
-          error.textContent = "Use a positive average, integer limits, minimum less than or equal to maximum, and maximum no greater than 500.";
+          error.textContent = "Check the settings above: density values, Ollama command, and tags must be valid.";
           inputs["per-page"].focus();
           return;
         }
