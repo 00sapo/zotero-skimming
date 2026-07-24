@@ -508,7 +508,6 @@ var FastKeySentenceModels = (() => {
 
   const DEFAULT_CONTEXT_WINDOW = 4096;
   const MIN_CONTEXT_WINDOW = 256;
-  const MAX_REDUCE_ROUNDS = 16;
 
   function contextBudget(contextWindow) {
     const window = Number.isInteger(contextWindow) && contextWindow >= MIN_CONTEXT_WINDOW
@@ -528,7 +527,18 @@ var FastKeySentenceModels = (() => {
       : 1), 0);
   }
 
-  function splitByTokenLimit(text, limit) {
+  function overlapTail(text, targetTokens) {
+    const words = String(text).match(/\S+\s*/g) || [];
+    let tail = "";
+    let tokens = 0;
+    for (let index = words.length - 1; index >= 0 && tokens < targetTokens; index--) {
+      tail = words[index] + tail;
+      tokens += estimateTokens(words[index]);
+    }
+    return tail;
+  }
+
+  function splitByTokenLimit(text, limit, overlap = 0) {
     const chunks = [];
     let chunk = "";
     let tokens = 0;
@@ -538,8 +548,8 @@ var FastKeySentenceModels = (() => {
         const wordTokens = estimateTokens(word);
         if (chunk && tokens + wordTokens > limit) {
           chunks.push(chunk.trim());
-          chunk = "";
-          tokens = 0;
+          chunk = overlap > 0 ? overlapTail(chunk, Math.max(1, Math.floor(limit * overlap))) : "";
+          tokens = estimateTokens(chunk);
         }
         if (wordTokens > limit) {
           for (let start = 0; start < word.length; start += limit * 2) chunks.push(word.slice(start, start + limit * 2));
@@ -554,15 +564,15 @@ var FastKeySentenceModels = (() => {
     return chunks;
   }
 
-  async function generateSummary(text, callback, { final = true, maxNewTokens = 240 } = {}) {
+  async function generateSummary(text, callback, { summaryUpToThisPoint = "", sentenceCount = 10, maxNewTokens = 240 } = {}) {
     const prompt = [
       "<|im_start|>system",
-      final
-        ? "You are a research assistant. Summarize the following academic paper in a compact factual paragraph. Cover its objective, method, main findings, and limitations. Be precise and concise."
-        : "Summarize this portion of an academic paper. Preserve its objective, methods, results, limitations, and conclusions for a later final summary.",
+      "You are a research assistant. Write a precise, factual academic-article summary without filler.",
       "<|im_end|>",
       "<|im_start|>user",
-      text,
+      summaryUpToThisPoint
+        ? `Here is a summary of the first part of an article: ${summaryUpToThisPoint}\n\nCreate a summary of this next part of the same article. Use ${sentenceCount} sentences.\n\nHere is the next part:\n${text}`
+        : `Create a summary of this article. Use ${sentenceCount} sentences.\n\nHere is the first part:\n${text}`,
       "<|im_end|>",
       "<|im_start|>assistant"
     ].join("\n");
@@ -583,7 +593,7 @@ var FastKeySentenceModels = (() => {
     return String(generated || "").replace(prompt, "").replace(/\s+/g, " ").trim();
   }
 
-  async function summarize(text, callback, { mapReduce = false, contextWindow = DEFAULT_CONTEXT_WINDOW } = {}) {
+  async function summarize(text, callback, { mapReduce = false, contextWindow = DEFAULT_CONTEXT_WINDOW, sentenceCount = 10 } = {}) {
     if (!text) return "";
     const name = modelName("summarization", false);
     const manifestPath = PathUtils.join(cacheDir || PathUtils.join(PathUtils.profileDir, "fast-key-sentence-annotator"), "models", ...name.split("/"), "download-manifest.json");
@@ -592,26 +602,29 @@ var FastKeySentenceModels = (() => {
     }
 
     const budget = contextBudget(contextWindow);
-    let chunks = splitByTokenLimit(text, budget.input);
+    const totalSentences = Math.max(1, Math.round(Number(sentenceCount) || 10));
+    const chunks = splitByTokenLimit(text, budget.input, mapReduce ? 0.05 : 0);
     if (!chunks.length) return "";
-    if (!mapReduce) return generateSummary(chunks[0], callback, { maxNewTokens: budget.output });
+    if (!mapReduce) return generateSummary(chunks[0], callback, {
+      sentenceCount: totalSentences,
+      maxNewTokens: budget.output
+    });
 
-    for (let round = 0; round < MAX_REDUCE_ROUNDS; round++) {
-      const total = chunks.length;
-      const final = total === 1;
-      const summaries = [];
-      for (let index = 0; index < total; index++) {
-        callback?.({ stage: final ? "reducing" : "mapping", model: modelName("summarization", false), round: round + 1, completed: index, total, progress: 100 * index / total });
-        summaries.push(await generateSummary(chunks[index], callback, { final, maxNewTokens: budget.output }));
-        callback?.({ stage: final ? "reducing" : "mapping", model: modelName("summarization", false), round: round + 1, completed: index + 1, total, progress: 100 * (index + 1) / total });
-      }
-      if (final) {
-        callback?.({ stage: "inference", model: modelName("summarization", false), progress: 100 });
-        return summaries[0];
-      }
-      chunks = splitByTokenLimit(summaries.join("\n\n"), budget.input);
+    const mapSteps = Math.max(0, chunks.length - 1);
+    const mapSentences = Math.max(1, totalSentences - mapSteps);
+    let summary = "";
+    for (let index = 0; index < chunks.length; index++) {
+      const stage = index === 0 ? "mapping" : "reducing";
+      callback?.({ stage, model: modelName("summarization", false), completed: index, total: chunks.length, progress: 100 * index / chunks.length });
+      summary = await generateSummary(chunks[index], callback, {
+        summaryUpToThisPoint: summary,
+        sentenceCount: mapSentences,
+        maxNewTokens: budget.output
+      });
+      callback?.({ stage, model: modelName("summarization", false), completed: index + 1, total: chunks.length, progress: 100 * (index + 1) / chunks.length });
     }
-    throw new Error("Local map-reduce summarization did not produce a final summary.");
+    callback?.({ stage: "inference", model: modelName("summarization", false), progress: 100 });
+    return summary;
   }
 
   async function classify(texts, multilingual, callback, batchSize = 8) {

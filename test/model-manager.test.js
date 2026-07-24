@@ -176,11 +176,13 @@ describe("FastKeySentenceModels", () => {
     const { api, files } = manager({ module });
     files.set(`${ROOT}/models/onnx-community/Qwen2.5-0.5B-Instruct/download-manifest.json`, bytes("{}"));
     const progress = vi.fn();
-    const text = Array.from({ length: 300 }, () => "word.").join(" ");
+    const text = Array.from({ length: 50 }, () => "word.").join(" ");
 
-    await expect(api.summarize(text, progress, { mapReduce: true, contextWindow: 256 })).resolves.toBe("A chunk summary.");
-    expect(generator.mock.calls.length).toBeGreaterThan(2);
+    await expect(api.summarize(text, progress, { mapReduce: true, contextWindow: 256, sentenceCount: 4 })).resolves.toBe("A chunk summary.");
+    expect(generator.mock.calls.length).toBeGreaterThan(1);
     expect(generator.mock.calls.every(([, options]) => options.max_new_tokens <= 48)).toBe(true);
+    expect(generator.mock.calls[1][0]).toContain("Here is a summary of the first part of an article: A chunk summary.");
+    expect(generator.mock.calls[1][0]).toContain(`Create a summary of this next part of the same article. Use ${Math.max(1, 4 - (generator.mock.calls.length - 1))} sentences.`);
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "mapping" }));
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "reducing" }));
   });

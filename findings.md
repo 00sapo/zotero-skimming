@@ -1,8 +1,6 @@
 # Findings & Decisions
 
-## Dedicated local inference worker
-- Current Transformers.js inference runs inside a hidden iframe on Zotero's UI thread; async calls do not prevent CPU-heavy ONNX inference from blocking the interface.
-- Decision: user chose a dedicated worker thread over an external OS process.
-- `content/model-worker.mjs` hosts Transformers.js and ONNX WASM. `content/model-manager.js` supplies locally cached runtime/WASM bytes at initialization and answers worker cache-read requests with local model bytes; no model download occurs during inference.
-- The worker maintains pipeline instances and emits pipeline-load and inference progress messages. It uses single-threaded WASM with ONNX proxy workers disabled.
-- The hidden iframe is retained only when the Zotero window does not support module workers.
+## Incremental Qwen map-reduce
+- Local map-reduce previously summarized chunks independently, then recursively reduced the generated summaries; it had no source overlap.
+- Decision: adjacent local map windows overlap by 5% of the map-input token budget. The first chunk starts a summary; each later chunk receives the running summary in the exact requested prompt form.
+- Each local map call uses `max(1, requestedSentenceCount - (chunkCount - 1))` sentences, reserving a sentence per remaining map transition. NLP supplies approximately `annotationCount × 1.5`; visible summaries request 10 sentences.

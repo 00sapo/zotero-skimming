@@ -766,7 +766,8 @@ FastOfflineKeySentenceAnnotator = {
       const summary = settings.summarySource === "local"
         ? await FastKeySentenceModels.summarize(inputText, onSummaryProgress, {
           mapReduce: settings.mapReduce,
-          contextWindow: settings.mapReduceInputTokens
+          contextWindow: settings.mapReduceInputTokens,
+          sentenceCount: 10
         })
         : await FastKeySentenceRemote.summarize(inputText, documentTitle, 10, onSummaryProgress);
 
