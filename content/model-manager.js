@@ -24,6 +24,7 @@ var FastKeySentenceModels = (() => {
   let hostFrame = null;
   let worker = null;
   let workerPromise = null;
+  let workerScriptURL = null;
   let nextWorkerRequest = 1;
   const workerRequests = new Map();
   const objectCache = new Map();
@@ -291,13 +292,24 @@ var FastKeySentenceModels = (() => {
       ensureRuntimeDownloaded(callback, false),
       ensureWasmDownloaded(callback, false)
     ]);
-    const [runtimeBytes, wasmBytes] = await Promise.all([IOUtils.read(runtimePath), IOUtils.read(wasmPath)]);
-    const instance = new owner.Worker(rootURI + "content/model-worker.mjs", { type: "module" });
+    const [runtimeBytes, wasmBytes, workerResponse] = await Promise.all([
+      IOUtils.read(runtimePath),
+      IOUtils.read(wasmPath),
+      fetch(rootURI + "content/model-worker.mjs", { cache: "no-store" })
+    ]);
+    if (!workerResponse.ok) throw new Error(`Could not load inference worker (${workerResponse.status}).`);
+    const workerSource = await workerResponse.text();
+    const BlobCtor = owner.Blob || Blob;
+    const URLApi = owner.URL || URL;
+    workerScriptURL = URLApi.createObjectURL(new BlobCtor([workerSource], { type: "text/javascript" }));
+    const instance = new owner.Worker(workerScriptURL, { type: "module" });
     worker = instance;
     return new Promise((resolve, reject) => {
       const fail = error => {
         instance.terminate();
         if (worker === instance) worker = null;
+        if (workerScriptURL) URLApi.revokeObjectURL(workerScriptURL);
+        workerScriptURL = null;
         reject(error instanceof Error ? error : new Error(String(error)));
       };
       instance.onmessage = async event => {
@@ -769,6 +781,11 @@ var FastKeySentenceModels = (() => {
     workerRequests.clear();
     worker?.terminate();
     worker = null;
+    if (workerScriptURL) {
+      const owner = Zotero.getMainWindow?.();
+      (owner?.URL || URL).revokeObjectURL(workerScriptURL);
+    }
+    workerScriptURL = null;
     workerPromise = null;
     for (const value of objectCache.values()) {
       Promise.resolve(value).then(object => object?.dispose?.()).catch(() => {});

@@ -28,7 +28,7 @@ function modelCache() {
       const result = new Promise((resolve, reject) => cacheRequests.set(id, { resolve, reject }));
       self.postMessage({ type: "cache-read", id, url: typeof request === "string" ? request : request.url });
       const cached = await result;
-      if (!cached) return undefined;
+      if (!cached) throw new Error(`Missing cached model asset: ${typeof request === "string" ? request : request.url}. Download/update the model first.`);
       return new Response(cached.bytes, {
         status: 200,
         headers: { "content-type": cached.contentType || "application/octet-stream" }
@@ -47,7 +47,9 @@ async function initialize(message) {
     URL.revokeObjectURL(runtimeURL);
   }
   const env = Transformers.env;
-  env.allowRemoteModels = false;
+  // Transformers.js needs this enabled to construct canonical Hub cache keys.
+  // `modelCache().match()` throws on every cache miss, so no network request is made.
+  env.allowRemoteModels = true;
   env.allowLocalModels = false;
   env.useBrowserCache = false;
   env.useCustomCache = true;

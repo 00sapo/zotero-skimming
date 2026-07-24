@@ -22,6 +22,7 @@ function response(value = "asset", { ok = true, status = 200, stream = false, le
       }
     } : null,
     arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+    text: async () => String(value),
     json: async () => value
   };
 }
