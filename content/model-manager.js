@@ -139,6 +139,7 @@ var FastKeySentenceModels = (() => {
       system: "Summarize directly without reasoning step by step.",
       stream: false,
       keep_alive: "5m",
+      think: false,
       options: { temperature: 0 }
     });
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 100 });
