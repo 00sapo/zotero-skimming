@@ -232,14 +232,6 @@ var FastKeySentenceNLP = (() => {
     return values.map(value => (value - min) / (max - min));
   }
 
-  function clusterCentroid(vectors, indexes) {
-    return isSparseVector(vectors[0])
-      ? sparseCentroid(vectors, indexes)
-      : denseCentroid(indexes.map(index => vectors[index]));
-  }
-
-
-
   function scoreWithVectors(sentences, vectors, norms, clusterCount, summaryScores = null) {
     if (!sentences.length) return;
     const summarySim = summaryScores || new Array(sentences.length).fill(0);
@@ -262,13 +254,6 @@ var FastKeySentenceNLP = (() => {
     const { vectors, norms } = buildFeatures(sentences);
     scoreWithVectors(sentences, vectors, norms, clusterCount, summaryScores);
     return { vectors, norms };
-  }
-
-  function scoreDense(sentences, vectors, clusterCount, summaryScores = null) {
-    const normalizedVectors = vectors.map(vector => Array.from(vector || [], Number));
-    const norms = normalizedVectors.map(denseNorm);
-    scoreWithVectors(sentences, normalizedVectors, norms, clusterCount, summaryScores);
-    return { vectors: normalizedVectors, norms };
   }
 
   function selectMMR(sentences, vectors, norms, count, summarySentences = null) {
