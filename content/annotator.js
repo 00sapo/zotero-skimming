@@ -574,6 +574,10 @@ FastOfflineKeySentenceAnnotator = {
       updateModelsButton.addEventListener("click", async () => {
         error.textContent = "";
         const settings = readSettings();
+        if (!settings.ollamaCommand.startsWith("/")) {
+          error.textContent = "Ollama command must be an absolute path, e.g. /usr/bin/ollama.";
+          return;
+        }
         if (!this.isValidSettings(settings)) {
           error.textContent = "Use valid density values before updating models.";
           return;
@@ -605,6 +609,10 @@ FastOfflineKeySentenceAnnotator = {
       summarizeButton.addEventListener("click", async () => {
         error.textContent = "";
         const settings = readSettings();
+        if (!settings.ollamaCommand.startsWith("/")) {
+          error.textContent = "Ollama command must be an absolute path, e.g. /usr/bin/ollama.";
+          return;
+        }
         if (!this.isValidSettings(settings)) {
           error.textContent = "Use valid density values before summarising.";
           return;
