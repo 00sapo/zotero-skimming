@@ -7,7 +7,7 @@ var FastKeySentenceModels = (() => {
   const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
   const SUMMARY_MODEL = "zotero-skimming-summary";
   const EMBEDDING_MODEL = "zotero-skimming-embedding";
-  const SUMMARY_REPOSITORY = "ar08/mT5_multilingual_XLSum-Q8_0-GGUF";
+  const SUMMARY_REPOSITORY = "Qwen/Qwen2.5-0.5B-Instruct-GGUF";
   const EMBEDDING_REPOSITORY = "Qwen/Qwen3-Embedding-0.6B-GGUF";
   const DEFAULT_CONTEXT_WINDOW = 4096;
   const MIN_CONTEXT_WINDOW = 256;
@@ -199,7 +199,7 @@ var FastKeySentenceModels = (() => {
   async function updateModels(settings, callback) {
     const contextWindow = validContextWindow(settings.mapReduceInputTokens);
     await ensureOllama(callback, settings.ollamaCommand);
-    await provisionModel(SUMMARY_MODEL, SUMMARY_REPOSITORY, /q8[_-]0/i, contextWindow, callback);
+    await provisionModel(SUMMARY_MODEL, SUMMARY_REPOSITORY, /q4[_-]k[_-]m/i, contextWindow, callback);
     await provisionModel(EMBEDDING_MODEL, EMBEDDING_REPOSITORY, /q8[_-]0/i, contextWindow, callback);
     callback?.({ operation: "all", stage: "complete", model: "Ollama models", progress: 100 });
     return true;
@@ -253,7 +253,7 @@ var FastKeySentenceModels = (() => {
   }
 
   async function summarizeChunk(text, callback, { sentenceCount = 10, maxNewTokens = 240, contextWindow } = {}) {
-    const prompt = text;
+    const prompt = `Summarize this academic paper excerpt in ${sentenceCount} sentences. Keep only the essential findings and conclusions.\n\n${text}`;
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 0 });
     const result = await ollamaRequest("/api/generate", {
       model: SUMMARY_MODEL,
