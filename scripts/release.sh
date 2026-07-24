@@ -12,45 +12,47 @@ done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# --- Step 0: ensure clean state & tests pass ---
-if [ -n "$(git status --porcelain)" ]; then
-  echo "Uncommitted changes. Commit or stash first."
-  exit 1
+if ! $ONLY_BUILD; then
+  # --- Step 0: ensure clean state & tests pass ---
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "Uncommitted changes. Commit or stash first."
+    exit 1
+  fi
+  echo "Running tests …"
+  yarn test 2>/dev/null
+  echo "✓ Tests pass"
+
+  # --- Step 1: determine next version ---
+  LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
+  CURRENT="${LAST_TAG#v}"
+  echo ""
+  echo "Current version: $CURRENT  (last tag: $LAST_TAG)"
+  echo ""
+  echo "Select bump type:"
+  echo "  1) major  ($(echo "$CURRENT" | awk -F. '{print $1+1".0.0"}'))"
+  echo "  2) minor  ($(echo "$CURRENT" | awk -F. '{print $1"."$2+1".0"}'))"
+  echo "  3) patch  ($(echo "$CURRENT" | awk -F. '{print $1"."$2"."$3+1}'))"
+  read -rp "Choice [1-3]: " BUMP
+
+  case "$BUMP" in
+    1) NEW_VERSION="$(echo "$CURRENT" | awk -F. '{print $1+1".0.0"}')" ;;
+    2) NEW_VERSION="$(echo "$CURRENT" | awk -F. '{print $1"."$2+1".0"}')" ;;
+    3) NEW_VERSION="$(echo "$CURRENT" | awk -F. '{print $1"."$2"."$3+1}')" ;;
+    *) echo "Invalid choice."; exit 1 ;;
+  esac
+
+  echo "→ New version: v$NEW_VERSION"
+
+  # --- Step 2: update manifest.json ---
+  node -e "
+  const m = require('./manifest.json');
+  m.version = '$NEW_VERSION';
+  require('fs').writeFileSync('./manifest.json', JSON.stringify(m, null, 2) + '\n');
+  "
+  echo "✓ manifest.json updated to v$NEW_VERSION"
 fi
-echo "Running tests …"
-yarn test 2>/dev/null
-echo "✓ Tests pass"
 
-# --- Step 1: determine next version ---
-LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
-CURRENT="${LAST_TAG#v}"
-echo ""
-echo "Current version: $CURRENT  (last tag: $LAST_TAG)"
-echo ""
-echo "Select bump type:"
-echo "  1) major  ($(echo "$CURRENT" | awk -F. '{print $1+1".0.0"}'))"
-echo "  2) minor  ($(echo "$CURRENT" | awk -F. '{print $1"."$2+1".0"}'))"
-echo "  3) patch  ($(echo "$CURRENT" | awk -F. '{print $1"."$2"."$3+1}'))"
-read -rp "Choice [1-3]: " BUMP
-
-case "$BUMP" in
-  1) NEW_VERSION="$(echo "$CURRENT" | awk -F. '{print $1+1".0.0"}')" ;;
-  2) NEW_VERSION="$(echo "$CURRENT" | awk -F. '{print $1"."$2+1".0"}')" ;;
-  3) NEW_VERSION="$(echo "$CURRENT" | awk -F. '{print $1"."$2"."$3+1}')" ;;
-  *) echo "Invalid choice."; exit 1 ;;
-esac
-
-echo "→ New version: v$NEW_VERSION"
-
-# --- Step 2: update manifest.json ---
-node -e "
-const m = require('./manifest.json');
-m.version = '$NEW_VERSION';
-require('fs').writeFileSync('./manifest.json', JSON.stringify(m, null, 2) + '\n');
-"
-echo "✓ manifest.json updated to v$NEW_VERSION"
-
-# --- Step 3: build XPI ---
+# --- build XPI ---
 echo "Building zotero-skimming.xpi …"
 XPI="zotero-skimming.xpi"
 zip -r -9 "$XPI" \
@@ -59,9 +61,10 @@ zip -r -9 "$XPI" \
   -x "*.DS_Store" "*.gitkeep"
 echo "✓ $XPI built"
 
-# --- Step 4: generate updates.json ---
-echo "Generating updates.json …"
-cat > updates.json <<EOF
+if ! $ONLY_BUILD; then
+  # --- generate updates.json ---
+  echo "Generating updates.json …"
+  cat > updates.json <<EOF
 {
   "addons": {
     "zotero-skimming@example.org": {
@@ -75,11 +78,12 @@ cat > updates.json <<EOF
   }
 }
 EOF
-echo "✓ updates.json generated"
+  echo "✓ updates.json generated"
+fi
 
 if $ONLY_BUILD; then
   echo ""
-  echo "--only-build: $XPI and updates.json ready. Skipping commit/tag/release."
+  echo "--only-build: $XPI built. Skipping version bump, updates.json, commit, tag, release."
   exit 0
 fi
 
