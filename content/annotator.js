@@ -579,7 +579,7 @@ FastOfflineKeySentenceAnnotator = {
           return;
         }
         if (!this.isValidSettings(settings)) {
-          error.textContent = "Check the settings above: density values, Ollama command, and tags must be valid.";
+          error.textContent = "Check the settings above.";
           return;
         }
         this.saveSettings(settings);
@@ -614,7 +614,7 @@ FastOfflineKeySentenceAnnotator = {
           return;
         }
         if (!this.isValidSettings(settings)) {
-          error.textContent = "Check the settings above: density values, Ollama command, and tags must be valid.";
+          error.textContent = "Check the settings above.";
           return;
         }
         finish({ ...settings, action: "summarize" });
@@ -624,7 +624,7 @@ FastOfflineKeySentenceAnnotator = {
         event.preventDefault();
         const settings = readSettings();
         if (!this.isValidSettings(settings)) {
-          error.textContent = "Check the settings above: density values, Ollama command, and tags must be valid.";
+          error.textContent = "Check the settings above.";
           inputs["per-page"].focus();
           return;
         }
