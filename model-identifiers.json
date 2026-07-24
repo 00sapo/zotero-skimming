@@ -1,10 +1,8 @@
 {
   "summarization": {
-    "repository": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
-    "model": "zotero-skimming-summary"
+    "repository": "hf.co/unsloth/Qwen3.5-2B-GGUF:Q8_0"
   },
   "embeddings": {
-    "repository": "Qwen/Qwen3-Embedding-0.6B-GGUF",
-    "model": "zotero-skimming-embedding"
+    "repository": "hf.co/PeterAM4/Qwen3-Embedding-0.6B-GGUF:Q8_0"
   }
 }
