@@ -4,7 +4,7 @@ var FastKeySentenceModelIdentifiers;
 var FastKeySentenceScoringConfig;
 
 function log(message) {
-  Zotero.debug("Fast Offline Key-Sentence Annotator: " + message);
+  Zotero.debug("Zotero Skimming: " + message);
 }
 
 function install() {

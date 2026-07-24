@@ -7,7 +7,7 @@ var FastKeySentenceModels = (() => {
   const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
   let SUMMARY_MODEL = "hf.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF";
   let EMBEDDING_MODEL = "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF";
-  const COMMAND_PREF = "extensions.fast-offline-key-sentence-annotator.ollamaCommand";
+  const COMMAND_PREF = "extensions.zotero-skimming.ollamaCommand";
 
   let cacheDir = null;
   let logFile = null;
@@ -19,7 +19,7 @@ var FastKeySentenceModels = (() => {
   }
 
   async function init(rootURI) {
-    cacheDir = PathUtils.join(PathUtils.profileDir, "fast-key-sentence-annotator", "ollama");
+    cacheDir = PathUtils.join(PathUtils.profileDir, "zotero-skimming", "ollama");
     logFile = PathUtils.join(cacheDir, "logs", "ollama.log");
     if (rootURI) await loadIdentifiers(rootURI);
   }
@@ -46,7 +46,7 @@ var FastKeySentenceModels = (() => {
   }
 
   function log(message) {
-    Zotero.debug("Fast Offline Key-Sentence Annotator Ollama: " + message);
+    Zotero.debug("Zotero Skimming Ollama: " + message);
     void appendToLog(message);
   }
 

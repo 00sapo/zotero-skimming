@@ -20,11 +20,11 @@ var FastKeySentenceRemote = (() => {
   }
 
   function log(message) {
-    Zotero.debug("Fast Offline Key-Sentence Annotator remote: " + message);
+    Zotero.debug("Zotero Skimming remote: " + message);
   }
 
   function getConfig() {
-    const pref = "extensions.fast-offline-key-sentence-annotator.";
+    const pref = "extensions.zotero-skimming.";
     const mapInputTokens = Number(Zotero.Prefs.get(pref + "mapReduceInputTokens", true));
     return {
       endpoint: Zotero.Prefs.get(pref + "remoteEndpoint", true) || DEFAULT_ENDPOINT,
@@ -38,7 +38,7 @@ var FastKeySentenceRemote = (() => {
   }
 
   function saveConfig({ endpoint, apiKey, model, mapReduce = false, mapInputTokens = DEFAULT_MAP_INPUT_TOKENS }) {
-    const pref = "extensions.fast-offline-key-sentence-annotator.";
+    const pref = "extensions.zotero-skimming.";
     Zotero.Prefs.set(pref + "remoteEndpoint", endpoint || "", true);
     Zotero.Prefs.set(pref + "remoteApiKey", apiKey || "", true);
     Zotero.Prefs.set(pref + "remoteModel", model || "", true);

@@ -5,7 +5,7 @@ FastOfflineKeySentenceAnnotator = {
   version: null,
   rootURI: null,
   windowState: new WeakMap(),
-  prefBranch: "extensions.fast-offline-key-sentence-annotator.",
+  prefBranch: "extensions.zotero-skimming.",
 
   init({ id, version, rootURI }) {
     this.id = id;
@@ -16,7 +16,7 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   log(message) {
-    Zotero.debug("Fast Offline Key-Sentence Annotator: " + message);
+    Zotero.debug("Zotero Skimming: " + message);
   },
 
   addToWindow(window) {
@@ -30,13 +30,13 @@ FastOfflineKeySentenceAnnotator = {
     }
 
     const menuitem = doc.createXULElement("menuitem");
-    menuitem.id = "fast-offline-key-sentence-annotator-menuitem";
+    menuitem.id = "zotero-skimming-menuitem";
     menuitem.setAttribute("class", "menuitem-iconic");
     menuitem.setAttribute("image", this.iconURI);
     menuitem.setAttribute("label", "Skim paper");
 
     const deleteMenuitem = doc.createXULElement("menuitem");
-    deleteMenuitem.id = "fast-offline-key-sentence-annotator-delete-menuitem";
+    deleteMenuitem.id = "zotero-skimming-delete-menuitem";
     deleteMenuitem.setAttribute("class", "menuitem-iconic");
     deleteMenuitem.setAttribute("image", this.iconURI);
     deleteMenuitem.setAttribute("label", "Delete skim annotations");
@@ -50,7 +50,7 @@ FastOfflineKeySentenceAnnotator = {
           this.log(error.stack || String(error));
           Services.prompt.alert(
             window,
-            "Fast Offline Key-Sentence Annotator",
+            "Zotero Skimming",
             error.message || String(error)
           );
         });
@@ -177,7 +177,7 @@ FastOfflineKeySentenceAnnotator = {
   showSettingsOverlay(window, initialSettings) {
     const doc = window.document;
     const HTML_NS = "http://www.w3.org/1999/xhtml";
-    const existing = doc.getElementById("fast-key-sentence-annotator-settings-overlay");
+    const existing = doc.getElementById("zotero-skimming-settings-overlay");
     existing?.remove();
 
     const create = (tag, attrs = {}, text = null) => {
@@ -206,7 +206,7 @@ FastOfflineKeySentenceAnnotator = {
     };
 
     const overlay = create("div", {
-      id: "fast-key-sentence-annotator-settings-overlay",
+      id: "zotero-skimming-settings-overlay",
       role: "presentation",
       style: [
         "position: fixed",
@@ -224,7 +224,7 @@ FastOfflineKeySentenceAnnotator = {
     const panel = create("section", {
       role: "dialog",
       "aria-modal": "true",
-      "aria-labelledby": "fast-key-sentence-annotator-dialog-title",
+      "aria-labelledby": "zotero-skimming-dialog-title",
       style: [
         "width: min(680px, calc(100vw - 48px))",
         "max-height: calc(100vh - 48px)",
@@ -239,7 +239,7 @@ FastOfflineKeySentenceAnnotator = {
     });
 
     const title = create("h1", {
-      id: "fast-key-sentence-annotator-dialog-title",
+      id: "zotero-skimming-dialog-title",
       style: "margin: 0 0 18px; font-size: 1.35rem; font-weight: 600"
     }, "Paper skim");
     panel.appendChild(title);
@@ -630,7 +630,7 @@ FastOfflineKeySentenceAnnotator = {
     }
     catch (error) {
       this.log(error.stack || String(error));
-      Services.prompt.alert(window, "Fast Offline Key-Sentence Annotator", error.message || String(error));
+      Services.prompt.alert(window, "Zotero Skimming", error.message || String(error));
     }
   },
 
@@ -664,7 +664,7 @@ FastOfflineKeySentenceAnnotator = {
     }
     catch (error) {
       this.log(error.stack || String(error));
-      Services.prompt.alert(window, "Fast Offline Key-Sentence Annotator", error.message || String(error));
+      Services.prompt.alert(window, "Zotero Skimming", error.message || String(error));
     }
   },
 
@@ -753,7 +753,7 @@ FastOfflineKeySentenceAnnotator = {
   showSummaryOverlay(window, summary, title) {
     const doc = window.document;
     const HTML_NS = "http://www.w3.org/1999/xhtml";
-    const existing = doc.getElementById("fast-key-sentence-annotator-summary-overlay");
+    const existing = doc.getElementById("zotero-skimming-summary-overlay");
     existing?.remove();
 
     const create = (tag, attrs = {}, text = null) => {
@@ -782,7 +782,7 @@ FastOfflineKeySentenceAnnotator = {
     };
 
     const overlay = create("div", {
-      id: "fast-key-sentence-annotator-summary-overlay",
+      id: "zotero-skimming-summary-overlay",
       role: "presentation",
       style: [
         "position: fixed",
@@ -800,7 +800,7 @@ FastOfflineKeySentenceAnnotator = {
     const panel = create("section", {
       role: "dialog",
       "aria-modal": "true",
-      "aria-labelledby": "fast-key-sentence-annotator-summary-title",
+      "aria-labelledby": "zotero-skimming-summary-title",
       style: [
         "width: min(800px, calc(100vw - 48px))",
         "max-height: calc(100vh - 48px)",
@@ -815,7 +815,7 @@ FastOfflineKeySentenceAnnotator = {
     });
 
     const heading = create("h1", {
-      id: "fast-key-sentence-annotator-summary-title",
+      id: "zotero-skimming-summary-title",
       style: "margin: 0 0 6px; font-size: 1.25rem; font-weight: 600"
     }, "Paper summary");
     panel.appendChild(heading);

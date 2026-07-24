@@ -12,7 +12,7 @@ function remote(preferences = new Map(), fetch = vi.fn()) {
   }).FastKeySentenceRemote;
 }
 
-const prefix = "extensions.fast-offline-key-sentence-annotator.";
+const prefix = "extensions.zotero-skimming.";
 
 function response(text = "A compact summary.") {
   return { ok: true, json: async () => ({ choices: [{ message: { content: text } }] }) };

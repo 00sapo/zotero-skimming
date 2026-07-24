@@ -11,7 +11,7 @@
   "homepage_url": "https://codeberg.org/00sapo/zotero-skimming",
   "applications": {
     "zotero": {
-      "id": "fast-offline-key-sentence-annotator@example.org",
+      "id": "zotero-skimming@example.org",
       "update_url": "https://codeberg.org/00sapo/zotero-skimming/updates.json",
       "strict_min_version": "9.0",
       "strict_max_version": "9.*"

@@ -66,7 +66,7 @@ describe("bootstrap", () => {
     context.install();
     context.uninstall();
 
-    expect(Zotero.debug).toHaveBeenNthCalledWith(1, "Fast Offline Key-Sentence Annotator: Installed");
-    expect(Zotero.debug).toHaveBeenNthCalledWith(2, "Fast Offline Key-Sentence Annotator: Uninstalled");
+    expect(Zotero.debug).toHaveBeenNthCalledWith(1, "Zotero Skimming: Installed");
+    expect(Zotero.debug).toHaveBeenNthCalledWith(2, "Zotero Skimming: Uninstalled");
   });
 });
