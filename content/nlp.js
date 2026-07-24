@@ -468,7 +468,23 @@ var FastKeySentenceNLP = (() => {
       .slice(0, shortlistSize)
       .map(entry => entry.index);
 
-    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
+    // Embed summary sentences for MMR coverage encouragement
+    let summaryParts = null;
+    if (summary && inferenceAvailable && useLocalRelevance) {
+      try {
+        const summarySentences = sentenceRanges(summary).map(([s, e]) => summary.slice(s, e)).filter(Boolean);
+        if (summarySentences.length > 1) {
+          const vectors = await FastKeySentenceModels.embeddings(
+            summarySentences,
+            event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
+          );
+          summaryParts = vectors.map((vec, index) => ({ vector: vec.map(Number), norm: denseNorm(vec), text: summarySentences[index] }));
+        }
+      }
+      catch (_) {}
+    }
+
+    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length), summaryParts);
 
     if (useLocalRelevance && inferenceAvailable && selected.length) {
       const tags = parseTagDefinitions(options.tagDefinitions);
