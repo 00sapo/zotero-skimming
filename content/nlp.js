@@ -12,6 +12,27 @@ var FastKeySentenceNLP = (() => {
     "empirical result, finding, performance, or measurement",
     "conclusion, implication, limitation, or future work"
   ]);
+  const DEFAULT_TAG_DEFINITIONS = [
+    "literature: prior work, theoretical background, related studies, or the state of existing knowledge",
+    "method: technical details of the proposed methodology, data processing, analysis, or experimental setup",
+    "goal: the research objective, motivation, problem statement, or question addressed by the paper",
+    "result: empirical observations, measurements, comparisons, or reported outcomes",
+    "conclusion: final interpretation, implications, limitations, or future research directions",
+    "contribution: a novel claim, capability, resource, framework, or advance introduced by the paper",
+    "take-away: a concise central insight or practical message that captures why the paper matters"
+  ].join("\n");
+
+  function parseTagDefinitions(text = DEFAULT_TAG_DEFINITIONS) {
+    const tags = [];
+    for (const line of String(text).split(/\r?\n/)) {
+      const separator = line.indexOf(":");
+      if (separator < 1) continue;
+      const name = line.slice(0, separator).trim();
+      const description = line.slice(separator + 1).trim();
+      if (name && description) tags.push({ name, description });
+    }
+    return tags;
+  }
 
   function normalizeText(text) {
     return String(text || "")
@@ -449,6 +470,45 @@ var FastKeySentenceNLP = (() => {
 
     const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length));
 
+    if (useLocalRelevance && inferenceAvailable && selected.length) {
+      const tags = parseTagDefinitions(options.tagDefinitions);
+      if (tags.length) {
+        try {
+          options.onModelProgress?.({ stage: "preparing", operation: "tag-classification" });
+          const vectors = await FastKeySentenceModels.embeddings(
+            [...tags.map(tag => `${tag.name}: ${tag.description}`), ...selected.map(sentence => sentence.text)],
+            event => options.onModelProgress?.({ ...event, operation: "tag-classification" })
+          );
+          const tagVectors = vectors.slice(0, tags.length);
+          const sentenceVectors = vectors.slice(tags.length);
+          selected.forEach((sentence, index) => {
+            const vector = sentenceVectors[index];
+            const norm = denseNorm(vector);
+            let tagIndex = 0;
+            let tagScore = -Infinity;
+            tagVectors.forEach((tagVector, candidateIndex) => {
+              const score = vectorCosine(vector, tagVector, norm, denseNorm(tagVector));
+              if (score > tagScore) {
+                tagIndex = candidateIndex;
+                tagScore = score;
+              }
+            });
+            sentence.tag = tags[tagIndex].name;
+            sentence.tagDescription = tags[tagIndex].description;
+            sentence.tagIndex = tagIndex;
+            sentence.tagScore = Number.isFinite(tagScore) ? tagScore : 0;
+          });
+        }
+        catch (error) {
+          options.onModelProgress?.({
+            stage: "unavailable",
+            operation: "tag-classification",
+            message: `Tag classification failed; highlights remain untagged. ${error.message || error}`
+          });
+        }
+      }
+    }
+
     // Attach summary to each selected sentence for downstream use
     selected.forEach(s => { s._paperSummary = summary; });
     return selected;
@@ -462,6 +522,8 @@ var FastKeySentenceNLP = (() => {
     isReferenceEntry,
     isNoise,
     paperTextForSummary,
+    DEFAULT_TAG_DEFINITIONS,
+    parseTagDefinitions,
     analyze,
     analyzeAsync
   };

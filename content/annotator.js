@@ -111,6 +111,7 @@ FastOfflineKeySentenceAnnotator = {
     maximum: 80,
     localRelevance: false,
     ollamaCommand: "ollama",
+    tagDefinitions: FastKeySentenceNLP.DEFAULT_TAG_DEFINITIONS,
     remoteEndpoint: "",
     remoteApiKey: "",
     remoteModel: "",
@@ -130,6 +131,7 @@ FastOfflineKeySentenceAnnotator = {
       maximum: Number.isInteger(maximum) ? maximum : defaults.maximum,
       localRelevance: Zotero.Prefs.get(this.prefBranch + "localRelevance", true) ?? defaults.localRelevance,
       ollamaCommand: Zotero.Prefs.get(this.prefBranch + "ollamaCommand", true) || defaults.ollamaCommand,
+      tagDefinitions: Zotero.Prefs.get(this.prefBranch + "tagDefinitions", true) || defaults.tagDefinitions,
       remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
       remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel,
@@ -162,6 +164,8 @@ FastOfflineKeySentenceAnnotator = {
       && ["local", "remote"].includes(settings.summarySource)
       && typeof settings.ollamaCommand === "string"
       && settings.ollamaCommand.trim().length > 0
+      && typeof settings.tagDefinitions === "string"
+      && FastKeySentenceNLP.parseTagDefinitions(settings.tagDefinitions).length > 0
       && Number.isInteger(settings.mapReduceInputTokens)
       && settings.mapReduceInputTokens >= 256
       && settings.mapReduceInputTokens <= 131072
@@ -176,6 +180,7 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "maximumAnnotations", settings.maximum, true);
     Zotero.Prefs.set(this.prefBranch + "localRelevance", settings.localRelevance, true);
     Zotero.Prefs.set(this.prefBranch + "ollamaCommand", (settings.ollamaCommand || this.settingsDefaults.ollamaCommand).trim(), true);
+    Zotero.Prefs.set(this.prefBranch + "tagDefinitions", (settings.tagDefinitions || this.settingsDefaults.tagDefinitions).trim(), true);
     Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteModel", settings.remoteModel || "", true);
@@ -336,10 +341,20 @@ FastOfflineKeySentenceAnnotator = {
       style: "width: 100%; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
     });
     inputs["ollama-command"] = ollamaCommandInput;
+    const tagDefinitionsInput = create("textarea", {
+      id: "tag-definitions",
+      value: initialSettings.tagDefinitions,
+      rows: "7",
+      style: "width: 100%; box-sizing: border-box; resize: vertical; min-height: 132px; padding: 6px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit; line-height: 1.35"
+    });
+    inputs["tag-definitions"] = tagDefinitionsInput;
     stages.append(
       create("label", { htmlFor: "ollama-command", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Ollama command"),
       ollamaCommandInput,
-      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Default: ollama. For mise, use: mise exec -- ollama")
+      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Default: ollama. For mise, use: mise exec -- ollama"),
+      create("label", { htmlFor: "tag-definitions", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Highlight tags"),
+      tagDefinitionsInput,
+      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "One tag per line: name: description. Colors follow tag order.")
     );
     form.appendChild(stages);
 
@@ -486,6 +501,7 @@ FastOfflineKeySentenceAnnotator = {
       maximum: Number(inputs.maximum.value),
       localRelevance: checks["local-relevance"].checked,
       ollamaCommand: inputs["ollama-command"].value.trim(),
+      tagDefinitions: inputs["tag-definitions"].value.trim(),
       remoteEndpoint: inputs["remote-endpoint"].value.trim(),
       remoteApiKey: inputs["remote-api-key"].value.trim(),
       remoteModel: inputs["remote-model"].value.trim(),
@@ -921,7 +937,7 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   modelProgressHandler(line, settings, stageLines = null) {
-    const enabled = [settings.localRelevance && "summary-relevance", settings.localRelevance && "keyword-relevance"].filter(Boolean);
+    const enabled = [settings.localRelevance && "summary-relevance", settings.localRelevance && "keyword-relevance", settings.localRelevance && "tag-classification"].filter(Boolean);
     const ranges = new Map();
     const width = enabled.length ? 25 / enabled.length : 25;
     enabled.forEach((operation, index) => {
@@ -930,7 +946,8 @@ FastOfflineKeySentenceAnnotator = {
     const names = {
       summarization: settings.summarySource === "local" ? "Local Ollama summarization" : "Remote summarization",
       "summary-relevance": "Summary relevance",
-      "keyword-relevance": "Keyword relevance"
+      "keyword-relevance": "Keyword relevance",
+      "tag-classification": "Tag classification"
     };
     const filesByOperation = new Map();
 
@@ -1049,12 +1066,14 @@ FastOfflineKeySentenceAnnotator = {
         summarization: new progress.ItemProgress(this.iconURI, "Summarization"),
         ...(configuredSettings.localRelevance ? {
           "summary-relevance": new progress.ItemProgress(this.iconURI, "Summary relevance"),
-          "keyword-relevance": new progress.ItemProgress(this.iconURI, "Keyword relevance")
+          "keyword-relevance": new progress.ItemProgress(this.iconURI, "Keyword relevance"),
+          "tag-classification": new progress.ItemProgress(this.iconURI, "Tag classification")
         } : {})
       };
       for (const stageLine of Object.values(stageLines)) stageLine.setProgress(0);
       const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
         localRelevance: configuredSettings.localRelevance,
+        tagDefinitions: configuredSettings.tagDefinitions,
         summarySource: configuredSettings.summarySource,
         mapReduce: configuredSettings.mapReduce,
         contextWindow: configuredSettings.mapReduceInputTokens,
@@ -1851,23 +1870,9 @@ FastOfflineKeySentenceAnnotator = {
   makeAnnotation(sentence) {
     const text = sentence.text;
     const rects = sentence.rects || [];
-    const colors = {
-      contribution: "#ffd400",
-      result: "#5fb236",
-      method: "#2ea8e5",
-      goal: "#a28ae5",
-      background: "#aaaaaa",
-      takeaway: "#f19837"
-    };
-    const descriptions = {
-      contribution: "Main contribution",
-      result: "Key empirical result",
-      method: "Core method",
-      goal: "Research objective",
-      background: "Background context",
-      takeaway: "Key takeaway"
-    };
-    const role = Object.prototype.hasOwnProperty.call(descriptions, sentence.role) ? sentence.role : null;
+    const colors = ["#e57373", "#64b5f6", "#81c784", "#ffd54f", "#ba68c8", "#4db6ac", "#ff8a65"];
+    const tag = typeof sentence.tag === "string" && sentence.tag.trim() ? sentence.tag.trim() : null;
+    const tagIndex = Number.isInteger(sentence.tagIndex) ? sentence.tagIndex : -1;
     const top = Math.max(...rects.map(r => r[3]));
     const left = Math.min(...rects.map(r => r[0]));
     // Zotero 9 validates PDF annotation sort indexes as page|vertical|horizontal:
@@ -1879,13 +1884,13 @@ FastOfflineKeySentenceAnnotator = {
     return {
       key: Zotero.DataObjectUtilities.generateKey(),
       type: "highlight",
-      color: colors[role] || colors.background,
+      color: tagIndex >= 0 ? colors[tagIndex % colors.length] : "#aaaaaa",
       pageLabel: String(sentence.pageIndex + 1),
       sortIndex,
       position: { pageIndex: sentence.pageIndex, rects },
       text,
-      comment: `${role ? descriptions[role] + ". " : ""}Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
-      tags: [{ name: "autoskim-key-sentence" }, ...(role ? [{ name: `autoskim-${role}` }] : [])]
+      comment: `${tag ? sentence.tagDescription + ". " : ""}Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
+      tags: [{ name: "autoskim-key-sentence" }, ...(tag ? [{ name: tag }] : [])]
     };
   },
 

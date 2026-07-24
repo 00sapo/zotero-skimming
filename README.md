@@ -4,7 +4,9 @@ Say bye-bye to confused AI-generated summaries, abstract sentences, and hallucin
 
 First skim, then read. Skimming is also known as _"orientation reading"_.
 
-Requires Zotero 9.
+Requires Zotero 9 and one of:
+- Ollama
+- OpenAI-compatible API key (e.g. Deepseek, Openrouter, OpenAI, etc.)
 
 <img src="assets/screenshot.png" alt="Screenshot of a paper annotated" width="400" />
 
@@ -17,6 +19,8 @@ Requires Zotero 9.
 2. In Zotero, open **Tools → Add-ons**.
 3. Open the gear menu and choose **Install Add-on From File…**.
 4. Select the downloaded `.xpi` and restart Zotero if prompted.
+5. Install ollama from https://ollama.com/download
+   Ollama is needed to efficiently run the LLM models locally.
 
 The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native positioned highlight annotations.
 
@@ -26,7 +30,7 @@ The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native
 2. Right-click it and choose **Skim paper**. <img src="assets/context-menu.png" alt="Zotero PDF context menu with Skim paper selected" width="150" />
 3. Choose **Remote API** or **Local Ollama** for summarization. Remote mode requires an OpenAI-compatible endpoint, API key, and model name. Local mode requires a user-installed [Ollama](https://ollama.com/download). <img src="assets/settings-dialog.png" alt="Paper skim settings dialog" width="400" />
 4. Set the average, minimum, and maximum annotations per PDF.
-5. Optionally enable local semantic relevance scoring.
+5. Optionally enable local semantic relevance scoring and configure highlight tags.
 6. Set **Ollama command** if Ollama is not on Zotero’s PATH (for mise: `mise exec -- ollama`), then click **Download Ollama models** once to download and import the required GGUF models.
 7. Click **Annotate** to extract, summarize, rank, and annotate. In remote mode, **Test API credentials** verifies the API and previews the paper synopsis.
 
@@ -38,13 +42,15 @@ The baseline ranker works without downloaded models. When enabled, local semanti
 
 Choose **Remote API** to send filtered paper body text (no authors, tables, figures, abstract, or references) to the configured remote LLM. Its summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations.
 
-**Map-reduce long papers** and its shared context window apply to both sources. They split long input into locally token-counted chunks before reducing their summaries. Local Ollama carries each partial summary into the next map step and overlaps adjacent chunks by 5%. The window defaults to 4096 tokens and accepts values from 256 to 131072.
-
 Choose **Local Ollama** to summarize with imported `Qwen/Qwen2.5-0.5B-Instruct-GGUF`. Ollama handles local GPU selection and execution; this add-on starts `ollama serve` when its executable is available. Remote credentials are hidden when local summarization is selected.
 
-### 2. Local semantic relevance
+**Map-reduce long papers** and its shared context window apply to both sources. They split long input into locally token-counted chunks before reducing their summaries. Local Ollama carries each partial summary into the next map step and overlaps adjacent chunks by 5%. The window defaults to 4096 tokens and accepts values from 256 to 131072.
 
-When enabled, `Qwen/Qwen3-Embedding-0.6B-GGUF` embeds candidates twice through Ollama: once against the paper synopsis and once against configured scholarly keyword sections. The two relevance signals are blended with the sparse baseline before MMR selection. If Ollama is unavailable, the baseline TF-IDF ranker remains active.
+### 2. Local semantic relevance and tag classification
+
+When enabled, `Qwen/Qwen3-Embedding-0.6B-GGUF` embeds candidates through Ollama against the paper synopsis and configured scholarly keyword sections. These signals are blended with the sparse baseline before MMR selection.
+
+After MMR selection, each selected sentence is compared with the configured tag definitions to classify it as one of the supported categories (literature, method, goal, result, conclusion, contribution, take-away). Tags and their descriptions are user-configurable in the settings dialog; colors are assigned deterministically by tag order. If Ollama is unavailable, the baseline TF-IDF ranker remains active and highlights are untagged.
 
 ### 3. MMR selection
 
@@ -53,6 +59,13 @@ Maximum marginal relevance selects the requested number of highlights while pena
 ```text
 0.65 × importance − 0.35 × redundancy − section penalty
 ```
+
+| Term | Meaning |
+|------|---------|
+| `importance` | sentence salience from summary relevance and keyword relevance |
+| `redundancy` | cosine similarity to previously selected candidates |
+| `section penalty` | discourages a second pick from the same PDF section |
+| `coverage penalty` | penalises similarity to a summary sentence already covered by a prior pick |
 
 ### 4. Selected annotations
 

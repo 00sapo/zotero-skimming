@@ -148,19 +148,21 @@ describe("FastKeySentenceNLP", () => {
     });
     expect(selected.length).toBeGreaterThanOrEqual(1);
     expect(models.remote.summarize).toHaveBeenCalledWith(expect.not.stringContaining("A study"), "A study", 3, expect.any(Function));
-    expect(embeddings).toHaveBeenCalledTimes(2);
+    expect(embeddings).toHaveBeenCalledTimes(3);
     expect(progress).toHaveBeenCalled();
   });
 
   it("uses local Qwen summarization without contacting the remote API", async () => {
     const summarize = vi.fn(async () => "A local paper synopsis.");
     const remote = { summarize: vi.fn() };
-    const selected = await nlp({ supportsInference: () => true, summarize, remote }).analyzeAsync(
-      prose.map((text, order) => sentence(text, order)), 2, { summarySource: "local" }
+    const embeddings = vi.fn(async texts => texts.map(() => [0.5, 0.5]));
+    const selected = await nlp({ supportsInference: () => true, summarize, embeddings, remote }).analyzeAsync(
+      prose.map((text, order) => sentence(text, order)), 2, { summarySource: "local", localRelevance: true }
     );
     expect(summarize).toHaveBeenCalledOnce();
     expect(remote.summarize).not.toHaveBeenCalled();
     expect(selected.every(item => item._paperSummary === "A local paper synopsis.")).toBe(true);
+    expect(selected.every(item => item.tag === "literature")).toBe(true);
   });
 
   it("falls back to baseline ranking after local Qwen summarization fails", async () => {

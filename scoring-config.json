@@ -1,7 +1,14 @@
 {
   "initial": {
     "summarySimilarity": 0.85,
-    "sentenceLength": 0.15
+    "sentenceLength": 0.15,
+    "keywordSections": [
+      "research objective, aim, goal, or question",
+      "method, approach, experiment, or design",
+      "main contribution, innovation, or proposal",
+      "empirical result, finding, performance, or measurement",
+      "conclusion, implication, limitation, or future work"
+    ]
   },
   "selection": {
     "importance": 0.65,

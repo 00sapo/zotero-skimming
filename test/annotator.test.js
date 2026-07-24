@@ -206,13 +206,14 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
 
   it("creates Zotero-valid annotations and reports model progress", () => {
     const api = annotator();
-    const annotation = api.makeAnnotation({ text: "A result.", role: "result", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
+    const annotation = api.makeAnnotation({ text: "A result.", tag: "result", tagIndex: 1, tagDescription: "A key result.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
     expect(annotation.sortIndex).toMatch(/^00002\|\d{6}\|\d{5}$/);
     expect(annotation.tags).toContainEqual({ name: "autoskim-key-sentence" });
-    expect(annotation.tags).toContainEqual({ name: "autoskim-result" });
+    expect(annotation.tags).toContainEqual({ name: "result" });
     const unclassified = api.makeAnnotation({ text: "A sentence.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
     expect(unclassified.tags).toEqual([{ name: "autoskim-key-sentence" }]);
     expect(unclassified.comment).toBe("Section: results. Score: 0.812.");
+    expect(unclassified.color).toBe("#aaaaaa");
     const line = { setProgress: vi.fn(), setText: vi.fn() };
     const handler = api.modelProgressHandler(line, { llmEmbeddings: true, llmClassification: true });
     handler({ operation: "embeddings", stage: "download", file: "a.bin", loaded: 1024, total: 2048, model: "model" });
@@ -265,7 +266,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
 
   it("deletes only autoskim annotations from selected PDFs", async () => {
     const autoskim = { getTags: () => [{ tag: "autoskim-key-sentence" }], eraseTx: vi.fn().mockResolvedValue() };
-    const autoskimRole = { getTags: () => [{ tag: "autoskim-result" }], eraseTx: vi.fn().mockResolvedValue() };
+    const autoskimRole = { getTags: () => [{ tag: "autoskim-key-sentence" }, { tag: "result" }], eraseTx: vi.fn().mockResolvedValue() };
     const manual = { getTags: () => [{ tag: "important" }], eraseTx: vi.fn().mockResolvedValue() };
     const attachment = {
       id: 1,
@@ -434,7 +435,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     for (const density of [{ perPage: NaN, minimum: 1, maximum: 2 }, { perPage: 0, minimum: 1, maximum: 2 }, { perPage: 21, minimum: 1, maximum: 2 }, { perPage: 1, minimum: 1.1, maximum: 2 }, { perPage: 1, minimum: 1, maximum: 1.1 }, { perPage: 1, minimum: -1, maximum: 2 }, { perPage: 1, minimum: 1, maximum: 0 }, { perPage: 1, minimum: 1, maximum: 501 }, { perPage: 1, minimum: 3, maximum: 2 }]) expect(api.isValidDensity(density)).toBe(false);
     expect(api.isValidSettings({ ...api.settingsDefaults, localRelevance: 1 })).toBe(false);
     expect(api.calculateAnnotationTarget(-1, { perPage: 1, minimum: 2, maximum: 3 })).toBe(2);
-    expect(api.makeAnnotation({ text: "x", role: "other", pageIndex: -1, pageHeight: 1, rects: [[-1, 2, 3, 4]], section: "", importance: 0 })).toMatchObject({ color: "#aaaaaa", pageLabel: "0" });
+    expect(api.makeAnnotation({ text: "x", pageIndex: -1, pageHeight: 1, rects: [[-1, 2, 3, 4]], section: "", importance: 0 })).toMatchObject({ color: "#aaaaaa", pageLabel: "0" });
   });
 
   it("reports extraction and annotation API failures", async () => {
