@@ -5,20 +5,8 @@ var FastKeySentenceModels = (() => {
 
   const OLLAMA_URL = "http://127.0.0.1:11434";
   const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
-  const SUMMARY_MODEL = "zotero-skimming-summary";
-  const EMBEDDING_MODEL = "zotero-skimming-embedding";
-  const MODELS = {
-    "zotero-skimming-summary": {
-      repository: "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
-      file: "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-      revision: "main"
-    },
-    "zotero-skimming-embedding": {
-      repository: "Qwen/Qwen3-Embedding-0.6B-GGUF",
-      file: "qwen3-embedding-0.6b-q8_0.gguf",
-      revision: "main"
-    }
-  };
+  const SUMMARY_MODEL = "qwen2.5:0.5b";
+  const EMBEDDING_MODEL = "all-minilm:latest";
   const DEFAULT_CONTEXT_WINDOW = 4096;
   const MIN_CONTEXT_WINDOW = 256;
   const COMMAND_PREF = "extensions.fast-offline-key-sentence-annotator.ollamaCommand";
@@ -121,85 +109,7 @@ var FastKeySentenceModels = (() => {
     throw new Error("Ollama started but did not become ready. Check its local logs and GPU drivers.");
   }
 
-  function modelDirectory() {
-    if (!cacheDir) init();
-    return PathUtils.join(cacheDir, "models");
-  }
 
-  async function zoteroFetch(url, callback, label) {
-    return new Promise((resolve, reject) => {
-      try {
-        const req = new XMLHttpRequest();
-        req.open("GET", url, true);
-        req.responseType = "arraybuffer";
-        if (callback) {
-          req.onprogress = event => {
-            if (event.lengthComputable) {
-              callback({ stage: "download", model: label || "", file: "", loaded: event.loaded, total: event.total, progress: 100 * event.loaded / event.total });
-            }
-          };
-        }
-        req.onload = () => {
-          if (req.status >= 200 && req.status < 300) resolve({ ok: true, status: req.status, data: new Uint8Array(req.response), headers: { get: () => null } });
-          else reject(new Error(`HTTP ${req.status}: ${req.statusText}`));
-        };
-        req.onerror = () => reject(new Error(`Network error fetching ${url}. Check your connection.`));
-        req.ontimeout = () => reject(new Error(`Timeout fetching ${url}.`));
-        req.timeout = 60000;
-        req.send();
-      }
-      catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  async function provisionModel(name, callback) {
-    const info = MODELS[name];
-    if (!info) throw new Error(`Unknown model: ${name}`);
-    const destination = PathUtils.join(modelDirectory(), name, info.file);
-    if (!await IOUtils.exists(destination)) {
-      const url = `https://huggingface.co/${info.repository}/resolve/${info.revision}/${info.file}`;
-      await IOUtils.makeDirectory(PathUtils.parent(destination), { ignoreExisting: true });
-      const temporary = destination + ".part";
-      await IOUtils.remove(temporary, { ignoreAbsent: true });
-      const response = await zoteroFetch(url, callback, name);
-      await IOUtils.write(temporary, response.data);
-      await IOUtils.move(temporary, destination, { noOverwrite: false });
-      callback?.({ operation: "model-download", stage: "done", model: name, file: info.file, progress: 100 });
-    }
-    // Upload blob to Ollama
-    const bytes = await IOUtils.read(destination);
-    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
-      .map(byte => byte.toString(16).padStart(2, "0")).join("");
-    callback?.({ operation: "model-import", stage: "initiate", model: name, progress: 0 });
-    await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${OLLAMA_URL}/api/blobs/sha256:${digest}`, true);
-      xhr.setRequestHeader("Content-Type", "application/octet-stream");
-      xhr.responseType = "json";
-      xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Ollama rejected ${info.file} (${xhr.status}).`));
-      xhr.onerror = () => reject(new Error(`Ollama network error uploading ${info.file}.`));
-      xhr.send(bytes);
-    });
-    await ollamaRequest("/api/create", {
-      model: name,
-      files: { [info.file]: `sha256:${digest}` },
-      stream: false
-    });
-    callback?.({ operation: "model-import", stage: "done", model: name, progress: 100 });
-    await IOUtils.writeJSON(PathUtils.join(modelDirectory(), name, "download-manifest.json"), {
-      name, repository: info.repository, revision: info.revision, file: info.file, downloadedAt: new Date().toISOString()
-    });
-  }
-
-  async function updateModels(settings, callback) {
-    await ensureOllama(callback, settings.ollamaCommand);
-    await provisionModel(SUMMARY_MODEL, callback);
-    await provisionModel(EMBEDDING_MODEL, callback);
-    callback?.({ operation: "all", stage: "complete", model: "Ollama models", progress: 100 });
-    return true;
-  }
 
   function validContextWindow(value) {
     const number = Number(value);
@@ -308,6 +218,21 @@ var FastKeySentenceModels = (() => {
     return vectors;
   }
 
+  async function pullModel(name, callback) {
+    callback?.({ operation: "model-pull", model: name, progress: 0 });
+    await ollamaRequest("/api/pull", { model: name, stream: false });
+    callback?.({ operation: "model-pull", model: name, progress: 100 });
+  }
+
+  async function testOllama(settings, callback) {
+    callback?.({ operation: "runtime", stage: "initiate", model: "Ollama", progress: 0 });
+    await ensureOllama(callback, settings?.ollamaCommand);
+    callback?.({ operation: "runtime", stage: "done", model: "Ollama", progress: 100 });
+    await pullModel(SUMMARY_MODEL, callback);
+    await pullModel(EMBEDDING_MODEL, callback);
+    return true;
+  }
+
   function supportsInference() {
     return true;
   }
@@ -325,7 +250,7 @@ var FastKeySentenceModels = (() => {
     shutdown,
     summarize,
     embeddings,
-    updateModels,
+    testOllama,
     supportsInference,
     log,
     appendToLog,

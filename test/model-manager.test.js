@@ -12,11 +12,11 @@ function bytes(value) {
 function makeXHR(overrides) {
   const routes = {
     "/api/version": { body: { version: "test" } },
-    "/api/blobs/": { body: "ok" },
+    "/api/show": { body: { modelfile: "..." } },
+    "/api/pull": { body: { status: "success" } },
     "/api/create": { body: { status: "success" } },
     "/api/generate": { body: { response: "A local summary." } },
     "/api/embed": { body: { embeddings: [[1, 0], [0, 1]] } },
-    "huggingface": { body: bytes("dummy gguf") },
     ...overrides
   };
   return vi.fn(function mockXHR() {
@@ -64,53 +64,37 @@ function manager({ path = "/usr/bin/ollama", xhr, io } = {}) {
     parent: name => name.slice(0, name.lastIndexOf("/")),
     filename: name => name.slice(name.lastIndexOf("/") + 1)
   };
-  const crypto = { subtle: { digest: vi.fn(async (algorithm, data) => data.slice(0, 32)) } };
   const XMLHttpRequest = xhr ?? makeXHR();
   const context = loadScript("content/model-manager.js", {
-    Zotero, IOUtils, PathUtils, fetch: vi.fn(), crypto, XMLHttpRequest,
+    Zotero, IOUtils, PathUtils, fetch: vi.fn(), crypto: null, XMLHttpRequest,
     ChromeUtils: { importESModule: () => ({ Subprocess: subprocess }) }
   });
   context.FastKeySentenceModels.init();
   return { api: context.FastKeySentenceModels, Zotero, IOUtils, files, subprocess };
 }
 
-const RUNTIME = "model-shim.json";
-const WASM = "ort-wasm-simd-threaded.wasm";
-
 describe("FastKeySentenceModels Ollama", () => {
   it("offers a summary and embedding model", () => {
     const { api } = manager();
-    expect(api.SUMMARY_MODEL).toBe("zotero-skimming-summary");
-    expect(api.EMBEDDING_MODEL).toBe("zotero-skimming-embedding");
+    expect(api.SUMMARY_MODEL).toBe("qwen2.5:0.5b");
+    expect(api.EMBEDDING_MODEL).toBe("all-minilm:latest");
   });
 
-  it("downloads and imports the two required GGUF models", async () => {
-    const { api, files } = manager();
-    files.set(RUNTIME, bytes("runtime"));
-    files.set(WASM, bytes("wasm"));
-    files.set("/profile/fast-key-sentence-annotator/ollama/models/zotero-skimming-summary/qwen2.5-0.5b-instruct-q4_k_m.gguf", bytes("dummy gguf"));
-    files.set("/profile/fast-key-sentence-annotator/ollama/models/zotero-skimming-embedding/qwen3-embedding-0.6b-q8_0.gguf", bytes("dummy gguf"));
-    const ok = await api.updateModels({ mapReduceInputTokens: 4096 }, vi.fn());
-    expect(ok).toBe(true);
-  });
-
-  it("uses a configured command to launch Ollama", async () => {
+  it("uses a configured command to launch Ollama via testOllama", async () => {
     let healthCheckCalls = 0;
     const ollamaPath = "/usr/bin/ollama";
     const xhr = makeXHR({
       "/api/version": { body: {}, status: () => healthCheckCalls++ === 0 ? 503 : 200 }
     });
-    const { api, subprocess, files } = manager({ xhr, io: { exists: async name => name.startsWith("/") } });
-    files.set("/profile/fast-key-sentence-annotator/ollama/models/zotero-skimming-summary/qwen2.5-0.5b-instruct-q4_k_m.gguf", bytes("dummy gguf"));
-    files.set("/profile/fast-key-sentence-annotator/ollama/models/zotero-skimming-embedding/qwen3-embedding-0.6b-q8_0.gguf", bytes("dummy gguf"));
-    await api.updateModels({ mapReduceInputTokens: 4096, ollamaCommand: ollamaPath }, vi.fn());
+    const { api, subprocess } = manager({ xhr, io: { exists: async name => name.startsWith("/") } });
+    await api.testOllama({ ollamaCommand: ollamaPath }, vi.fn());
     expect(subprocess.call).toHaveBeenCalledWith(expect.objectContaining({ command: ollamaPath, arguments: ["serve"] }));
   });
 
   it("opens Ollama download when the executable is unavailable", async () => {
     const xhr = makeXHR({ "/api/version": { status: 503, body: {} } });
     const { api } = manager({ xhr, io: { exists: async () => false } });
-    await expect(api.summarize("Paper text.")).rejects.toThrow("Ollama was not found at");
+    await expect(api.testOllama({ ollamaCommand: "/usr/bin/ollama" })).rejects.toThrow("Ollama was not found at");
   });
 
   it("summarises text via Ollama", async () => {
