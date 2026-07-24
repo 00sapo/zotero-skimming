@@ -93,6 +93,11 @@ All local model assets come from Hugging Face, use q8/legacy quantized ONNX arti
 
 `model-identifiers.json` is the source of truth for these Hugging Face identifiers. MobileBERT's quantized model is approximately 95 MB. `scoring-config.json` contains scoring and selection weights. Edit it to experiment with the algorithm; rebuild the XPI afterwards.
 
+## Similar plugins
+
+- [SkimRead](https://github.com/adellife/zotero-skimread): Document-wide Zotero PDF skimming that uses AI to choose the sentences that best express a paper’s goal, method, results, and novelty; it has the same exact goal as zotero-skimming, but it demands all the work to the AI, which selects the best sentences, while my plugin provides a more guided enhancing accuracy with cheap models. Currently, `zotero-skimread` has a slightly more convenient UI.
+- [Nodus](https://github.com/Drakonis96/nodus): A broader Zotero research workspace that indexes attachments for local-first search, cited answers, and AI-assisted study across a vault; philosophically it is a research knowledge workspace, which also includes sentence highlighting, but it focus on "important sentences" more than on sentence skimming.
+
 ## Build and test
 
 Requirements: Bash, Python 3, `zip`, `unzip`, Node.js, Yarn, and the project's JavaScript test dependencies.
