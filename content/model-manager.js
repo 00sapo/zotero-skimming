@@ -60,15 +60,19 @@ var FastKeySentenceModels = (() => {
     return subprocess;
   }
 
-  async function ollamaRequest(path, body = null) {
-    const response = await fetch(OLLAMA_URL + path, {
-      method: body ? "POST" : "GET",
-      headers: body ? { "Content-Type": "application/json" } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-      cache: "no-store"
+  function ollamaRequest(path, body = null) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open(body ? "POST" : "GET", OLLAMA_URL + path, true);
+      if (body) xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.responseType = "json";
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
+        else reject(new Error(`Ollama returned ${xhr.status}: ${String(xhr.responseText || "").slice(0, 300)}`));
+      };
+      xhr.onerror = () => reject(new Error(`Ollama network error — is the server running?`));
+      xhr.send(body ? JSON.stringify(body) : null);
     });
-    if (!response.ok) throw new Error(`Ollama returned ${response.status}: ${(await response.text()).slice(0, 300)}`);
-    return response.json();
   }
 
   async function isOllamaReady() {
@@ -169,12 +173,15 @@ var FastKeySentenceModels = (() => {
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
       .map(byte => byte.toString(16).padStart(2, "0")).join("");
     callback?.({ operation: "model-import", stage: "initiate", model: name, progress: 0 });
-    const blobResponse = await fetch(`${OLLAMA_URL}/api/blobs/sha256:${digest}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: bytes
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${OLLAMA_URL}/api/blobs/sha256:${digest}`, true);
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      xhr.responseType = "json";
+      xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Ollama rejected ${info.file} (${xhr.status}).`));
+      xhr.onerror = () => reject(new Error(`Ollama network error uploading ${info.file}.`));
+      xhr.send(bytes);
     });
-    if (!blobResponse.ok) throw new Error(`Ollama rejected ${info.file} (${blobResponse.status}).`);
     await ollamaRequest("/api/create", {
       model: name,
       files: { [info.file]: `sha256:${digest}` },
