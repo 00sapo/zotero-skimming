@@ -5,8 +5,8 @@ var FastKeySentenceModels = (() => {
 
   const OLLAMA_URL = "http://127.0.0.1:11434";
   const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
-  const SUMMARY_MODEL = "hf.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF";
-  const EMBEDDING_MODEL = "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF";
+  let SUMMARY_MODEL = "hf.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF";
+  let EMBEDDING_MODEL = "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF";
   const DEFAULT_CONTEXT_WINDOW = 4096;
   const MIN_CONTEXT_WINDOW = 256;
   const COMMAND_PREF = "extensions.fast-offline-key-sentence-annotator.ollamaCommand";
@@ -20,9 +20,21 @@ var FastKeySentenceModels = (() => {
     return error?.stack || error?.message || String(error || "");
   }
 
-  function init() {
+  async function init(rootURI) {
     cacheDir = PathUtils.join(PathUtils.profileDir, "fast-key-sentence-annotator", "ollama");
     logFile = PathUtils.join(cacheDir, "logs", "ollama.log");
+    if (rootURI) await loadIdentifiers(rootURI);
+  }
+
+  async function loadIdentifiers(rootURI) {
+    try {
+      const response = await fetch(rootURI + "model-identifiers.json");
+      const config = await response.json();
+      if (config.summarization?.repository) SUMMARY_MODEL = config.summarization.repository;
+      if (config.embeddings?.repository) EMBEDDING_MODEL = config.embeddings.repository;
+    } catch (error) {
+      log(`Failed to load model-identifiers.json: ${errorDetail(error)}`);
+    }
   }
 
   async function appendToLog(message) {

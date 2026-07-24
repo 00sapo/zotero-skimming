@@ -12,6 +12,7 @@ FastOfflineKeySentenceAnnotator = {
     this.version = version;
     this.rootURI = rootURI;
     this.iconURI = encodeURI(rootURI + "assets/book reader.svg");
+    if (typeof FastKeySentenceModels?.init === "function") FastKeySentenceModels.init(rootURI);
   },
 
   log(message) {
