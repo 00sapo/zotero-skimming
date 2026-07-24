@@ -1,51 +1,108 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build a release XPI for Zotero Skimming
-# Usage: ./scripts/release.sh [version]
-#   version defaults to the current version in manifest.json
-
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="${1:-$(node -e "console.log(require('./manifest.json').version)")}"
-echo "Building Zotero Skimming v$VERSION …"
+# --- Step 0: ensure clean state & tests pass ---
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Uncommitted changes. Commit or stash first."
+  exit 1
+fi
+echo "Running tests …"
+yarn test 2>/dev/null
+echo "✓ Tests pass"
 
-# Update manifest version
+# --- Step 1: determine next version ---
+LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
+CURRENT="${LAST_TAG#v}"
+echo ""
+echo "Current version: $CURRENT  (last tag: $LAST_TAG)"
+echo ""
+echo "Select bump type:"
+echo "  1) major  ($(echo "$CURRENT" | awk -F. '{print $1+1".0.0"}'))"
+echo "  2) minor  ($(echo "$CURRENT" | awk -F. '{print $1"."$2+1".0"}'))"
+echo "  3) patch  ($(echo "$CURRENT" | awk -F. '{print $1"."$2"."$3+1}'))"
+read -rp "Choice [1-3]: " BUMP
+
+case "$BUMP" in
+  1) NEW_VERSION="$(echo "$CURRENT" | awk -F. '{print $1+1".0.0"}')" ;;
+  2) NEW_VERSION="$(echo "$CURRENT" | awk -F. '{print $1"."$2+1".0"}')" ;;
+  3) NEW_VERSION="$(echo "$CURRENT" | awk -F. '{print $1"."$2"."$3+1}')" ;;
+  *) echo "Invalid choice."; exit 1 ;;
+esac
+
+echo "→ New version: v$NEW_VERSION"
+
+# --- Step 2: update manifest.json ---
 node -e "
 const m = require('./manifest.json');
-m.version = '$VERSION';
+m.version = '$NEW_VERSION';
 require('fs').writeFileSync('./manifest.json', JSON.stringify(m, null, 2) + '\n');
 "
+echo "✓ manifest.json updated to v$NEW_VERSION"
 
-# Generate updates.json
-UPDATES_JSON="updates.json"
-cat > "$UPDATES_JSON" <<EOF
+# --- Step 3: build XPI ---
+echo "Building zotero-skimming.xpi …"
+XPI="zotero-skimming.xpi"
+zip -r -9 "$XPI" \
+  manifest.json bootstrap.js content/ assets/ \
+  model-identifiers.json scoring-config.json \
+  -x "*.DS_Store" "*.gitkeep"
+echo "✓ $XPI built"
+
+# --- Step 4: generate updates.json ---
+echo "Generating updates.json …"
+cat > updates.json <<EOF
 {
   "addons": {
     "zotero-skimming@example.org": {
       "updates": [
         {
-          "version": "$VERSION",
-          "update_link": "https://github.com/00sapo/zotero-skimming/releases/download/v${VERSION}/zotero-skimming.xpi"
+          "version": "$NEW_VERSION",
+          "update_link": "https://github.com/00sapo/zotero-skimming/releases/download/v${NEW_VERSION}/zotero-skimming.xpi"
         }
       ]
     }
   }
 }
 EOF
-echo "Wrote $UPDATES_JSON"
+echo "✓ updates.json generated"
 
-# Build XPI (zip with .xpi extension)
-XPI="zotero-skimming.xpi"
-zip -r "$XPI" \
-  manifest.json bootstrap.js content/ assets/ \
-  model-identifiers.json scoring-config.json \
-  -x "*.DS_Store" "*.gitkeep"
-echo "Wrote $XPI"
+# --- Step 5: commit, tag ---
+git add manifest.json updates.json
+git commit -m "chore: release v$NEW_VERSION"
+git tag -a "v$NEW_VERSION" -m "release v$NEW_VERSION"
+echo "✓ committed & tagged v$NEW_VERSION"
 
-echo "Done. Release v$VERSION ready:"
-echo "  - $XPI"
-echo "  - $UPDATES_JSON"
+# --- Step 6: push & create GitHub release ---
 echo ""
-echo "Upload both to GitHub release v$VERSION."
+echo "Ready to push: git push --follow-tags"
+read -rp "Push to origin and create GitHub release? [y/N]: " CONFIRM
+if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+  echo "Cancelled. Files left: $XPI, updates.json"
+  exit 0
+fi
+
+git push --follow-tags
+echo "✓ Pushed"
+
+if ! command -v gh &>/dev/null; then
+  echo "⚠ gh CLI not found. Install it: https://cli.github.com/"
+  echo "  Upload $XPI and updates.json to the release manually."
+  exit 0
+fi
+
+{
+  printf '## Changes since %s\n\n' "$LAST_TAG"
+  git log "${LAST_TAG}..HEAD" --oneline --no-decorate | sed 's/^/* /'
+  printf '\n[Full history](https://github.com/00sapo/zotero-skimming/compare/%s...v%s)\n' "$LAST_TAG" "$NEW_VERSION"
+} > /tmp/zotero-skimming-release-notes.md
+
+gh release create "v$NEW_VERSION" \
+  --title "v$NEW_VERSION" \
+  --notes-file /tmp/zotero-skimming-release-notes.md \
+  "$XPI" "updates.json"
+
+rm -f /tmp/zotero-skimming-release-notes.md "$XPI"
+echo "✓ GitHub release v$NEW_VERSION created"
