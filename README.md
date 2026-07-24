@@ -40,7 +40,7 @@ Choose **Remote API** to send filtered paper body text (no authors, tables, figu
 
 **Map-reduce long papers** and its shared context window apply to both sources. They split long input into locally token-counted chunks before reducing their summaries. The window defaults to 4096 tokens and accepts values from 256 to 131072.
 
-Choose **Local Qwen** to summarize in Zotero with `onnx-community/Qwen2.5-0.5B-Instruct`. Download it first with **Update models**. It runs single-threaded through the add-on's local Transformers.js runtime using `onnx/model_int8.onnx`; no paper text is sent to a remote API. Remote credentials are hidden when local summarization is selected.
+Choose **Local Qwen** to summarize in Zotero with `onnx-community/Qwen2.5-0.5B-Instruct`. Download it first with **Update models**. Local summarization, embeddings, and classification run in a dedicated worker thread through the add-on's single-threaded Transformers.js/ONNX runtime using `onnx/model_int8.onnx`; they do not block Zotero's interface or access the network. Remote credentials are hidden when local summarization is selected.
 
 ### 2. Sentence embeddings
 

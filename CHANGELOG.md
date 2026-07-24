@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Moved local summarization, embeddings, and classification to a dedicated worker thread with per-stage progress bars.
 - Restored local summarization with int8 ONNX `onnx-community/Qwen2.5-0.5B-Instruct` and a local-or-remote source selector.
 - Applied map-reduce and a 256-token-minimum context window to local Qwen; remote credentials now hide in local mode.
 - Added opt-in map-reduce remote summarization with a configurable 4096-token input window.

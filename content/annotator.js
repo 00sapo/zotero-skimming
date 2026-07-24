@@ -748,8 +748,14 @@ FastOfflineKeySentenceAnnotator = {
         if (["sending", "retrying"].includes(event.stage)) {
           line.setText(`Sending to remote API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
         }
+        else if (["mapping", "reducing"].includes(event.stage)) {
+          const percentage = Number.isFinite(Number(event.progress)) ? Number(event.progress) : 0;
+          line.setProgress(Math.round(45 + percentage * 0.5));
+          line.setText(`${event.stage} summary ${event.completed || 0}/${event.total || 0}`);
+        }
         else if (event.stage === "inference") {
-          line.setProgress(95);
+          const percentage = Number.isFinite(Number(event.progress)) ? Number(event.progress) : 100;
+          line.setProgress(Math.round(45 + percentage * 0.5));
           line.setText("Generating summary locally…");
         }
         else if (event.stage === "done") {
@@ -937,7 +943,7 @@ FastOfflineKeySentenceAnnotator = {
     return attachment.getField("title") || attachment.attachmentFilename || "PDF";
   },
 
-  modelProgressHandler(line, settings) {
+  modelProgressHandler(line, settings, stageLines = null) {
     const enabled = [
       settings.llmEmbeddings && "embeddings",
       settings.llmClassification && "classification"
@@ -981,30 +987,35 @@ FastOfflineKeySentenceAnnotator = {
       }
       if (!Number.isFinite(percentage)) percentage = 0;
       percentage = Math.max(0, Math.min(100, percentage));
-      if (operation === "summarization") {
-        line.setProgress(Math.round(5 + (event.stage === "done" ? 25 : 15 + percentage * 0.1)));
+      const target = stageLines?.[operation] || line;
+      if (stageLines) target.setProgress(Math.round(percentage));
+      else if (operation === "summarization") {
+        target.setProgress(Math.round(5 + (event.stage === "done" ? 25 : 15 + percentage * 0.1)));
       }
       else {
-        line.setProgress(Math.round(start + (end - start) * percentage / 100));
+        target.setProgress(Math.round(start + (end - start) * percentage / 100));
       }
 
       const label = names[operation] || "Transformer model";
       if (["download", "progress", "initiate"].includes(event.stage)) {
         const file = event.file ? ` - ${String(event.file).split("/").pop()}` : "";
         const byteText = total > 0 ? ` (${formatBytes(loaded)} / ${formatBytes(total)})` : ` (${Math.round(percentage)}%)`;
-        line.setText(`${label}: loading ${event.model || "model"}${file}${byteText}`);
+        target.setText(`${label}: loading ${event.model || "model"}${file}${byteText}`);
       }
       else if (event.stage === "sending" || event.stage === "retrying") {
-        line.setText(`${label}: sending request to API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
+        target.setText(`${label}: sending request to API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
       }
       else if (event.stage === "done") {
         // keep the existing in-progress text; no completion notification
       }
       else if (event.stage === "inference") {
-        line.setText(`${label}: analysing sentences (${Math.round(percentage)}%)`);
+        target.setText(`${label}: analysing sentences (${Math.round(percentage)}%)`);
+      }
+      else if (["mapping", "reducing"].includes(event.stage)) {
+        target.setText(`${label}: ${event.stage} ${event.completed || 0}/${event.total || 0}`);
       }
       else {
-        line.setText(`${label}: loading ${event.model || "model"}`);
+        target.setText(`${label}: loading ${event.model || "model"}`);
       }
     };
   },
@@ -1063,6 +1074,12 @@ FastOfflineKeySentenceAnnotator = {
           + `${enabledStages.length ? `; LLM: ${enabledStages.join(", ")}` : "; fast mode"})`
       );
       const documentTitle = await this.getDocumentTitle(attachment);
+      const stageLines = {
+        summarization: new progress.ItemProgress(this.iconURI, "Summarization"),
+        ...(configuredSettings.llmEmbeddings ? { embeddings: new progress.ItemProgress(this.iconURI, "Embeddings") } : {}),
+        ...(configuredSettings.llmClassification ? { classification: new progress.ItemProgress(this.iconURI, "Classification") } : {})
+      };
+      for (const stageLine of Object.values(stageLines)) stageLine.setProgress(0);
       const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
         llmEmbeddings: configuredSettings.llmEmbeddings,
         llmClassification: configuredSettings.llmClassification,
@@ -1072,7 +1089,7 @@ FastOfflineKeySentenceAnnotator = {
         mapReduce: configuredSettings.mapReduce,
         contextWindow: configuredSettings.mapReduceInputTokens,
         documentTitle,
-        onModelProgress: this.modelProgressHandler(line, configuredSettings)
+        onModelProgress: this.modelProgressHandler(line, configuredSettings, stageLines)
       });
       if (!selected.length) throw new Error("No suitable annotation candidates were found.");
 

@@ -22,6 +22,10 @@ var FastKeySentenceModels = (() => {
   let wasmBlobURL = null;
   let hostPromise = null;
   let hostFrame = null;
+  let worker = null;
+  let workerPromise = null;
+  let nextWorkerRequest = 1;
+  const workerRequests = new Map();
   const objectCache = new Map();
 
   function errorDetail(error) {
@@ -263,6 +267,93 @@ var FastKeySentenceModels = (() => {
     });
   }
 
+  async function cachedModelResponse(url) {
+    const parsed = modelFileFromURL(url);
+    if (!parsed) return null;
+    const path = PathUtils.join(cacheDir, "models", ...parsed.name.split("/"), ...parsed.file.split("/"));
+    if (!await IOUtils.exists(path)) return null;
+    const bytes = await IOUtils.read(path);
+    return {
+      bytes: bytes.slice().buffer,
+      contentType: parsed.file.endsWith(".json") ? "application/json" : "application/octet-stream"
+    };
+  }
+
+  function supportsWorker() {
+    const owner = Zotero.getMainWindow?.();
+    return Boolean(rootURI && owner?.Worker);
+  }
+
+  async function createInferenceWorker(callback) {
+    const owner = Zotero.getMainWindow?.();
+    if (!owner?.Worker) throw new Error("This Zotero build does not support dedicated inference workers.");
+    const [runtimePath, wasmPath] = await Promise.all([
+      ensureRuntimeDownloaded(callback, false),
+      ensureWasmDownloaded(callback, false)
+    ]);
+    const [runtimeBytes, wasmBytes] = await Promise.all([IOUtils.read(runtimePath), IOUtils.read(wasmPath)]);
+    const instance = new owner.Worker(rootURI + "content/model-worker.mjs", { type: "module" });
+    worker = instance;
+    return new Promise((resolve, reject) => {
+      const fail = error => {
+        instance.terminate();
+        if (worker === instance) worker = null;
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      instance.onmessage = async event => {
+        const message = event.data || {};
+        if (message.type === "ready") return resolve(instance);
+        if (message.type === "init-error") return fail(new Error(message.error));
+        if (message.type === "cache-read") {
+          try {
+            const cached = await cachedModelResponse(message.url);
+            const transfer = cached?.bytes ? [cached.bytes] : [];
+            instance.postMessage({ type: "cache-result", id: message.id, cached }, transfer);
+          }
+          catch (error) {
+            log(`Worker cache read failed: ${errorDetail(error)}`);
+            instance.postMessage({ type: "cache-result", id: message.id, cached: null });
+          }
+          return;
+        }
+        const pending = workerRequests.get(message.requestId);
+        if (!pending) return;
+        if (message.type === "progress") return pending.callback?.(message);
+        workerRequests.delete(message.requestId);
+        if (message.type === "result") pending.resolve(message.result);
+        else pending.reject(new Error(message.error || "Inference worker failed."));
+      };
+      instance.onerror = event => fail(new Error(event.message || "Inference worker failed to start."));
+      instance.postMessage({
+        type: "init",
+        runtimeBytes: runtimeBytes.slice().buffer,
+        wasmBytes: wasmBytes.slice().buffer
+      });
+    });
+  }
+
+  async function inferenceWorker(callback) {
+    if (!supportsWorker()) return null;
+    if (!workerPromise) {
+      workerPromise = createInferenceWorker(callback).catch(error => {
+        workerPromise = null;
+        logRuntimeError(error);
+        throw error;
+      });
+    }
+    return workerPromise;
+  }
+
+  async function runInWorker(operation, payload, callback) {
+    const instance = await inferenceWorker(callback);
+    if (!instance) return null;
+    const requestId = nextWorkerRequest++;
+    return new Promise((resolve, reject) => {
+      workerRequests.set(requestId, { resolve, reject, callback });
+      instance.postMessage({ type: "infer", requestId, operation, ...payload });
+    });
+  }
+
   async function runtime(callback) {
     if (!runtimePromise) {
       if (!hostPromise) hostPromise = createModuleHost(callback);
@@ -359,6 +450,14 @@ var FastKeySentenceModels = (() => {
 
   async function embeddings(texts, multilingual, callback) {
     if (!texts.length) return [];
+    const name = modelName("embeddings", multilingual);
+    const workerResult = await runInWorker("embeddings", {
+      texts,
+      multilingual,
+      model: name,
+      dtype: modelDtype(name)
+    }, callback);
+    if (workerResult) return workerResult;
     const extractor = await getPipeline("feature-extraction", "embeddings", multilingual, callback);
     const vectors = [];
     const batchSize = multilingual ? 10 : 24;
@@ -456,7 +555,6 @@ var FastKeySentenceModels = (() => {
   }
 
   async function generateSummary(text, callback, { final = true, maxNewTokens = 240 } = {}) {
-    const generator = await getPipeline("text-generation", "summarization", false, callback);
     const prompt = [
       "<|im_start|>system",
       final
@@ -468,7 +566,15 @@ var FastKeySentenceModels = (() => {
       "<|im_end|>",
       "<|im_start|>assistant"
     ].join("\n");
-    const output = await generator(prompt, {
+    const name = modelName("summarization", false);
+    const workerOutput = await runInWorker("generate", {
+      model: name,
+      dtype: modelDtype(name),
+      prompt,
+      maxNewTokens
+    }, callback);
+    const generator = workerOutput ? null : await getPipeline("text-generation", "summarization", false, callback);
+    const output = workerOutput || await generator(prompt, {
       max_new_tokens: maxNewTokens,
       do_sample: false,
       return_full_text: false
@@ -482,7 +588,7 @@ var FastKeySentenceModels = (() => {
     const name = modelName("summarization", false);
     const manifestPath = PathUtils.join(cacheDir || PathUtils.join(PathUtils.profileDir, "fast-key-sentence-annotator"), "models", ...name.split("/"), "download-manifest.json");
     if (!await IOUtils.exists(manifestPath)) {
-      throw new Error("Download/update the LLM models first");
+      throw new Error("Download/update the model first.");
     }
 
     const budget = contextBudget(contextWindow);
@@ -510,6 +616,21 @@ var FastKeySentenceModels = (() => {
 
   async function classify(texts, multilingual, callback, batchSize = 8) {
     if (!texts.length) return [];
+    const name = modelName("classification", multilingual);
+    const workerOutput = await runInWorker("classification", {
+      texts,
+      multilingual,
+      batchSize,
+      labels: ROLE_LABELS,
+      model: name,
+      dtype: modelDtype(name)
+    }, callback);
+    if (workerOutput) {
+      return workerOutput.map(prediction => {
+        const label = prediction?.labels?.[0] || "background context";
+        return { role: ROLE_MAP[label] || "background", score: Number(prediction?.scores?.[0]) || 0 };
+      });
+    }
     const classifier = await getPipeline(
       "zero-shot-classification",
       "classification",
@@ -631,6 +752,11 @@ var FastKeySentenceModels = (() => {
   }
 
   function shutdown() {
+    for (const pending of workerRequests.values()) pending.reject(new Error("Inference worker shut down."));
+    workerRequests.clear();
+    worker?.terminate();
+    worker = null;
+    workerPromise = null;
     for (const value of objectCache.values()) {
       Promise.resolve(value).then(object => object?.dispose?.()).catch(() => {});
     }

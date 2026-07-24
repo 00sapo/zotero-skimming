@@ -1,15 +1,15 @@
-# Task Plan: Local Qwen summarization
+# Task Plan: Non-blocking local model inference
 
 ## Goal
-Restore optional local paper summarization using `onnx-community/Qwen2.5-0.5B-Instruct` with its int8 ONNX asset, without changing the existing local cache/runtime safeguards.
+Run local Qwen summarization, embeddings, and classification in a persistent dedicated worker thread, with per-stage progress bars that keep Zotero responsive.
 
 ## Phases
-- [completed] Recover the prior Qwen implementation and assess current integration points.
-- [completed] Confirm coexistence: user chose a persisted local-or-remote source selector.
-- [completed] Restore model identifier, int8 download selection, local generation, settings, and ranking/visible-summary routing.
-- [completed] Add regression tests, document behavior, and validate.
+- [completed] Assess the current hidden-iframe runtime and confirm isolation level.
+- [completed] Add worker runtime/cache bridge and route all local inference through it.
+- [completed] Add per-stage progress bars and streamed progress handling.
+- [completed] Add regression tests, document worker behavior, and validate.
 
 ## Constraints
-- Zotero 9 manifest-v2; Transformers.js runtime is locally cached and runs single-threaded WASM with ONNX proxy workers disabled.
-- Preserve explicit `Update models` downloads, existing q8 selection for embedding/classification models, and int8 selection for Qwen.
-- Preserve the existing remote map-reduce feature until the user explicitly elects to remove it.
+- Zotero 9 manifest-v2; no external helper process or network inference.
+- Keep explicit model downloads/local cache, int8 Qwen, q8 embedding/classification, single-threaded WASM, and disabled ONNX proxy workers.
+- Retain the legacy hidden-iframe runtime only as a compatibility fallback if dedicated workers are unavailable.

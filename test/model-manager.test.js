@@ -38,7 +38,7 @@ function hostModule(overrides = {}) {
   };
 }
 
-function manager({ module = hostModule(), fetchImpl, owner = true, existingHost = true, files: initial = [RUNTIME, WASM] } = {}) {
+function manager({ module = hostModule(), fetchImpl, owner = true, worker = null, existingHost = true, files: initial = [RUNTIME, WASM] } = {}) {
   const files = new Map(initial.map(path => [path, bytes(path)]));
   const listeners = new Map();
   const frameWindow = {
@@ -59,7 +59,7 @@ function manager({ module = hostModule(), fetchImpl, owner = true, existingHost 
   const Zotero = {
     debug: vi.fn(),
     Promise: { delay: vi.fn(async () => {}) },
-    getMainWindow: vi.fn(() => owner ? { document, setTimeout: fn => fn() } : null)
+    getMainWindow: vi.fn(() => owner ? { document, setTimeout: fn => fn(), ...(worker ? { Worker: worker } : {}) } : null)
   };
   const IOUtils = {
     exists: vi.fn(async path => files.has(path)), read: vi.fn(async path => files.get(path)),
@@ -124,6 +124,28 @@ describe("FastKeySentenceModels", () => {
     await expect(module.env.customCache.put()).resolves.toBeUndefined();
   });
 
+  it("runs inference in a dedicated worker when available", async () => {
+    const messages = [];
+    class MockWorker {
+      constructor(url, options) { this.url = url; this.options = options; }
+      postMessage(message) {
+        messages.push(message);
+        if (message.type === "init") queueMicrotask(() => this.onmessage({ data: { type: "ready" } }));
+        if (message.type === "infer") queueMicrotask(() => this.onmessage({
+          data: { type: "result", requestId: message.requestId, result: [[7, 8]] }
+        }));
+      }
+      terminate() {}
+    }
+    const { api, document } = manager({ worker: MockWorker });
+    await expect(api.embeddings(["x"])).resolves.toEqual([[7, 8]]);
+    expect(messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "init" }),
+      expect.objectContaining({ type: "infer", operation: "embeddings", dtype: "q8" })
+    ]));
+    expect(document.createElementNS).not.toHaveBeenCalled();
+  });
+
   it("runs embeddings in batches, prefixes multilingual E5 input, and reuses pipelines", async () => {
     const { api, module, Zotero } = manager();
     const progress = vi.fn();
@@ -166,7 +188,7 @@ describe("FastKeySentenceModels", () => {
   it("rejects local summarization when the model has not been downloaded", async () => {
     const module = hostModule({ pipeline: vi.fn(async () => async () => ({ generated_text: "A local summary." })) });
     const { api } = manager({ module });
-    await expect(api.summarize("Paper text.")).rejects.toThrow("Download/update the LLM models first.");
+    await expect(api.summarize("Paper text.")).rejects.toThrow("Download/update the model first.");
   });
 
   it("classifies sentence batches, defaults missing outputs, and reports inference", async () => {
