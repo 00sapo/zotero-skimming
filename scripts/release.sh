@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ONLY_BUILD=false
+for arg in "$@"; do
+  case "$arg" in
+    --only-build) ONLY_BUILD=true ;;
+    *) echo "Unknown flag: $arg"; exit 1 ;;
+  esac
+done
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -68,6 +76,12 @@ cat > updates.json <<EOF
 }
 EOF
 echo "✓ updates.json generated"
+
+if $ONLY_BUILD; then
+  echo ""
+  echo "--only-build: $XPI and updates.json ready. Skipping commit/tag/release."
+  exit 0
+fi
 
 # --- Step 5: commit, tag ---
 git add manifest.json updates.json
