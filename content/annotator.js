@@ -460,10 +460,10 @@ FastOfflineKeySentenceAnnotator = {
     const footerLeft = create("div", { style: "display: flex; gap: 10px" });
     const footerRight = create("div", { style: "display: flex; gap: 10px" });
     const buttonStyle = "min-width: 92px; min-height: 32px; padding: 5px 14px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 5px; background: ButtonFace; color: ButtonText; font: inherit";
-    const updateModelsButton = create("button", {
+    const testOllamaButton = create("button", {
       type: "button",
       style: buttonStyle
-    }, "Download Ollama models");
+    }, "Test Ollama");
     const summarizeButton = create("button", {
       type: "button",
       style: buttonStyle
@@ -476,7 +476,7 @@ FastOfflineKeySentenceAnnotator = {
       type: "submit",
       style: buttonStyle + "; background: AccentColor; color: AccentColorText; border-color: AccentColor"
     }, "Annotate");
-    footerLeft.append(updateModelsButton, summarizeButton);
+    footerLeft.append(testOllamaButton, summarizeButton);
     footerRight.append(cancelButton, annotateButton);
     footer.append(footerLeft, footerRight);
     form.appendChild(footer);
@@ -510,7 +510,7 @@ FastOfflineKeySentenceAnnotator = {
     });
 
     const setBusy = busy => {
-      updateModelsButton.disabled = busy;
+      testOllamaButton.disabled = busy;
       summarizeButton.disabled = busy;
       annotateButton.disabled = busy;
       cancelButton.disabled = busy;
@@ -571,36 +571,33 @@ FastOfflineKeySentenceAnnotator = {
       };
       window.addEventListener("keydown", onKeyDown, true);
 
-      updateModelsButton.addEventListener("click", async () => {
+      testOllamaButton.addEventListener("click", async () => {
         error.textContent = "";
         const settings = readSettings();
         if (!settings.ollamaCommand.startsWith("/")) {
           error.textContent = "Ollama command must be an absolute path, e.g. /usr/bin/ollama.";
           return;
         }
-        if (!this.isValidSettings(settings)) {
-          error.textContent = "Check the settings above.";
-          return;
-        }
         this.saveSettings(settings);
         setBusy(true);
         modelStatus.style.display = "block";
-        modelStatusText.textContent = "Preparing Ollama models…";
+        modelStatusText.textContent = "Starting Ollama…";
         modelProgress.value = 0;
         try {
-          await FastKeySentenceModels.updateModels(settings, updateModelProgress, false);
-          modelStatusText.textContent = "Ollama models are ready for local use.";
+          const x = FastKeySentenceModels.testOllama(settings, updateModelProgress);
+          modelStatusText.textContent = "Ollama is running.";
           modelProgress.value = 100;
+          await x;
         }
         catch (modelError) {
-          modelStatusText.textContent = "Model update failed.";
+          modelStatusText.textContent = "Ollama failed to start.";
           modelProgress.value = 0;
           error.textContent = modelError?.message || String(modelError);
           this.log(modelError?.stack || String(modelError));
         }
         finally {
           setBusy(false);
-          updateModelsButton.focus();
+          testOllamaButton.focus();
         }
       });
 

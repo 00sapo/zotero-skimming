@@ -226,7 +226,7 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
 describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
   it("manages menu lifecycle, preferences, settings, and dialog submission", async () => {
     const prefs = new Map();
-    const models = { updateModels: vi.fn().mockResolvedValue(), supportsInference: () => false };
+    const models = { testOllama: vi.fn().mockResolvedValue(), supportsInference: () => false };
     const api = annotator({
       FastKeySentenceModels: models,
       Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) } },
@@ -261,7 +261,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(menu.removed).toBe(true);
     expect(deleteMenu.removed).toBe(true);
 
-    expect(models.updateModels).not.toHaveBeenCalled();
+    expect(models.testOllama).not.toHaveBeenCalled();
   });
 
   it("deletes only autoskim annotations from selected PDFs", async () => {
@@ -282,8 +282,8 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
   });
 
   it("renders, validates, updates, cancels, and submits the settings overlay", async () => {
-    const updateModels = vi.fn().mockImplementation(async (_settings, progress) => progress({ stage: "download", model: "x", file: "dir/a.bin", loaded: 512, total: 1024 }));
-    const api = annotator({ FastKeySentenceModels: { updateModels, supportsInference: () => true }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() } } });
+    const testOllama = vi.fn().mockResolvedValue();
+    const api = annotator({ FastKeySentenceModels: { testOllama, supportsInference: () => true }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() } } });
     const window = fakeWindow();
     const result = api.showSettingsOverlay(window, api.settingsDefaults);
     expect(window.document.documentElement.children[0].tag).toBe("div");
@@ -299,12 +299,10 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     byId(window, "summary-source").value = "local";
     byId(window, "summary-source").dispatch("change");
     expect(byId(window, "remote-endpoint").disabled).toBe(true);
-    await byText(window, "Download Ollama models").listeners.click[0]();
-    expect(descendants(window.document.documentElement).find(x => x.role === "alert").textContent).toContain("Check the settings above");
-    api.isValidSettings = settings => settings.perPage > 0;
+    await byText(window, "Test Ollama").listeners.click[0]();
+    expect(testOllama).toHaveBeenCalled();
     byId(window, "local-relevance").checked = true;
-    await byText(window, "Download Ollama models").listeners.click[0]();
-    expect(updateModels).toHaveBeenCalled();
+    api.isValidSettings = settings => settings.perPage > 0;
     byId(window, "per-page").value = "0";
     const submit = () => descendants(window.document.documentElement).find(x => x.tag === "form").listeners.submit[0]({ preventDefault: vi.fn() });
     submit();
@@ -329,11 +327,11 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
   });
 
   it("covers model update errors and dialog orchestration", async () => {
-    const api = annotator({ Services: { prompt: { alert: vi.fn() } }, FastKeySentenceModels: { updateModels: async () => { throw new Error("offline"); } }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() } } });
+    const api = annotator({ Services: { prompt: { alert: vi.fn() } }, FastKeySentenceModels: { testOllama: async () => { throw new Error("offline"); } }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() } } });
     const window = fakeWindow();
     api.isValidSettings = () => true;
     const pending = api.showSettingsOverlay(window, api.settingsDefaults);
-    await byText(window, "Download Ollama models").listeners.click[0]();
+    await byText(window, "Test Ollama").listeners.click[0]();
     expect(descendants(window.document.documentElement).find(x => x.role === "alert").textContent).toBe("offline");
     byText(window, "Cancel").listeners.click[0]();
     await expect(pending).resolves.toBeNull();
@@ -408,13 +406,13 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     const sentenceLines = ["Introduction: A sufficiently long inline sentence has useful findings for testing.", "References", "[1] Smith 2020.", "Appendix", "A subsequent sufficiently long appendix sentence restores prose processing."].map((text, i) => ({ pageIndex: 0, width: 600, height: 800, words: text.split(" ").map((x, j) => word(x, j * 25, 750 - i * 25)) }));
     expect(api.buildSentences(sentenceLines).some(x => x.section === "introduction")).toBe(true);
 
-    const modelApi = annotator({ FastKeySentenceModels: { updateModels: vi.fn().mockResolvedValue(), supportsInference: () => true }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() } } });
+    const modelApi = annotator({ FastKeySentenceModels: { testOllama: vi.fn().mockResolvedValue(), supportsInference: () => true }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() } } });
     const settingsWindow = fakeWindow();
     modelApi.isValidSettings = () => true;
     const pending = modelApi.showSettingsOverlay(settingsWindow, modelApi.settingsDefaults);
     byId(settingsWindow, "local-relevance").checked = true;
-    await byText(settingsWindow, "Download Ollama models").listeners.click[0]();
-    expect(byText(settingsWindow, "Download Ollama models").focused).toBe(true);
+    await byText(settingsWindow, "Test Ollama").listeners.click[0]();
+    expect(byText(settingsWindow, "Test Ollama").focused).toBe(true);
     byText(settingsWindow, "Cancel").listeners.click[0]();
     await pending;
   });
