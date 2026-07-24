@@ -1,14 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadScript } from "./helpers.js";
 
+const TAG_DEFAULTS = [
+  "literature: prior work, theoretical background, related studies, or the state of existing knowledge",
+  "method: technical details of the proposed methodology, data processing, analysis, or experimental setup",
+  "goal: the research objective, motivation, problem statement, or question addressed by the paper",
+  "result: empirical observations, measurements, comparisons, or reported outcomes",
+  "conclusion: final interpretation, implications, limitations, or future research directions",
+  "contribution: a novel claim, capability, resource, framework, or advance introduced by the paper",
+  "take-away: a concise central insight or practical message that captures why the paper matters"
+].join("\n");
+
 function bootstrap({ windows = [] } = {}) {
   const models = { init: vi.fn(), shutdown: vi.fn() };
   const annotator = { init: vi.fn(), addToWindow: vi.fn(), removeFromWindow: vi.fn() };
   const Zotero = { debug: vi.fn(), getMainWindows: vi.fn(() => windows) };
-  const Services = { scriptloader: { loadSubScript: vi.fn() } };
+  const defaults = { setIntPref: vi.fn(), setBoolPref: vi.fn(), setStringPref: vi.fn() };
+  const Services = { scriptloader: { loadSubScript: vi.fn() }, prefs: { getDefaultBranch: vi.fn(() => defaults) } };
   const context = loadScript("bootstrap.js", {
     Zotero,
     Services,
+    FastKeySentenceNLP: { DEFAULT_TAG_DEFINITIONS: TAG_DEFAULTS },
     FastKeySentenceModels: models,
     FastOfflineKeySentenceAnnotator: annotator,
     fetch: vi.fn(async () => ({ ok: true, json: async () => ({}) }))
@@ -55,7 +67,7 @@ describe("bootstrap", () => {
   it("shuts down safely when modules are absent", () => {
     const context = loadScript("bootstrap.js", {
       Zotero: { debug: vi.fn(), getMainWindows: vi.fn() },
-      Services: { scriptloader: { loadSubScript: vi.fn() } }
+      Services: { scriptloader: { loadSubScript: vi.fn() }, prefs: { getDefaultBranch: vi.fn(() => ({ setIntPref: vi.fn(), setBoolPref: vi.fn(), setStringPref: vi.fn() })) } }
     });
     expect(() => context.shutdown()).not.toThrow();
   });

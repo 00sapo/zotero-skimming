@@ -67,6 +67,7 @@ function manager({ path = "/usr/bin/ollama", xhr, io } = {}) {
   const XMLHttpRequest = xhr ?? makeXHR();
   const context = loadScript("content/model-manager.js", {
     Zotero, IOUtils, PathUtils, fetch: vi.fn(), crypto: null, XMLHttpRequest,
+    Services: { console: { logStringMessage: vi.fn() } },
     ChromeUtils: { importESModule: () => ({ Subprocess: subprocess }) }
   });
   context.FastKeySentenceModels.init();

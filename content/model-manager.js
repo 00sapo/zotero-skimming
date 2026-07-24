@@ -1,4 +1,4 @@
-/* global Zotero, ChromeUtils */
+/* global Zotero, ChromeUtils, Services */
 
 var FastKeySentenceModels = (() => {
   "use strict";
@@ -131,33 +131,38 @@ var FastKeySentenceModels = (() => {
   }
 
   async function summarizeChunk(text, callback, { sentenceCount = 10 } = {}) {
-    const prompt = `Summarize in ${sentenceCount} sentences: ${text}\n\nSummary:`;
+    const prompt = `${text}\n\nWrite a summary of exactly ${sentenceCount} numbered sentences. Summary:`;
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 0 });
     const result = await ollamaRequest("/api/generate", {
       model: SUMMARY_MODEL,
       prompt,
-      system: "Summarize directly without reasoning step by step.",
+      system: "Return the summary directly without \"Here is...\" nor comments. Return just the summary. The summaries are made of one sentence per line, without blank lines, nor sections or titles. Number the lines starting from 1.",
       stream: false,
       keep_alive: "5m",
       think: false,
       options: { temperature: 0 }
     });
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 100 });
-    return String(result.response || "").replace(/\s+/g, " ").trim();
+    const raw = String(result.response || "");
+    const collapsed = raw.replace(/\s+/g, " ").trim();
+    const responseSentences = raw.split(/\n/).filter(line => line.trim()).length;
+    Services.console.logStringMessage(`Zotero Skimming local: summarizeChunk requested=${sentenceCount} responseSentences=${responseSentences} responseChars=${collapsed.length}`);
+    return collapsed;
   }
 
   async function summarize(text, callback, { mapReduce = false, mapReduceSentences = 10, sentenceCount = 10 } = {}) {
     if (!text) return "";
     await ensureOllama(callback);
-    const totalSentences = Math.max(1, Math.round(Number(sentenceCount) || 10));
+    const count = Math.max(1, Math.round(Number(sentenceCount) || 10));
+    Services.console.logStringMessage(`Zotero Skimming local: summarize inputChars=${text.length} targetSentences=${count} mapReduce=${mapReduce}`);
     if (!mapReduce) {
-      return summarizeChunk(text, callback, { sentenceCount: totalSentences });
+      return summarizeChunk(text, callback, { sentenceCount: count });
     }
     // Map-reduce: split by sentence count, summarize each chunk, then reduce
     const chunkSize = Math.max(2, Math.round(Number(mapReduceSentences) || 10));
     const chunks = splitBySentenceCount(text, chunkSize);
     if (!chunks.length) return "";
-    const mapSentences = Math.max(1, Math.ceil(totalSentences * 2 / chunks.length));
+    const mapSentences = Math.max(1, Math.ceil(count * 2 / chunks.length));
     const summaries = [];
     for (let index = 0; index < chunks.length; index++) {
       callback?.({ stage: "mapping", model: SUMMARY_MODEL, completed: index, total: chunks.length, progress: 100 * index / chunks.length });
@@ -167,13 +172,13 @@ var FastKeySentenceModels = (() => {
     // Reduce: combine chunk summaries
     let combined = summaries.join("\n");
     for (let round = 0; round < 8; round++) {
-      const parts = splitBySentenceCount(combined, Math.max(1, Math.ceil(totalSentences * 2)));
+      const parts = splitBySentenceCount(combined, Math.max(1, Math.ceil(count * 2)));
       if (parts.length < 2) return combined;
       callback?.({ stage: "reducing", model: SUMMARY_MODEL, round: round + 1, completed: 0, total: parts.length });
       const reduction = [];
       for (let index = 0; index < parts.length; index++) {
         callback?.({ stage: "reducing", model: SUMMARY_MODEL, round: round + 1, completed: index + 1, total: parts.length, progress: 100 * (index + 1) / parts.length });
-        reduction.push(await summarizeChunk(parts[index], callback, { sentenceCount: totalSentences }));
+        reduction.push(await summarizeChunk(parts[index], callback, { sentenceCount: count }));
       }
       combined = reduction.join("\n\n");
     }

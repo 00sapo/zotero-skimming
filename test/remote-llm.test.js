@@ -8,6 +8,7 @@ function remote(preferences = new Map(), fetch = vi.fn()) {
       Prefs: { get: key => preferences.get(key), set: (key, value) => preferences.set(key, value) },
       Promise: { delay: vi.fn().mockResolvedValue() }
     },
+    Services: { console: { logStringMessage: vi.fn() } },
     fetch
   }).FastKeySentenceRemote;
 }

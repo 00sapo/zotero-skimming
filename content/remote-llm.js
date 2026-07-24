@@ -1,4 +1,4 @@
-/* global Zotero */
+/* global Zotero, Services */
 
 var FastKeySentenceRemote = (() => {
   "use strict";
@@ -148,10 +148,10 @@ var FastKeySentenceRemote = (() => {
 
   function summaryPrompt(targetSentences) {
     return [
-      "You are a research assistant. Summarize the following academic paper in a single compact paragraph.",
-      `Aim for about ${targetSentences} sentences. Cover: the research objective, the method or approach,`,
-      "the main empirical findings, and any key limitations or conclusions.",
-      "Be precise, concise, and avoid filler."
+      "You are a research assistant. Summarize the following academic paper.",
+      `Write exactly ${targetSentences} sentences, one per line, with no blank lines between them.`,
+      "Cover: the research objective, the method or approach, the main empirical findings,",
+      "and any key limitations or conclusions. Be precise, concise, and avoid filler."
     ].join(" ");
   }
 
@@ -200,6 +200,7 @@ var FastKeySentenceRemote = (() => {
     if (!config.endpoint) throw new Error("No remote endpoint configured.");
 
     const targetSentences = Math.max(3, Math.round(sentenceCount * SUMMARY_SENTENCES_PER_ANNOTATION));
+    Services.console.logStringMessage(`Zotero Skimming remote: summarize inputChars=${paperText.length} targetSentences=${targetSentences} mapReduce=${config.mapReduce}`);
     const targetTokens = Math.min(1000, Math.max(120, targetSentences * 30));
     let summary;
     if (config.mapReduce) {
@@ -209,6 +210,8 @@ var FastKeySentenceRemote = (() => {
       const userText = documentTitle ? `Title: ${documentTitle}\n\n${paperText}` : paperText;
       summary = await requestSummary(config, summaryPrompt(targetSentences), userText.slice(0, 128000), targetTokens, onProgress);
     }
+    const responseSentences = (summary || "").split(/\n/).filter(line => line.trim()).length;
+    Services.console.logStringMessage(`Zotero Skimming remote: summarize responseSentences=${responseSentences} responseChars=${(summary || "").length}`);
     onProgress?.({ stage: "done", model: config.model });
     return summary;
   }
@@ -234,6 +237,7 @@ var FastKeySentenceRemote = (() => {
     estimateTokens,
     splitByTokenLimit,
     summarize,
+    validateConfig,
     log
   };
 })();

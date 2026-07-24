@@ -5,7 +5,7 @@ function annotator(globals = {}) {
   const nlpContext = loadScript("content/nlp.js");
   return loadScript("content/annotator.js", {
     FastKeySentenceNLP: nlpContext.FastKeySentenceNLP,
-    FastKeySentenceRemote: { DEFAULT_ENDPOINT: "https://api.example.com", DEFAULT_MODEL: "test-model", summarize: async () => "A test summary.", getConfig: () => ({ endpoint: "", apiKey: "", model: "" }), saveConfig: () => {} },
+    FastKeySentenceRemote: { DEFAULT_ENDPOINT: "https://api.example.com", DEFAULT_MODEL: "test-model", summarize: async () => "A test summary.", getConfig: () => ({ endpoint: "", apiKey: "", model: "" }) },
     Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" } },
     ...globals
   }).FastOfflineKeySentenceAnnotator;

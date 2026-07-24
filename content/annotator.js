@@ -719,13 +719,14 @@ FastOfflineKeySentenceAnnotator = {
         }
       };
       const summarySentenceCount = Math.max(1, Math.round(bodySentences.length / settings.compressionRatio));
+      Services.console.logStringMessage(`Zotero Skimming: summarySentenceCount=${summarySentenceCount} bodySentences=${bodySentences.length} compressionRatio=${settings.compressionRatio} source=${settings.summarySource}`);
       const summary = settings.summarySource === "local"
         ? await FastKeySentenceModels.summarize(inputText, onSummaryProgress, {
           mapReduce: settings.mapReduce,
           mapReduceSentences: settings.mapReduceSentences || 10,
           sentenceCount: summarySentenceCount
         })
-        : await FastKeySentenceRemote.summarize(inputText, documentTitle, 10, onSummaryProgress);
+        : await FastKeySentenceRemote.summarize(inputText, documentTitle, summarySentenceCount, onSummaryProgress);
 
       if (!summary) throw new Error("The summarization model returned an empty result.");
 
