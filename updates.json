@@ -3,8 +3,8 @@
     "zotero-skimming@example.org": {
       "updates": [
         {
-          "version": "0.0.4",
-          "update_link": "https://github.com/00sapo/zotero-skimming/releases/download/v0.0.4/zotero-skimming.xpi"
+          "version": "0.0.5",
+          "update_link": "https://github.com/00sapo/zotero-skimming/releases/download/v0.0.5/zotero-skimming.xpi"
         }
       ]
     }

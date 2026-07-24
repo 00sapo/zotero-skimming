@@ -1,6 +1,5 @@
 var FastOfflineKeySentenceAnnotator;
 var FastKeySentenceModels;
-var FastKeySentenceModelIdentifiers;
 var FastKeySentenceScoringConfig;
 
 function log(message) {
@@ -12,19 +11,14 @@ function install() {
 }
 
 async function startup({ id, version, rootURI }) {
-  const [modelsResponse, scoringResponse] = await Promise.all([
-    fetch(rootURI + "model-identifiers.json"),
-    fetch(rootURI + "scoring-config.json")
-  ]);
-  if (!modelsResponse.ok) throw new Error(`Could not load model identifiers (${modelsResponse.status})`);
+  const scoringResponse = await fetch(rootURI + "scoring-config.json");
   if (!scoringResponse.ok) throw new Error(`Could not load scoring configuration (${scoringResponse.status})`);
-  FastKeySentenceModelIdentifiers = Object.freeze(await modelsResponse.json());
   FastKeySentenceScoringConfig = Object.freeze(await scoringResponse.json());
   Services.scriptloader.loadSubScript(rootURI + "content/nlp.js");
   Services.scriptloader.loadSubScript(rootURI + "content/model-manager.js");
   Services.scriptloader.loadSubScript(rootURI + "content/remote-llm.js");
   Services.scriptloader.loadSubScript(rootURI + "content/annotator.js");
-  FastKeySentenceModels.init({ rootURI });
+  FastKeySentenceModels.init(rootURI);
   FastOfflineKeySentenceAnnotator.init({ id, version, rootURI });
 
   // Zotero 9 calls startup after core initialization, but existing main windows

@@ -29,7 +29,7 @@ describe("bootstrap", () => {
       "resource://addon/content/remote-llm.js",
       "resource://addon/content/annotator.js"
     ]);
-    expect(models.init).toHaveBeenCalledWith({ rootURI: "resource://addon/" });
+    expect(models.init).toHaveBeenCalledWith("resource://addon/");
     expect(annotator.init).toHaveBeenCalledWith({ id: "addon@example.com", version: "1.2.3", rootURI: "resource://addon/" });
     expect(annotator.addToWindow).toHaveBeenCalledTimes(1);
     expect(annotator.addToWindow).toHaveBeenCalledWith(validWindow);

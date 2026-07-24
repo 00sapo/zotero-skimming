@@ -167,7 +167,6 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "summarySource", settings.summarySource, true);
     Zotero.Prefs.set(this.prefBranch + "mapReduce", settings.mapReduce, true);
     Zotero.Prefs.set(this.prefBranch + "mapReduceSentences", settings.mapReduceSentences, true);
-    Zotero.Prefs.set(this.prefBranch + "mapReduceInputTokens", settings.mapReduceInputTokens, true);
   },
 
   calculateAnnotationTarget(pageCount, settings) {

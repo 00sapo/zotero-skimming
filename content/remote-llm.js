@@ -229,15 +229,11 @@ var FastKeySentenceRemote = (() => {
   return {
     DEFAULT_MODEL,
     DEFAULT_ENDPOINT,
-    DEFAULT_MAP_INPUT_TOKENS,
     MAP_PROMPT_TOKEN_RESERVE,
-    MIN_MAP_INPUT_TOKENS,
     getConfig,
-    saveConfig,
     estimateTokens,
     splitByTokenLimit,
     summarize,
-    validateConfig,
     log
   };
 })();
