@@ -1,17 +1,17 @@
 # Zotero Skimming
 
+> [!WARNING]
+> Please, be aware of the bias risk induced by automated sentence selection methods. Do not use this add-on for in-depth study of academic articles. Consider it only for fast skimming of articles. Read more about [skimming](#references).
+
 Say bye-bye to confused AI-generated summaries, abstract sentences, and hallucinations. With this add-on, you can give a first pass to a paper by directly reading its real sentences, no AI invention, only guided AI selection.
 
 First skim, then read. Skimming is also known as _"orientation reading"_.
 
 Requires Zotero 9 and one of:
 - Ollama
-- OpenAI-compatible API key (e.g. Deepseek, Openrouter, OpenAI, etc.)
+- OpenAI-compatible API key (e.g. LiteLLM, Deepseek, Openrouter, OpenAI, etc.)
 
 <img src="assets/screenshot.png" alt="Screenshot of a paper annotated" width="400" />
-
-> [!WARNING]
-> Please, be aware of the bias risk induced by automated sentence selection methods. Do not use this add-on for in-depth study of academic articles. Consider it only for fast skimming of articles. Read more about [skimming](#references).
 
 ## Installation
 
@@ -19,8 +19,10 @@ Requires Zotero 9 and one of:
 2. In Zotero, open **Tools → Add-ons**.
 3. Open the gear menu and choose **Install Add-on From File…**.
 4. Select the downloaded `.xpi` and restart Zotero if prompted.
-5. Install ollama from https://ollama.com/download
-   Ollama is needed to efficiently run the LLM models locally.
+5. **Optional**: Install Ollama from https://ollama.com/download
+   Ollama is needed to efficiently run the LLM models locally. You can alternatively use a remote
+   API endpoint. For Google and Deepseek, consider using a local LiteLLM gateway, which offers
+   OpenAI-compatible API.
 
 The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native positioned highlight annotations.
 
@@ -42,30 +44,35 @@ The baseline ranker works without downloaded models. When enabled, local semanti
 
 Choose **Remote API** to send filtered paper body text (no authors, tables, figures, abstract, or references) to the configured remote LLM. Its summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations.
 
-Choose **Local Ollama** to summarize with imported `Qwen/Qwen2.5-0.5B-Instruct-GGUF`. Ollama handles local GPU selection and execution; this add-on starts `ollama serve` when its executable is available. Remote credentials are hidden when local summarization is selected.
+Choose **Local Ollama** to summarize with imported `Qwen/Qwen3.5-2B` or with your preferred model. Ollama handles local GPU selection and execution; this add-on starts `ollama serve` when its executable is available. Remote credentials are hidden when local summarization is selected. Note that you can also use the remote endpoint to interact with Ollama. However, the Remote choice is designed to make the setup easier for non expert users.
 
-**Map-reduce long papers** and its shared context window apply to both sources. They split long input into locally token-counted chunks before reducing their summaries. Local Ollama carries each partial summary into the next map step and overlaps adjacent chunks by 5%. The window defaults to 4096 tokens and accepts values from 256 to 131072.
+**Map-reduce long papers** and its shared context window apply to both sources. They split long input into locally token-counted chunks before reducing their summaries. Local Ollama carries each partial summary into the next map step and overlaps adjacent chunks by 5%. The window defaults to 4096 tokens and accepts values from 256 to 131072. This is useful for small local models. Note that the default ollama model (Qwen3.5-2B) has a sufficiently large context window to handle almost any paper. Nevertheless, using map-reduce can still increase the completeness of the summary.
 
 ### 2. Local semantic relevance and tag classification
 
-When enabled, `Qwen/Qwen3-Embedding-0.6B-GGUF` embeds candidates through Ollama against the paper synopsis and configured scholarly keyword sections. These signals are blended with the sparse baseline before MMR selection.
+When enabled, a remote or local model (local defaults to `Qwen/Qwen3-Embedding-0.6B-GGUF`) embed candidates through Ollama against the paper synopsis and configured scholarly keyword sections.
 
-After MMR selection, each selected sentence is compared with the configured tag definitions to classify it as one of the supported categories (literature, method, goal, result, conclusion, contribution, take-away). Tags and their descriptions are user-configurable in the settings dialog; colors are assigned deterministically by tag order. If Ollama is unavailable, the baseline TF-IDF ranker remains active and highlights are untagged.
+The relevance of a sentence is computed as a weighted average of the similarity between the sentence
+and the paper summary and of a gaussian score encouraging sentence length around 20 words.
+
+After MMR selection, each selected sentence is compared with the configured label definitions to classify it as one of the supported categories (literature, method, goal, result, conclusion, contribution). Tags and their descriptions are user-configurable in the settings dialog; colors are assigned deterministically by tag order. If disabled, the baseline TF-IDF ranker remains active and highlights are untagged.
 
 ### 3. MMR selection
 
 Maximum marginal relevance selects the requested number of highlights while penalizing semantic redundancy and repeated sections:
 
 ```text
-0.65 × importance − 0.35 × redundancy − section penalty
+0.65 × relevance − 0.35 × redundancy
 ```
 
 | Term | Meaning |
 |------|---------|
 | `importance` | sentence salience from summary relevance and keyword relevance |
 | `redundancy` | cosine similarity to previously selected candidates |
-| `section penalty` | discourages a second pick from the same PDF section |
 | `coverage penalty` | penalises similarity to a summary sentence already covered by a prior pick |
+
+Coverage penalty is applied to the similarity matrix between the summary and a target sentence
+before of the importance computation.
 
 ### 4. Selected annotations
 
