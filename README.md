@@ -8,8 +8,8 @@ Say bye-bye to confused AI-generated summaries, abstract sentences, and hallucin
 First skim, then read. Skimming is also known as _"orientation reading"_.
 
 Requires Zotero 9 and one of:
-- Ollama for efficient fully local processing
-- OpenAI-compatible API key (e.g. LiteLLM, Deepseek, Openrouter, OpenAI, etc.) if you have low budget hardware
+- Ollama for efficient fully local processing on most consumer laptops
+- OpenAI-compatible API key (e.g. LiteLLM, Deepseek, Openrouter, OpenAI, etc.) if you have very low budget hardware
 
 <img src="assets/screenshot.png" alt="Screenshot of a paper annotated" width="400" />
 
@@ -21,8 +21,8 @@ Requires Zotero 9 and one of:
 4. Select the downloaded `.xpi` and restart Zotero if prompted.
 5. **Optional**: Install Ollama from https://ollama.com/download
    Ollama is needed to efficiently run the LLM models locally. You can alternatively use a remote
-   API endpoint. For Google and Deepseek, consider using a local LiteLLM gateway, which offers
-   OpenAI-compatible API.
+   API endpoint (DeepSeek recommended). For Google and Anthropic, consider using a local LiteLLM gateway, which offers
+   OpenAI-compatible API. 
 
 The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native positioned highlight annotations.
 
