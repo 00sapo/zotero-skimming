@@ -2,6 +2,7 @@ var FastOfflineKeySentenceAnnotator;
 var FastKeySentenceModels;
 var FastKeySentenceScoringConfig;
 var FastKeySentenceZeroShotConfig;
+var FastKeySentenceZeroShotConfigPath;
 
 function log(message) {
   Zotero.debug("Zotero Skimming: " + message);
@@ -16,6 +17,24 @@ async function startup({ id, version, rootURI }) {
   if (!scoringResponse.ok) throw new Error(`Could not load scoring configuration (${scoringResponse.status})`);
   FastKeySentenceScoringConfig = Object.freeze(await scoringResponse.json());
   Services.scriptloader.loadSubScript(rootURI + "content/zero-shot-classifier.js");
+
+  FastKeySentenceZeroShotConfigPath = PathUtils.join(PathUtils.profileDir, "zotero-skimming", "zero-shot-config.toml");
+  await IOUtils.makeDirectory(PathUtils.parent(FastKeySentenceZeroShotConfigPath), { ignoreExisting: true });
+  if (!await IOUtils.exists(FastKeySentenceZeroShotConfigPath)) {
+    await IOUtils.writeUTF8(FastKeySentenceZeroShotConfigPath, FastKeySentenceZeroShot.DEFAULT_CONFIG);
+  }
+  FastKeySentenceZeroShotConfig = new TextDecoder().decode(await IOUtils.read(FastKeySentenceZeroShotConfigPath));
+
+  // Validate config at startup; fall back to DEFAULT_CONFIG on parse errors
+  try {
+    FastKeySentenceZeroShot.parseConfig(FastKeySentenceZeroShotConfig);
+  } catch (error) {
+    log(`Zero-shot config parse error — falling back to default. ${error.message || error}`);
+    if (typeof Services?.console?.logStringMessage === "function") Services.console.logStringMessage(`Zotero Skimming: zero-shot-config.toml is invalid — ${error.message || error}. Using built-in defaults.`);
+    FastKeySentenceZeroShotConfig = FastKeySentenceZeroShot.DEFAULT_CONFIG;
+    await IOUtils.writeUTF8(FastKeySentenceZeroShotConfigPath, FastKeySentenceZeroShotConfig).catch(() => {});
+  }
+
   Services.scriptloader.loadSubScript(rootURI + "content/nlp.js");
   Services.scriptloader.loadSubScript(rootURI + "content/model-manager.js");
   Services.scriptloader.loadSubScript(rootURI + "content/remote-llm.js");
@@ -24,9 +43,8 @@ async function startup({ id, version, rootURI }) {
   const defaults = Services.prefs.getDefaultBranch("extensions.zotero-skimming.");
   defaults.setIntPref("compressionRatio", 10);
   defaults.setBoolPref("localRelevance", false);
+  defaults.setBoolPref("zeroShotLabels", false);
   defaults.setStringPref("ollamaCommand", "/usr/bin/ollama");
-  defaults.setStringPref("zeroShotConfig", FastKeySentenceZeroShot.DEFAULT_CONFIG);
-  FastKeySentenceZeroShotConfig = Zotero.Prefs.get("extensions.zotero-skimming.zeroShotConfig", true) || FastKeySentenceZeroShot.DEFAULT_CONFIG;
   defaults.setStringPref("remoteEndpoint", "");
   defaults.setStringPref("remoteApiKey", "");
   defaults.setStringPref("summarySource", "local");

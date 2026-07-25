@@ -25,15 +25,24 @@ function nlp(models) {
       const m = labelRe.exec(text);
       if (m) {
         const desc = descRe.exec(text);
-        labels.push({ name: `[${m[1]}]`, description: desc ? desc[1] : "", prototypes: ["prototype"], antiDescription: "anti", color: null });
+        labels.push({ name: `[${m[1]}]`, description: desc ? desc[1] : "", prototypes: ["prototype"], contextPrototypes: ["context"], color: null });
       }
       if (!labels.length) {
         // fallback: produce dummy labels so tag classification runs
         ["literature", "method", "goal", "result", "conclusion", "contribution", "take-away"].forEach(name =>
-          labels.push({ name: `[${name}]`, description: `${name} description`, prototypes: ["prototype"], antiDescription: "anti", color: null })
+          labels.push({ name: `[${name}]`, description: `${name} description`, prototypes: ["prototype"], contextPrototypes: ["context"], color: null })
         );
       }
       return labels;
+    },
+    async createClassifier(options) {
+      const labels = this.parseConfig(options.config || this.DEFAULT_CONFIG);
+      return {
+        labels: labels.map(l => ({ name: l.name, color: l.color })),
+        async classify(targetText, contextText) {
+          return { predicted: labels[0].name, scores: { [labels[0].name]: 0.5 }, margin: 1, runnerUp: null };
+        }
+      };
     }
   };
   return loadScript("content/nlp.js", ctx).FastKeySentenceNLP;
@@ -164,11 +173,11 @@ describe("FastKeySentenceNLP", () => {
       embeddings
     };
     const selected = await nlp(models).analyzeAsync(prose.map((text, order) => sentence(text, order, order < 2 ? "abstract" : "results")), 3, {
-      localRelevance: true, documentTitle: "A study", onModelProgress: progress
+      localRelevance: true, documentTitle: "A study", onModelProgress: progress, zeroShotLabels: true
     });
     expect(selected.length).toBeGreaterThanOrEqual(1);
     expect(models.remote.summarize).toHaveBeenCalledWith(expect.not.stringContaining("A study"), "A study", 3, expect.any(Function));
-    expect(embeddings).toHaveBeenCalledTimes(2);
+    expect(embeddings).toHaveBeenCalledTimes(1);
     expect(progress).toHaveBeenCalled();
   });
 
@@ -177,7 +186,7 @@ describe("FastKeySentenceNLP", () => {
     const remote = { summarize: vi.fn() };
     const embeddings = vi.fn(async texts => texts.map(() => [0.5, 0.5]));
     const selected = await nlp({ supportsInference: () => true, summarize, embeddings, remote }).analyzeAsync(
-      prose.map((text, order) => sentence(text, order)), 2, { summarySource: "local", localRelevance: true }
+      prose.map((text, order) => sentence(text, order)), 2, { summarySource: "local", localRelevance: true, zeroShotLabels: true }
     );
     expect(summarize).toHaveBeenCalledOnce();
     expect(remote.summarize).not.toHaveBeenCalled();

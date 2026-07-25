@@ -85,19 +85,19 @@ describe("parseTomlStringArray", () => {
 const MINI_CONFIG = `[test]
 description = "A test label for unit testing."
 prototypes = ["First prototype sentence.", "Second prototype sentence."]
-anti-description = "Not something else."
+context-prototypes = ["Nearby text discusses this."]
 color = "#ff0000"`;
 
 const TWO_LABEL_CONFIG = `[alpha]
 description = "Alpha description text."
 prototypes = ["Alpha prototype one.", "Alpha prototype two."]
-anti-description = "Not alpha."
+context-prototypes = ["Nearby sentences refer to the alpha contribution."]
 color = "#111111"
 
 [beta]
 description = "Beta description text."
 prototypes = ["Beta prototype one.", "Beta prototype two."]
-anti-description = "Not beta."
+context-prototypes = ["Nearby sentences refer to the beta contribution."]
 color = "#222222"`;
 
 describe("parseConfig", () => {
@@ -114,14 +114,14 @@ describe("parseConfig", () => {
     for (const label of labels) {
       expect(label.description).toBeTruthy();
       expect(label.prototypes.length).toBeGreaterThanOrEqual(1);
-      expect(label.antiDescription).toBeTruthy();
+      expect(label.contextPrototypes.length).toBeGreaterThanOrEqual(1);
       expect(label.color).toMatch(/^#[0-9a-fA-F]{6}$/);
     }
 
     const method = labels.find(l => l.name === "[method]");
     expect(method.description).toMatch(/explains how/i);
     expect(method.prototypes).toContain("The data were normalized before the analysis.");
-    expect(method.antiDescription).toMatch(/not the research objective/i);
+    expect(method.contextPrototypes).toContain("The target describes a procedure whose outcome is reported nearby.");
   });
 
   it("parses minimal valid config with one label", () => {
@@ -131,7 +131,7 @@ describe("parseConfig", () => {
     expect(labels[0].name).toBe("[test]");
     expect(labels[0].description).toBe("A test label for unit testing.");
     expect(labels[0].prototypes).toEqual(["First prototype sentence.", "Second prototype sentence."]);
-    expect(labels[0].antiDescription).toBe("Not something else.");
+    expect(labels[0].contextPrototypes).toEqual(["Nearby text discusses this."]);
     expect(labels[0].color).toBe("#ff0000");
   });
 
@@ -140,7 +140,7 @@ describe("parseConfig", () => {
     const text = `[simple]
 description = "Label without color."
 prototypes = ["Proto."]
-anti-description = "Not this."`;
+context-prototypes = ["Context proto."]`;
     const labels = parseConfig(text);
     expect(labels[0].color).toBeNull();
   });
@@ -150,7 +150,7 @@ anti-description = "Not this."`;
     const text = `[take-away]
 description = "Main insight."
 prototypes = ["A key message."]
-anti-description = "Not a method."`;
+context-prototypes = ["Context is important."]`;
     expect(parseConfig(text)).toHaveLength(1);
   });
 
@@ -170,7 +170,7 @@ anti-description = "Not a method."`;
     const { parseConfig } = loadModule();
     const text = `[bad]
 prototypes = ["Something."]
-anti-description = "Not this."`;
+context-prototypes = ["Context."]`;
     expect(() => parseConfig(text)).toThrow(/missing description/);
   });
 
@@ -179,7 +179,7 @@ anti-description = "Not this."`;
     const text = `[bad]
 description = ""
 prototypes = ["Something."]
-anti-description = "Not this."`;
+context-prototypes = ["Context."]`;
     expect(() => parseConfig(text)).toThrow(/description is empty/);
   });
 
@@ -189,7 +189,7 @@ anti-description = "Not this."`;
 description = "First."
 description = "Second."
 prototypes = ["Something."]
-anti-description = "Not this."`;
+context-prototypes = ["Context."]`;
     expect(() => parseConfig(text)).toThrow(/duplicate description/);
   });
 
@@ -197,7 +197,7 @@ anti-description = "Not this."`;
     const { parseConfig } = loadModule();
     const text = `[bad]
 description = "Has desc."
-anti-description = "Not this."`;
+context-prototypes = ["Context."]`;
     expect(() => parseConfig(text)).toThrow(/at least one prototype/);
   });
 
@@ -206,35 +206,39 @@ anti-description = "Not this."`;
     const text = `[bad]
 description = "Has desc."
 prototypes = []
-anti-description = "Not this."`;
+context-prototypes = ["Context."]`;
     expect(() => parseConfig(text)).toThrow(/at least one prototype/);
   });
 
-  it("rejects missing anti-description", () => {
+  it("allows missing context-prototypes (backward compat)", () => {
     const { parseConfig } = loadModule();
-    const text = `[bad]
-description = "Has desc."
+    const text = `[simple]
+description = "Label without context prototypes."
 prototypes = ["A proto."]`;
-    expect(() => parseConfig(text)).toThrow(/missing anti-description/);
+    const labels = parseConfig(text);
+    expect(labels).toHaveLength(1);
+    expect(labels[0].contextPrototypes).toEqual([]);
   });
 
-  it("rejects empty anti-description", () => {
+  it("allows empty context-prototypes array", () => {
+    const { parseConfig } = loadModule();
+    const text = `[simple]
+description = "Label with empty context prototypes."
+prototypes = ["A proto."]
+context-prototypes = []`;
+    const labels = parseConfig(text);
+    expect(labels).toHaveLength(1);
+    expect(labels[0].contextPrototypes).toEqual([]);
+  });
+
+  it("rejects duplicate context-prototypes", () => {
     const { parseConfig } = loadModule();
     const text = `[bad]
 description = "Has desc."
 prototypes = ["A proto."]
-anti-description = ""`;
-    expect(() => parseConfig(text)).toThrow(/anti-description is empty/);
-  });
-
-  it("rejects duplicate anti-description", () => {
-    const { parseConfig } = loadModule();
-    const text = `[bad]
-description = "Has desc."
-prototypes = ["A proto."]
-anti-description = "First."
-anti-description = "Second."`;
-    expect(() => parseConfig(text)).toThrow(/duplicate anti-description/);
+context-prototypes = ["First."]
+context-prototypes = ["Second."]`;
+    expect(() => parseConfig(text)).toThrow(/duplicate context-prototypes/);
   });
 
   it("rejects unknown keys", () => {
@@ -242,14 +246,14 @@ anti-description = "Second."`;
     const text = `[bad]
 description = "Has desc."
 prototypes = ["A proto."]
-anti-description = "Not this."
+context-prototypes = ["Context."]
 bogus = "value"`;
     expect(() => parseConfig(text)).toThrow(/unknown key/);
   });
 
   it("handles Windows-style line endings", () => {
     const { parseConfig } = loadModule();
-    const text = `[a]\r\ndescription = "D."\r\nprototypes = ["P."]\r\nanti-description = "A."`;
+    const text = `[a]\r\ndescription = "D."\r\nprototypes = ["P."]\r\ncontext-prototypes = ["C."]`;
     expect(parseConfig(text)).toHaveLength(1);
   });
 
@@ -260,13 +264,13 @@ bogus = "value"`;
 [first]
 description = "First label."
 prototypes = ["Proto one."]
-anti-description = "Not second."
+context-prototypes = ["Context one."]
 
 # second label
 [second]
 description = "Second label."
 prototypes = ["Proto two."]
-anti-description = "Not first."
+context-prototypes = ["Context two."]
 `;
     expect(parseConfig(text)).toHaveLength(2);
   });
@@ -294,12 +298,12 @@ describe("denseNorm", () => {
 // ── top-K prototype aggregation ─────────────────────────────────────────────
 
 describe("prototype top-K aggregation", () => {
-  it("uses only the top-K prototype similarities in positive score", async () => {
+  it("uses only the top-K prototype similarities in target score", async () => {
     const { createClassifier } = loadModule();
     const config = `[label]
 description = "Test description."
 prototypes = ["Proto A.", "Proto B.", "Proto C.", "Proto D.", "Proto E.", "Proto F."]
-anti-description = "Opposite meaning."`;
+context-prototypes = ["Context proto."]`;
 
     const classifier = await createClassifier({
       embeddingModel: mockEmbeddingModel(16),
@@ -307,10 +311,11 @@ anti-description = "Opposite meaning."`;
       topK: 2,
       descriptionWeight: 0,
       prototypeWeight: 1,
-      antiDescriptionWeight: 0
+      targetWeight: 1,
+      contextWeight: 0
     });
 
-    const result = await classifier.classify("A test sentence for top-K verification.");
+    const result = await classifier.classify("A test sentence for top-K verification.", "Context window text.");
     expect(result.predicted).toBe("[label]");
     const det = result.details["[label]"];
     expect(det.prototypeSimilarities.length).toBe(6);
@@ -318,37 +323,35 @@ anti-description = "Opposite meaning."`;
       expect(det.prototypeSimilarities[i - 1]).toBeGreaterThanOrEqual(det.prototypeSimilarities[i]);
     }
     const top2Mean = (det.prototypeSimilarities[0] + det.prototypeSimilarities[1]) / 2;
-    expect(det.positiveScore).toBeCloseTo(top2Mean, 5);
+    expect(det.targetScore).toBeCloseTo(top2Mean, 5);
   });
 });
 
 // ── anti-description penalty ────────────────────────────────────────────────
 
-describe("anti-description penalty", () => {
-  it("reduces final score proportionally to anti-description similarity", async () => {
+describe("context scoring", () => {
+  it("combines target and context scores with configured weights", async () => {
     const { createClassifier } = loadModule();
-    const config = `[good]
-description = "Something positive we want to match."
-prototypes = ["This is definitely a match."]
-anti-description = "This is the opposite of what we want."
+    const config = `[match]
+description = "Matches the target sentence meaning."
+prototypes = ["Target-like prototype."]
+context-prototypes = ["The surrounding discourse fits this label."]
 
-[bad]
-description = "Something else."
-prototypes = ["Another category entirely."]
-anti-description = "Matches good label content."`;
+[other]
+description = "Another label."
+prototypes = ["Other prototype."]
+context-prototypes = ["Other context pattern."]`;
 
-    const dim = 16;
+    const dim = 8;
     const manualModel = {
       async embed(texts) {
         return texts.map(t => {
           const v = new Array(dim).fill(0);
-          if (t.includes("test this is the opposite")) { v[0] = 1; return v; }
-          if (t === "This is the opposite of what we want.") {
-            v[0] = 0.9; v[1] = Math.sqrt(1 - 0.81); return v;
-          }
-          let h = 0;
-          for (let i = 0; i < t.length; i++) h = (Math.imul(31, h) + t.charCodeAt(i)) | 0;
-          v[((h % (dim - 1)) + 1 + dim) % dim] = 1;
+          if (t.includes("target sentence")) { v[0] = 1; return v; }
+          if (t.includes("context window that fits")) { v[1] = 1; return v; }
+          if (t === "Target-like prototype.") { v[0] = 0.95; v[2] = Math.sqrt(1 - 0.95 * 0.95); return v; }
+          if (t === "The surrounding discourse fits this label.") { v[1] = 0.9; v[3] = Math.sqrt(1 - 0.9 * 0.9); return v; }
+          v[dim - 1] = 1;
           return v;
         });
       }
@@ -359,23 +362,24 @@ anti-description = "Matches good label content."`;
       config,
       descriptionWeight: 0.35,
       prototypeWeight: 0.65,
-      antiDescriptionWeight: 0.25,
+      targetWeight: 0.75,
+      contextWeight: 0.25,
       topK: 1
     });
 
-    const result = await classifier.classify("test this is the opposite");
-    const goodDet = result.details["[good]"];
-    expect(goodDet.antiDescriptionSimilarity).toBeGreaterThan(0.5);
-    expect(goodDet.finalScore).toBe(
-      goodDet.positiveScore - 0.25 * goodDet.antiDescriptionSimilarity
-    );
+    const result = await classifier.classify("A target sentence.", "A context window that fits.");
+    expect(result.predicted).toBe("[match]");
+    const det = result.details["[match]"];
+    expect(det.targetScore).toBeGreaterThan(0.5);
+    expect(det.contextScore).toBeGreaterThan(0.5);
+    expect(det.finalScore).toBeCloseTo(0.75 * det.targetScore + 0.25 * det.contextScore, 5);
   });
 });
 
 // ── score calculation ───────────────────────────────────────────────────────
 
 describe("score calculation", () => {
-  it("combines description, prototype, and anti-description correctly", async () => {
+  it("combines description, prototype, and context scores correctly", async () => {
     const { createClassifier } = loadModule();
 
     const classifier = await createClassifier({
@@ -383,11 +387,13 @@ describe("score calculation", () => {
       config: TWO_LABEL_CONFIG,
       descriptionWeight: 0.4,
       prototypeWeight: 0.6,
-      antiDescriptionWeight: 0.2,
+      targetWeight: 0.7,
+      contextWeight: 0.3,
       topK: 2
     });
 
-    const result = await classifier.classify("A neutral test sentence.");
+    const ctx = "Surrounding discourse for context scoring.";
+    const result = await classifier.classify("A neutral test sentence.", ctx);
     expect(result.predicted).toMatch(/^\[(alpha|beta|uncertain)\]$/);
     expect(Object.keys(result.scores).sort()).toEqual(["[alpha]", "[beta]"]);
 
@@ -395,9 +401,10 @@ describe("score calculation", () => {
       expect(det.descriptionSimilarity).toBeGreaterThanOrEqual(-1);
       expect(det.descriptionSimilarity).toBeLessThanOrEqual(1);
       expect(det.prototypeSimilarities.length).toBe(2);
+      expect(det.contextPrototypeSimilarities.length).toBe(1);
       const protoMean = (det.prototypeSimilarities[0] + det.prototypeSimilarities[1]) / 2;
-      expect(det.positiveScore).toBeCloseTo(0.4 * det.descriptionSimilarity + 0.6 * protoMean, 5);
-      expect(det.finalScore).toBeCloseTo(det.positiveScore - 0.2 * det.antiDescriptionSimilarity, 5);
+      expect(det.targetScore).toBeCloseTo(0.4 * det.descriptionSimilarity + 0.6 * protoMean, 5);
+      expect(det.finalScore).toBeCloseTo(0.7 * det.targetScore + 0.3 * det.contextScore, 5);
     }
   });
 
@@ -407,7 +414,7 @@ describe("score calculation", () => {
       embeddingModel: mockEmbeddingModel(8),
       config: TWO_LABEL_CONFIG
     });
-    const result = await classifier.classify("Test.");
+    const result = await classifier.classify("Test.", "Context.");
     const sorted = Object.values(result.scores).sort((a, b) => b - a);
     expect(result.margin).toBeCloseTo(sorted[0] - sorted[1], 5);
     expect(result.runnerUp).toMatch(/^\[(alpha|beta)\]$/);
@@ -422,12 +429,12 @@ describe("uncertainty handling", () => {
     const config = `[x]
 description = "Label X."
 prototypes = ["Proto X1.", "Proto X2."]
-anti-description = "Not X."
+context-prototypes = ["Context X."]
 
 [y]
 description = "Label Y."
 prototypes = ["Proto Y1.", "Proto Y2."]
-anti-description = "Not Y."`;
+context-prototypes = ["Context Y."]`;
 
     const tinyModel = {
       async embed(texts) {
@@ -445,7 +452,7 @@ anti-description = "Not Y."`;
       uncertaintyThreshold: 0.1
     });
 
-    const result = await classifier.classify("Ambiguous sentence.");
+    const result = await classifier.classify("Ambiguous sentence.", "Ambiguous context.");
     if (result.predicted === "[uncertain]") {
       expect(result.uncertainCandidates).toHaveLength(2);
       expect(result.uncertainCandidates[0]).toMatch(/^\[(x|y)\]$/);
@@ -460,12 +467,12 @@ anti-description = "Not Y."`;
     const config = `[match]
 description = "Matches the input perfectly."
 prototypes = ["This is exactly what we want to match."]
-anti-description = "Completely unrelated."
+context-prototypes = ["Matching context pattern."]
 
 [other]
 description = "Unrelated label."
 prototypes = ["Something else entirely."]
-anti-description = "Not relevant."`;
+context-prototypes = ["Other context pattern."]`;
 
     const dim = 8;
     const strongModel = {
@@ -473,7 +480,7 @@ anti-description = "Not relevant."`;
         return texts.map(t => {
           const v = new Array(dim).fill(0);
           if (t.includes("target sentence for testing")) { v[0] = 1; return v; }
-          if (t === "Matches the input perfectly." || t === "This is exactly what we want to match." || t === "Completely unrelated.") {
+          if (t === "Matches the input perfectly." || t === "This is exactly what we want to match." || t === "Matching context pattern.") {
             v[0] = 0.95; v[1] = Math.sqrt(1 - 0.95 * 0.95); return v;
           }
           v[dim - 1] = 1;
@@ -488,7 +495,7 @@ anti-description = "Not relevant."`;
       uncertaintyThreshold: 0.15
     });
 
-    const result = await classifier.classify("target sentence for testing");
+    const result = await classifier.classify("target sentence for testing", "context for testing");
     expect(result.predicted).toBe("[match]");
     expect(result.margin).toBeGreaterThan(0.15);
   });
@@ -498,13 +505,13 @@ anti-description = "Not relevant."`;
     const config = `[only]
 description = "Only label."
 prototypes = ["Only prototype."]
-anti-description = "Not only."`;
+context-prototypes = ["Only context."]`;
 
     const classifier = await createClassifier({
       embeddingModel: mockEmbeddingModel(8),
       config
     });
-    const result = await classifier.classify("Whatever.");
+    const result = await classifier.classify("Whatever.", "Whatever context.");
     expect(result.predicted).toBe("[only]");
     expect(result.uncertainCandidates).toBeUndefined();
   });
@@ -518,12 +525,12 @@ describe("embedding caching", () => {
     const config = `[a]
 description = "Desc A."
 prototypes = ["Proto A1.", "Proto A2."]
-anti-description = "Anti A."
+context-prototypes = ["Ctx A."]
 
 [b]
 description = "Desc B."
 prototypes = ["Proto B1."]
-anti-description = "Anti B."`;
+context-prototypes = ["Ctx B1.", "Ctx B2."]`;
 
     const embedSpy = vi.fn(async (texts) => {
       return texts.map(() => {
@@ -537,15 +544,15 @@ anti-description = "Anti B."`;
     const model = { embed: embedSpy };
     const classifier = await createClassifier({ embeddingModel: model, config });
 
-    // static texts: 2 descs + 3 protos + 2 anti-descs = 7 texts, one batch
+    // static texts: 2 descs + 3 protos + 3 context-protos = 8 texts, one batch
     expect(embedSpy).toHaveBeenCalledTimes(1);
-    expect(embedSpy.mock.calls[0][0]).toHaveLength(7);
+    expect(embedSpy.mock.calls[0][0]).toHaveLength(8);
 
     embedSpy.mockClear();
-    await classifier.classify("Sentence one.");
-    await classifier.classify("Sentence two.");
+    await classifier.classify("Sentence one.", "Context one.");
+    await classifier.classify("Sentence two.", "Context two.");
     expect(embedSpy).toHaveBeenCalledTimes(2);
-    for (const call of embedSpy.mock.calls) expect(call[0]).toHaveLength(1);
+    for (const call of embedSpy.mock.calls) expect(call[0]).toHaveLength(2);
   });
 });
 
@@ -564,8 +571,10 @@ describe("error handling", () => {
       embeddingModel: mockEmbeddingModel(4),
       config: MINI_CONFIG
     });
-    await expect(classifier.classify("")).rejects.toThrow(/non-empty/);
-    await expect(classifier.classify("   ")).rejects.toThrow(/non-empty/);
+    await expect(classifier.classify("", "context")).rejects.toThrow(/non-empty/);
+    await expect(classifier.classify("   ", "context")).rejects.toThrow(/non-empty/);
+    await expect(classifier.classify("target", "")).rejects.toThrow(/non-empty/);
+    await expect(classifier.classify("target", "   ")).rejects.toThrow(/non-empty/);
   });
 
   it("rejects invalid topK", async () => {
@@ -586,12 +595,14 @@ describe("configurable weights", () => {
       config: MINI_CONFIG,
       descriptionWeight: 0.5,
       prototypeWeight: 0.5,
-      antiDescriptionWeight: 0.1,
+      targetWeight: 0.8,
+      contextWeight: 0.2,
       topK: 1
     });
     expect(classifier.config.descriptionWeight).toBe(0.5);
     expect(classifier.config.prototypeWeight).toBe(0.5);
-    expect(classifier.config.antiDescriptionWeight).toBe(0.1);
+    expect(classifier.config.targetWeight).toBe(0.8);
+    expect(classifier.config.contextWeight).toBe(0.2);
     expect(classifier.config.topK).toBe(1);
   });
 
@@ -604,7 +615,7 @@ describe("configurable weights", () => {
       config: MINI_CONFIG,
       similarityFn: customSim
     });
-    await classifier.classify("Test.");
+    await classifier.classify("Test.", "Context.");
     expect(called).toBe(true);
   });
 });
@@ -629,7 +640,7 @@ describe("labels property", () => {
     const config = `[nocolor]
 description = "No color key."
 prototypes = ["Proto."]
-anti-description = "Nope."`;
+context-prototypes = ["Context."]`;
     const classifier = await createClassifier({
       embeddingModel: mockEmbeddingModel(4),
       config

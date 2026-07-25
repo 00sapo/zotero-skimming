@@ -109,6 +109,7 @@ FastOfflineKeySentenceAnnotator = {
   settingsDefaults: Object.freeze({
     compressionRatio: 10,
     localRelevance: false,
+    zeroShotLabels: false,
     ollamaCommand: "/usr/bin/ollama",
     zeroShotConfig: FastKeySentenceZeroShot.DEFAULT_CONFIG,
     remoteEndpoint: "",
@@ -126,8 +127,9 @@ FastOfflineKeySentenceAnnotator = {
     const settings = {
       compressionRatio: Number.isFinite(compressionRatio) && compressionRatio >= 1.5 ? compressionRatio : defaults.compressionRatio,
       localRelevance: Zotero.Prefs.get(this.prefBranch + "localRelevance", true) ?? defaults.localRelevance,
+      zeroShotLabels: Zotero.Prefs.get(this.prefBranch + "zeroShotLabels", true) ?? defaults.zeroShotLabels,
       ollamaCommand: Zotero.Prefs.get(this.prefBranch + "ollamaCommand", true) || defaults.ollamaCommand,
-      zeroShotConfig: Zotero.Prefs.get(this.prefBranch + "zeroShotConfig", true) || defaults.zeroShotConfig,
+      zeroShotConfig: FastKeySentenceZeroShotConfig || defaults.zeroShotConfig,
       remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
       summarySource: Zotero.Prefs.get(this.prefBranch + "summarySource", true) || defaults.summarySource,
@@ -137,6 +139,7 @@ FastOfflineKeySentenceAnnotator = {
       embeddingModel: Zotero.Prefs.get(this.prefBranch + "embeddingModel", true) || defaults.embeddingModel
     };
     settings.localRelevance = settings.localRelevance === true;
+    settings.zeroShotLabels = settings.zeroShotLabels === true;
     settings.mapReduce = settings.mapReduce === true;
     settings.summarySource = settings.summarySource === "local" ? "local" : "remote";
     return this.isValidSettings(settings) ? settings : { ...defaults };
@@ -146,7 +149,7 @@ FastOfflineKeySentenceAnnotator = {
     return Number.isFinite(settings.compressionRatio)
         && settings.compressionRatio >= 1.5
         && (!settings.mapReduce || (Number.isInteger(settings.mapReduceSentences) && settings.mapReduceSentences >= 2))
-        && ["localRelevance", "mapReduce"]
+        && ["localRelevance", "mapReduce", "zeroShotLabels"]
           .every(key => typeof settings[key] === "boolean")
         && ["local", "remote"].includes(settings.summarySource)
         && typeof settings.ollamaCommand === "string"
@@ -162,8 +165,21 @@ FastOfflineKeySentenceAnnotator = {
   saveSettings(settings) {
     Zotero.Prefs.set(this.prefBranch + "compressionRatio", settings.compressionRatio, true);
     Zotero.Prefs.set(this.prefBranch + "localRelevance", settings.localRelevance, true);
+    Zotero.Prefs.set(this.prefBranch + "zeroShotLabels", settings.zeroShotLabels, true);
     Zotero.Prefs.set(this.prefBranch + "ollamaCommand", (settings.ollamaCommand || this.settingsDefaults.ollamaCommand).trim(), true);
-    Zotero.Prefs.set(this.prefBranch + "zeroShotConfig", (settings.zeroShotConfig || this.settingsDefaults.zeroShotConfig).trim(), true);
+    Zotero.Prefs.set(this.prefBranch + "zeroShotConfig", "", true);
+    if (FastKeySentenceZeroShotConfigPath) {
+      const content = (settings.zeroShotConfig || this.settingsDefaults.zeroShotConfig).trim();
+      // Validate before persisting
+      try {
+        FastKeySentenceZeroShot.parseConfig(content);
+      } catch (e) {
+        this.log(`Refusing to save invalid zero-shot config: ${e.message || e}`);
+        return;
+      }
+      FastKeySentenceZeroShotConfig = content;
+      IOUtils.writeUTF8(FastKeySentenceZeroShotConfigPath, content).catch(() => {});
+    }
     Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
     Zotero.Prefs.set(this.prefBranch + "summarySource", settings.summarySource, true);
@@ -274,6 +290,23 @@ FastOfflineKeySentenceAnnotator = {
     });
     inputs["compression-ratio"] = crInput;
     nlpSection.append(crLabel, crInput);
+
+    const checks = {};
+
+    const zeroShotCheck = create("input", {
+      id: "zero-shot-labels",
+      type: "checkbox",
+      checked: initialSettings.zeroShotLabels === true,
+      style: "margin: 12px 3px 0 0"
+    });
+    checks["zero-shot-labels"] = zeroShotCheck;
+    const zeroShotRow = create("div", { style: "margin-top: 12px" });
+    zeroShotRow.append(
+      zeroShotCheck,
+      create("label", { htmlFor: "zero-shot-labels", style: "font-weight: 500; line-height: 1.35" }, "Enable zero-shot label classification [experimental]")
+    );
+    nlpSection.append(zeroShotRow);
+
     const zeroShotConfigInput = create("textarea", {
       id: "zero-shot-config",
       value: initialSettings.zeroShotConfig,
@@ -286,7 +319,6 @@ FastOfflineKeySentenceAnnotator = {
       zeroShotConfigInput,
       create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Edit label descriptions, prototypes, and anti-descriptions for zero-shot rhetorical classification.")
     );
-    const checks = {};
     const relevanceRow = create("div", {
       style: "display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; margin-top: 12px; align-items: start"
     });
@@ -303,6 +335,7 @@ FastOfflineKeySentenceAnnotator = {
       create("div", { style: "grid-column: 2; opacity: 0.78; font-size: 0.92rem; line-height: 1.38" }, "Compare sentences with the paper summary and configured scholarly keyword sections using LLM embeddings. If unchecked, uses traditional TF-IDF features.")
     );
     nlpSection.appendChild(relevanceRow);
+
     form.appendChild(nlpSection);
 
     const apiSection = makeFieldset("API");
@@ -500,6 +533,7 @@ FastOfflineKeySentenceAnnotator = {
     const readSettings = () => ({
       compressionRatio: Number(inputs["compression-ratio"].value),
       localRelevance: checks["local-relevance"].checked,
+      zeroShotLabels: checks["zero-shot-labels"].checked,
       ollamaCommand: inputs["ollama-command"].value.trim(),
       zeroShotConfig: inputs["zero-shot-config"].value.trim(),
       remoteEndpoint: inputs["remote-endpoint"].value.trim(),
@@ -603,6 +637,16 @@ FastOfflineKeySentenceAnnotator = {
         }
       });
 
+      const validateZeroShot = (text) => {
+        if (!text || !text.trim()) return "Config must not be empty.";
+        try {
+          FastKeySentenceZeroShot.parseConfig(text);
+          return null;
+        } catch (e) {
+          return e.message || String(e);
+        }
+      };
+
       cancelButton.addEventListener("click", () => finish(null));
 
       summarizeButton.addEventListener("click", async () => {
@@ -627,6 +671,12 @@ FastOfflineKeySentenceAnnotator = {
           inputs["compression-ratio"].focus();
           return;
         }
+        const zsError = validateZeroShot(settings.zeroShotConfig);
+        if (zsError) {
+          error.textContent = `Zero-shot config invalid: ${zsError}`;
+          inputs["zero-shot-config"].focus();
+          return;
+        }
         finish(settings);
       });
 
@@ -635,6 +685,18 @@ FastOfflineKeySentenceAnnotator = {
           error.textContent = "";
         });
       }
+
+      // Live zero-shot config validation
+      zeroShotConfigInput.addEventListener("input", () => {
+        const zsError = validateZeroShot(zeroShotConfigInput.value);
+        if (zsError) {
+          zeroShotConfigInput.style.borderColor = "#c62828";
+          zeroShotConfigInput.title = zsError;
+        } else {
+          zeroShotConfigInput.style.borderColor = "";
+          zeroShotConfigInput.title = "";
+        }
+      });
 
       window.requestAnimationFrame(() => inputs["compression-ratio"].focus());
     });
@@ -946,7 +1008,7 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   modelProgressHandler(line, settings, stageLines = null) {
-    const enabled = [settings.localRelevance && "summary-relevance", settings.localRelevance && "keyword-relevance", settings.localRelevance && "tag-classification"].filter(Boolean);
+    const enabled = [settings.localRelevance && "summary-relevance", settings.localRelevance && "keyword-relevance", settings.zeroShotLabels && "tag-classification"].filter(Boolean);
     const ranges = new Map();
     const width = enabled.length ? 25 / enabled.length : 25;
     enabled.forEach((operation, index) => {
@@ -1071,12 +1133,15 @@ FastOfflineKeySentenceAnnotator = {
         ...(configuredSettings.localRelevance ? {
           "summary-relevance": new progress.ItemProgress(this.iconURI, "Summary relevance"),
           "keyword-relevance": new progress.ItemProgress(this.iconURI, "Keyword relevance"),
+        } : {}),
+        ...(configuredSettings.zeroShotLabels ? {
           "tag-classification": new progress.ItemProgress(this.iconURI, "Tag classification")
         } : {})
       };
       for (const stageLine of Object.values(stageLines)) stageLine.setProgress(0);
       const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
         localRelevance: configuredSettings.localRelevance,
+        zeroShotLabels: configuredSettings.zeroShotLabels,
         zeroShotConfig: configuredSettings.zeroShotConfig,
         summarySource: configuredSettings.summarySource,
         mapReduce: configuredSettings.mapReduce,
@@ -1085,6 +1150,9 @@ FastOfflineKeySentenceAnnotator = {
         onModelProgress: this.modelProgressHandler(line, configuredSettings, stageLines)
       });
       if (!selected.length) throw new Error("No suitable annotation candidates were found.");
+
+      const taggedCount = selected.filter(s => typeof s.tag === "string" && s.tag.trim()).length;
+      if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: annotateAttachment — ${selected.length} selected, ${taggedCount} have tags. Tags: ${selected.map(s => s.tag || "(none)").join(", ")}`);
 
       line.setProgress(70);
       line.setText("Creating Zotero highlights");
@@ -1877,6 +1945,7 @@ FastOfflineKeySentenceAnnotator = {
     const colors = ["#e57373", "#64b5f6", "#81c784", "#ffd54f", "#ba68c8", "#4db6ac", "#ff8a65"];
     const tag = typeof sentence.tag === "string" && sentence.tag.trim() ? sentence.tag.trim() : null;
     const tagIndex = Number.isInteger(sentence.tagIndex) ? sentence.tagIndex : -1;
+    if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: makeAnnotation — tag="${tag || "(none)"}" tagIndex=${tagIndex} tagDescription="${(sentence.tagDescription || "").slice(0, 60)}" tagScore=${sentence.tagScore}`);
     const top = Math.max(...rects.map(r => r[3]));
     const left = Math.min(...rects.map(r => r[0]));
     // Zotero 9 validates PDF annotation sort indexes as page|vertical|horizontal:

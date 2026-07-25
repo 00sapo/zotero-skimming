@@ -7,10 +7,22 @@ function bootstrap({ windows = [] } = {}) {
   const Zotero = { debug: vi.fn(), getMainWindows: vi.fn(() => windows), Prefs: { get: vi.fn(() => "") } };
   const defaults = { setIntPref: vi.fn(), setBoolPref: vi.fn(), setStringPref: vi.fn() };
   const Services = { scriptloader: { loadSubScript: vi.fn() }, prefs: { getDefaultBranch: vi.fn(() => defaults) } };
+  const configFileContent = "# dummy TOML\n[test]\ndescription = \"T\"\nprototypes = [\"P\"]\ncontext-prototypes = [\"C\"]";
+  const PathUtils = { join: vi.fn(() => "/profile/zotero-skimming/zero-shot-config.toml"), parent: vi.fn(() => "/profile/zotero-skimming"), profileDir: "/profile" };
+  const IOUtils = {
+    makeDirectory: vi.fn(async () => {}),
+    exists: vi.fn(async () => true),
+    read: vi.fn(async () => new TextEncoder().encode(configFileContent)),
+    writeUTF8: vi.fn(async () => {})
+  };
   const context = loadScript("bootstrap.js", {
     Zotero,
     Services,
-    FastKeySentenceZeroShot: { DEFAULT_CONFIG: "# dummy TOML\n[test]\ndescription = \"T\"\nprototypes = [\"P\"]\nanti-description = \"A\"" },
+    PathUtils,
+    IOUtils,
+    TextEncoder,
+    TextDecoder,
+    FastKeySentenceZeroShot: { DEFAULT_CONFIG: configFileContent },
     FastKeySentenceNLP: {},
     FastKeySentenceModels: models,
     FastOfflineKeySentenceAnnotator: annotator,
@@ -59,6 +71,10 @@ describe("bootstrap", () => {
   it("shuts down safely when modules are absent", () => {
     const context = loadScript("bootstrap.js", {
       Zotero: { debug: vi.fn(), getMainWindows: vi.fn() },
+      PathUtils: { join: vi.fn(() => "/x"), parent: vi.fn(() => "/x"), profileDir: "/x" },
+      IOUtils: { makeDirectory: vi.fn(async () => {}), exists: vi.fn(async () => true), read: vi.fn(async () => new TextEncoder().encode("[t]\ndescription=\"T\"\nprototypes=[\"P\"]")), writeUTF8: vi.fn(async () => {}) },
+      TextEncoder,
+      TextDecoder,
       Services: { scriptloader: { loadSubScript: vi.fn() }, prefs: { getDefaultBranch: vi.fn(() => ({ setIntPref: vi.fn(), setBoolPref: vi.fn(), setStringPref: vi.fn() })) } }
     });
     expect(() => context.shutdown()).not.toThrow();

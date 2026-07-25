@@ -10,14 +10,23 @@ function annotator(globals = {}) {
         const labels = [];
         for (const line of text.split(/\r?\n/)) {
           const m = line.match(/^\[([a-z][a-z0-9-]*)\]$/i);
-          if (m) labels.push({ name: `[${m[1]}]`, description: `${m[1]} description`, prototypes: ["prototype"], antiDescription: "anti", color: null });
+          if (m) labels.push({ name: `[${m[1]}]`, description: `${m[1]} description`, prototypes: ["prototype"], contextPrototypes: ["context"], color: null });
         }
         if (!labels.length) {
           ["literature","method","goal","result","conclusion","contribution","take-away"].forEach(n =>
-            labels.push({ name: `[${n}]`, description: `${n} description`, prototypes: ["prototype"], antiDescription: "anti", color: null })
+            labels.push({ name: `[${n}]`, description: `${n} description`, prototypes: ["prototype"], contextPrototypes: ["context"], color: null })
           );
         }
         return labels;
+      },
+      async createClassifier(options) {
+        const labels = options.config ? this.parseConfig(options.config) : [];
+        return {
+          labels: labels.map(l => ({ name: l.name, color: l.color })),
+          async classify(targetText, contextText) {
+            return { predicted: labels[0]?.name || "[literature]", scores: {}, margin: 1, runnerUp: null };
+          }
+        };
       }
     }
   };
@@ -28,6 +37,9 @@ function annotator(globals = {}) {
     FastKeySentenceModels: defaultModels,
     FastKeySentenceRemote: { DEFAULT_ENDPOINT: "https://api.example.com", DEFAULT_MODEL: "test-model", summarize: async () => "A test summary.", getConfig: () => ({ endpoint: "", apiKey: "", model: "" }) },
     FastKeySentenceZeroShot: zeroShotCtx.FastKeySentenceZeroShot,
+    FastKeySentenceZeroShotConfig: globals.FastKeySentenceZeroShotConfig || "# config",
+    FastKeySentenceZeroShotConfigPath: globals.FastKeySentenceZeroShotConfigPath || "/tmp/zero-shot-config.toml",
+    IOUtils: globals.IOUtils || { writeUTF8: vi.fn(async () => {}), makeDirectory: vi.fn(async () => {}), exists: vi.fn(async () => false), read: vi.fn(async () => new Uint8Array()) },
     Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" } },
     ...globals
   }).FastOfflineKeySentenceAnnotator;
@@ -36,7 +48,9 @@ function annotator(globals = {}) {
 function fakeWindow(selected = []) {
   const elements = new Map();
   class Element {
-    constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.style = {}; this.hidden = false; }
+    constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.style = {}; this.hidden = false; this._checked = false; }
+    get checked() { return this._checked; }
+    set checked(value) { this._checked = value; }
     set id(value) { this._id = value; elements.set(value, this); }
     get id() { return this._id; }
     setAttribute(name, value) { this[name] = value; }
@@ -312,7 +326,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(byId(window, "remote-endpoint")).toBeDefined();
     expect(byId(window, "summary-source").value).toBe("local");
     expect(byId(window, "remote-endpoint").disabled).toBe(true);
-    expect(byId(window, "map-reduce").checked).toBe("false");
+    expect(byId(window, "map-reduce").checked).toBe(false);
     expect(api.isValidSettings({ ...api.settingsDefaults })).toBe(true);
     expect(api.isValidSettings({ ...api.settingsDefaults, compressionRatio: 1 })).toBe(false);
     byId(window, "summary-source").value = "local";

@@ -444,11 +444,15 @@ var FastKeySentenceNLP = (() => {
 
     // Embed summary sentences for MMR coverage encouragement
     let summaryParts = null;
-    if (summary && inferenceAvailable && useLocalRelevance) {
+    if (summary && (useLocalRelevance || options.summarySource === "remote")) {
       try {
         const summarySentences = sentenceRanges(summary).map(([s, e]) => summary.slice(s, e)).filter(Boolean);
         if (summarySentences.length > 1) {
-          const vectors = await FastKeySentenceModels.embeddings(
+          const remoteAvailable = typeof FastKeySentenceRemote?.embeddings === "function";
+          const embedFn = options.summarySource === "remote" && remoteAvailable
+            ? FastKeySentenceRemote.embeddings
+            : FastKeySentenceModels.embeddings;
+          const vectors = await embedFn(
             summarySentences,
             event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
           );
@@ -460,43 +464,88 @@ var FastKeySentenceNLP = (() => {
 
     const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length), summaryParts);
 
-    if (useLocalRelevance && inferenceAvailable && selected.length) {
-      const labels = FastKeySentenceZeroShot.parseConfig(options.zeroShotConfig || FastKeySentenceZeroShot.DEFAULT_CONFIG);
-      const tags = labels.map(l => ({ name: l.name.replace(/^\[|\]$/g, ""), description: l.description }));
-      if (tags.length) {
-        try {
-          options.onModelProgress?.({ stage: "preparing", operation: "tag-classification" });
-          const vectors = await FastKeySentenceModels.embeddings(
-            [...tags.map(tag => `${tag.name}: ${tag.description}`), ...selected.map(sentence => sentence.text)],
-            event => options.onModelProgress?.({ ...event, operation: "tag-classification" })
-          );
-          const tagVectors = vectors.slice(0, tags.length);
-          const sentenceVectors = vectors.slice(tags.length);
-          selected.forEach((sentence, index) => {
-            const vector = sentenceVectors[index];
-            const norm = denseNorm(vector);
-            let tagIndex = 0;
-            let tagScore = -Infinity;
-            tagVectors.forEach((tagVector, candidateIndex) => {
-              const score = vectorCosine(vector, tagVector, norm, denseNorm(tagVector));
-              if (score > tagScore) {
-                tagIndex = candidateIndex;
-                tagScore = score;
-              }
-            });
-            sentence.tag = tags[tagIndex].name;
-            sentence.tagDescription = tags[tagIndex].description;
-            sentence.tagIndex = tagIndex;
-            sentence.tagScore = Number.isFinite(tagScore) ? tagScore : 0;
-          });
+    const doZeroShot = options.zeroShotLabels === true;
+    const dbg = typeof Services !== "undefined" ? msg => Services.console.logStringMessage(msg) : () => {};
+    dbg(`Zotero Skimming: tag-classification entry — selected=${selected.length} zeroShotLabels=${doZeroShot} summarySource=${options.summarySource || "local"}`);
+    if (doZeroShot && selected.length) {
+      try {
+        options.onModelProgress?.({ stage: "preparing", operation: "tag-classification" });
+
+        const labels = FastKeySentenceZeroShot.parseConfig(options.zeroShotConfig || FastKeySentenceZeroShot.DEFAULT_CONFIG);
+        const labelDescs = new Map(labels.map(l => [l.name, l.description]));
+        dbg(`Zotero Skimming: tag-classification — ${labels.length} labels parsed: ${labels.map(l => l.name).join(", ")}`);
+
+        const remoteAvailable = typeof FastKeySentenceRemote?.embeddings === "function";
+        const useRemoteClassify = options.summarySource === "remote" && remoteAvailable;
+        const primaryEmbed = useRemoteClassify ? FastKeySentenceRemote.embeddings : FastKeySentenceModels.embeddings;
+        const fallbackEmbed = useRemoteClassify ? FastKeySentenceModels.embeddings : (remoteAvailable ? FastKeySentenceRemote.embeddings : null);
+        dbg(`Zotero Skimming: tag-classification — embed source: ${useRemoteClassify ? "remote" : "local"}, fallback: ${fallbackEmbed ? "available" : "none"}`);
+
+        const embeddingModel = {
+          embed: async (texts) => {
+            try {
+              return await primaryEmbed(texts,
+                event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
+            }
+            catch (primaryError) {
+              if (!fallbackEmbed) throw primaryError;
+              options.onModelProgress?.({
+                stage: "unavailable",
+                operation: "tag-classification",
+                message: `Primary embedding failed; trying fallback. ${primaryError.message || primaryError}`
+              });
+              return await fallbackEmbed(texts,
+                event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
+            }
+          }
+        };
+
+        const classifier = await FastKeySentenceZeroShot.createClassifier({
+          embeddingModel,
+          config: options.zeroShotConfig
+        });
+        dbg(`Zotero Skimming: tag-classification — classifier created, ${classifier.labels.length} classifier labels`);
+
+        const byOrder = new Map();
+        for (const s of filtered) byOrder.set(s.order, s);
+        const sortedOrders = [...byOrder.keys()].sort((a, b) => a - b);
+        const orderToPos = new Map(sortedOrders.map((o, i) => [o, i]));
+
+        let classified = 0;
+        for (const sentence of selected) {
+          const pos = orderToPos.get(sentence.order);
+          if (pos === undefined) { dbg(`Zotero Skimming: tag-classification — sentence order=${sentence.order} not in orderToPos, skipping`); continue; }
+
+          const prev = [sortedOrders[pos - 2], sortedOrders[pos - 1]]
+            .filter(o => byOrder.has(o))
+            .map(o => byOrder.get(o).text);
+          const next = [sortedOrders[pos + 1], sortedOrders[pos + 2]]
+            .filter(o => byOrder.has(o))
+            .map(o => byOrder.get(o).text);
+
+          const contextText = `Previous: ${prev.join(" ")}\nTarget: ${sentence.text}\nNext: ${next.join(" ")}`;
+
+          const result = await classifier.classify(sentence.text, contextText);
+          const labelName = result.predicted.replace(/^\[|\]$/g, "");
+          sentence.tag = labelName;
+          sentence.tagDescription = labelDescs.get(result.predicted) || "";
+          sentence.tagIndex = classifier.labels.findIndex(l => l.name === result.predicted);
+          sentence.tagScore = result.scores[result.predicted] || 0;
+          classified++;
+          dbg(`Zotero Skimming: tag-classification — sentence #${classified} tag=${sentence.tag} tagIndex=${sentence.tagIndex} predicted=${result.predicted} margin=${result.margin?.toFixed(3)}`);
         }
-        catch (error) {
-          options.onModelProgress?.({
-            stage: "unavailable",
-            operation: "tag-classification",
-            message: `Tag classification failed; highlights remain untagged. ${error.message || error}`
-          });
-        }
+        dbg(`Zotero Skimming: tag-classification — done: ${classified}/${selected.length} sentences tagged`);
+      }
+      catch (error) {
+        const msg = error?.message || String(error);
+        const stack = error?.stack || "";
+        if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: tag-classification FAILED — ${msg}\n${stack}`);
+        Zotero.debug(`Zotero Skimming: tag classification failed — ${msg}\n${stack}`);
+        options.onModelProgress?.({
+          stage: "unavailable",
+          operation: "tag-classification",
+          message: `Tag classification failed; highlights remain untagged. ${error.message || error}`
+        });
       }
     }
 

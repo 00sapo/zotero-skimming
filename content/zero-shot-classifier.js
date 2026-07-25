@@ -6,83 +6,116 @@ var FastKeySentenceZeroShot = (() => {
   // ── user-editable label config (TOML) ─────────────────────────────────────
 
   const DEFAULT_CONFIG = `# Zero-shot rhetorical label definitions.
-# Edit this file to tune descriptions, prototypes, anti-descriptions, and colors.
+# Edit this file to tune descriptions, prototypes, context-prototypes, and colors.
 
 [literature]
 description = "Describes prior knowledge, previous studies, established theories, earlier methods, or unresolved gaps that existed before the current work."
+anti-description = "Explains techniques, methods, results used by the authors or introduces, interprets, presents novel contribution by the present article"
 prototypes = [
   "Earlier research examined the same problem under different assumptions.",
   "Existing evidence does not fully explain the observed behavior.",
   "Several approaches already address this task.",
   "The field still lacks a reliable solution for this setting.",
 ]
-anti-description = "Not work performed, introduced, observed, or concluded by the current paper."
+context-prototypes = [
+  "Nearby attribution or citations indicate that the target refers to previous research.",
+  "The target describes existing knowledge that motivates the current study.",
+  "The following sentence contrasts the target with the current paper.",
+]
 color = "#8b9dc3"
 
 [method]
 description = "Explains how the current study, analysis, system, dataset, or experiment was carried out."
+anti-description = "States what the current paper newly introduces or the paper's main high-level insight, re-usable take-away."
 prototypes = [
   "The data were normalized before the analysis.",
   "Predictions were evaluated against manually assigned labels.",
   "The system combines representations from multiple sources.",
   "Each condition was tested using the same evaluation procedure.",
 ]
-anti-description = "Not the research objective, an experimental outcome, an interpretation, or a method attributed only to prior work."
+context-prototypes = [
+  "The target describes a procedure whose outcome is reported nearby.",
+  "The surrounding sentences place the target within the study's implementation or experiment.",
+  "The target explains how the analysis or system was carried out.",
+]
 color = "#5b9bd5"
 
 [goal]
 description = "States the problem, motivation, objective, hypothesis, or research question addressed by the current paper."
+anti-description = "Describes numerical results, facts, discoveries emerging from experiments, or present existing knowledge."
 prototypes = [
-  "The study examines whether contextual information improves classification.",
-  "A central challenge is distinguishing sentences with similar meanings.",
-  "The work addresses the absence of reliable sentence-level annotations.",
+  "Highlights a gap that must be filled.",
+  "Expresses the goal of the research.",
   "The analysis is intended to identify the factors affecting performance.",
 ]
-anti-description = "Not an achieved result, a completed contribution, a procedural detail, or an interpretation of findings."
+context-prototypes = [
+  "The target identifies the problem that the following sentences attempt to solve.",
+  "The target states an objective whose implementation is described afterward.",
+  "The surrounding text presents the target as something the study seeks to accomplish.",
+]
 color = "#ed7d31"
 
 [result]
 description = "Reports evidence, observations, measurements, comparisons, or outcomes produced by the current study."
+anti-description = "States what the current paper newly introduces or the paper's main high-level insight, re-usable take-away."
 prototypes = [
   "Performance was consistently higher under the second condition.",
   "The two groups displayed substantially different behavior.",
   "Additional information reduced the number of incorrect predictions.",
   "No meaningful association was observed between the variables.",
 ]
-anti-description = "Not the experimental procedure, intended objective, broader implication, limitation, or future direction."
+context-prototypes = [
+  "The target reports evidence that the surrounding sentences explain or interpret.",
+  "The target states an observed outcome of the procedure described nearby.",
+  "The following sentence discusses the meaning of the finding reported in the target.",
+]
 color = "#a5a5a5"
 
 [conclusion]
 description = "Interprets, qualifies, generalizes, or discusses the implications of the current study's findings."
+anti-description = "States facts and numerical values resulting from experiments or techniques and methods adopted by the authors."
 prototypes = [
   "The evidence supports the use of contextual information for this task.",
   "The observed pattern may result from differences in data quality.",
   "These findings may not generalize to every domain.",
   "Further research is needed to determine whether the effect persists.",
 ]
-anti-description = "Not a direct measurement, procedural step, research objective, or statement focused on a newly introduced artifact."
+context-prototypes = [
+  "The target interprets evidence reported in the preceding sentence.",
+  "The target generalizes, qualifies, or explains a nearby result.",
+  "The target discusses what the surrounding findings imply.",
+]
 color = "#70ad47"
 
 [contribution]
 description = "States what the current paper newly introduces, provides, establishes, enables, or demonstrates."
+anti-description = "States facts and numerical values resulting from experiments or techniques and methods adopted by the authors."
 prototypes = [
   "The work provides a new way to distinguish rhetorical sentence types.",
   "The study establishes that the task can be performed without labeled training data.",
-  "A reusable evaluation resource is made available.",
-  "The framework enables classification using semantic comparison alone.",
+  "A reusable evaluation resource is made available."
 ]
-anti-description = "Not merely an intended objective, an isolated experimental result, prior work, or a broad lesson derived from the paper."
+context-prototypes = [
+  "The target states what the paper provides, and nearby sentences explain or evaluate it.",
+  "The surrounding text presents the target as an achieved advance rather than an intention.",
+  "The target describes a new capability introduced by the current work.",
+]
 color = "#ffc000"
 
 [take-away]
-description = "Expresses the paper's main high-level insight, practical lesson, or central message."
+description = "Expresses the paper's main high-level insight, re-usable take-away, or central message."
+anti-description = "States what the current paper newly introduces or the numerical results or the techniques, methods used by the authors."
 prototypes = [
   "Reliable classification depends more on rhetorical function than on surface wording.",
   "Context is most useful when the sentence alone is ambiguous.",
   "Semantic comparison works best when labels represent distinct communicative roles.",
   "The central lesson is that meaning cannot always be inferred from conventional phrasing.",
 ]
-anti-description = "Not a specific method, isolated measurement, detailed limitation, research objective, or inventory of contributions."
+context-prototypes = [
+  "The target summarizes the central significance of the surrounding discussion.",
+  "The target compresses several nearby findings into one broad message.",
+  "The target states the main lesson readers should retain.",
+]
 color = "#9b59b6"
 `;
 
@@ -91,7 +124,9 @@ color = "#9b59b6"
   const DEFAULTS = Object.freeze({
     descriptionWeight: 0.35,
     prototypeWeight: 0.65,
-    antiDescriptionWeight: 0.25,
+    targetWeight: 0.75,
+    contextWeight: 0.25,
+    antiDescriptionWeight: 0.15,
     topK: 2,
     uncertaintyThreshold: 0.0,
     similarityFn: null            // uses cosine when null
@@ -153,7 +188,7 @@ color = "#9b59b6"
           name: `[${headerMatch[1]}]`,
           description: "",
           prototypes: [],
-          antiDescription: "",
+          contextPrototypes: [],
           color: null
         };
         labels.push(current);
@@ -178,6 +213,10 @@ color = "#9b59b6"
         if (!values.length) throw new Error(`Label ${current.name}: at least one prototype required`);
         if (current.prototypes.length) throw new Error(`Label ${current.name}: duplicate prototypes`);
         current.prototypes = values;
+      } else if (key === "context-prototypes") {
+        const values = parseTomlStringArray(rawValue);
+        if (current.contextPrototypes.length) throw new Error(`Label ${current.name}: duplicate context-prototypes`);
+        current.contextPrototypes = values;
       } else if (key === "description") {
         const value = parseTomlString(rawValue);
         if (!value) throw new Error(`Label ${current.name}: description is empty`);
@@ -185,9 +224,8 @@ color = "#9b59b6"
         current.description = value;
       } else if (key === "anti-description") {
         const value = parseTomlString(rawValue);
-        if (!value) throw new Error(`Label ${current.name}: anti-description is empty`);
         if (current.antiDescription) throw new Error(`Label ${current.name}: duplicate anti-description`);
-        current.antiDescription = value;
+        current.antiDescription = value || "";
       } else if (key === "color") {
         const value = parseTomlString(rawValue);
         if (current.color) throw new Error(`Label ${current.name}: duplicate color`);
@@ -201,7 +239,6 @@ color = "#9b59b6"
     for (const label of labels) {
       if (!label.description) throw new Error(`Label ${label.name}: missing description`);
       if (!label.prototypes.length) throw new Error(`Label ${label.name}: at least one prototype required`);
-      if (!label.antiDescription) throw new Error(`Label ${label.name}: missing anti-description`);
     }
 
     if (!labels.length) throw new Error("No labels found in config");
@@ -290,7 +327,8 @@ color = "#9b59b6"
    * @param {string} [options.config]        raw label-definition text (uses DEFAULT_CONFIG when omitted)
    * @param {number} [options.descriptionWeight]
    * @param {number} [options.prototypeWeight]
-   * @param {number} [options.antiDescriptionWeight]
+   * @param {number} [options.targetWeight]
+   * @param {number} [options.contextWeight]
    * @param {number} [options.topK]
    * @param {number} [options.uncertaintyThreshold]  margin below which [uncertain] is returned
    * @param {function} [options.similarityFn]        (a: number[], b: number[]) => number
@@ -303,6 +341,8 @@ color = "#9b59b6"
     const config = Object.freeze({
       descriptionWeight:     options.descriptionWeight     ?? DEFAULTS.descriptionWeight,
       prototypeWeight:       options.prototypeWeight       ?? DEFAULTS.prototypeWeight,
+      targetWeight:          options.targetWeight          ?? DEFAULTS.targetWeight,
+      contextWeight:         options.contextWeight         ?? DEFAULTS.contextWeight,
       antiDescriptionWeight: options.antiDescriptionWeight ?? DEFAULTS.antiDescriptionWeight,
       topK:                  options.topK                  ?? DEFAULTS.topK,
       uncertaintyThreshold:  options.uncertaintyThreshold  ?? DEFAULTS.uncertaintyThreshold,
@@ -330,8 +370,15 @@ color = "#9b59b6"
         textIndex.push({ labelIdx: li, kind: "prototype" });
       }
 
-      staticTexts.push(labels[li].antiDescription);
-      textIndex.push({ labelIdx: li, kind: "antiDescription" });
+      for (const ctxProto of labels[li].contextPrototypes) {
+        staticTexts.push(ctxProto);
+        textIndex.push({ labelIdx: li, kind: "contextPrototype" });
+      }
+
+      if (labels[li].antiDescription) {
+        staticTexts.push(labels[li].antiDescription);
+        textIndex.push({ labelIdx: li, kind: "antiDescription" });
+      }
     }
 
     // embed all static texts in one batch
@@ -342,68 +389,86 @@ color = "#9b59b6"
       name: label.name,
       descVec: null,
       protoVecs: [],
+      contextProtoVecs: [],
       antiDescVec: null
     }));
 
     for (let i = 0; i < textIndex.length; i++) {
       const { labelIdx, kind } = textIndex[i];
       const vec = staticVecs[i];
-      if (kind === "description")     labelData[labelIdx].descVec = vec;
-      else if (kind === "prototype")  labelData[labelIdx].protoVecs.push(vec);
+      if (kind === "description")        labelData[labelIdx].descVec = vec;
+      else if (kind === "prototype")     labelData[labelIdx].protoVecs.push(vec);
+      else if (kind === "contextPrototype") labelData[labelIdx].contextProtoVecs.push(vec);
       else if (kind === "antiDescription") labelData[labelIdx].antiDescVec = vec;
     }
 
+    function meanTopK(vec, candidates, kNorms = null) {
+      const sims = candidates.map((cv, idx) => sim(vec, cv, null, kNorms ? kNorms[idx] : null));
+      sims.sort((a, b) => b - a);
+      const top = sims.slice(0, config.topK);
+      return { similarities: sims, mean: top.length ? top.reduce((s, v) => s + v, 0) / top.length : 0 };
+    }
+
     /**
-     * Classify a single sentence.
+     * Classify a single sentence with its discourse context.
      *
-     * @param {string} sentence
+     * @param {string} targetText   the sentence to classify
+     * @param {string} contextText  formatted context window text
      * @returns {Promise<{
      *   predicted: string,
      *   scores: Record<string, number>,
      *   details: Record<string, {
      *     descriptionSimilarity: number,
      *     prototypeSimilarities: number[],
-     *     antiDescriptionSimilarity: number,
-     *     positiveScore: number,
+     *     contextPrototypeSimilarities: number[],
+     *     targetScore: number,
+     *     contextScore: number,
      *     finalScore: number
      *   }>,
      *   margin: number,
      *   runnerUp: string
      * }>}
      */
-    async function classify(sentence) {
-      if (typeof sentence !== "string" || !sentence.trim()) {
-        throw new Error("classify() requires a non-empty sentence string");
+    async function classify(targetText, contextText) {
+      if (typeof targetText !== "string" || !targetText.trim()) {
+        throw new Error("classify() requires a non-empty target sentence string");
+      }
+      if (typeof contextText !== "string" || !contextText.trim()) {
+        throw new Error("classify() requires a non-empty context window string");
       }
 
-      const [sentenceVec] = await options.embeddingModel.embed([sentence]);
+      const [targetVec, contextVec] = await options.embeddingModel.embed([targetText, contextText]);
 
       const results = [];
 
       for (const ld of labelData) {
-        const descSim = sim(sentenceVec, ld.descVec);
+        const descSim = sim(targetVec, ld.descVec);
 
-        // prototype similarities sorted descending, take top-K
-        const protoSims = ld.protoVecs.map(pv => sim(sentenceVec, pv));
-        protoSims.sort((a, b) => b - a);
-        const topProtoSims = protoSims.slice(0, config.topK);
-        const protoMean = topProtoSims.length
-          ? topProtoSims.reduce((s, v) => s + v, 0) / topProtoSims.length
-          : 0;
+        const protoResult = meanTopK(targetVec, ld.protoVecs);
+        const protoMean = protoResult.mean;
 
-        const antiSim = sim(sentenceVec, ld.antiDescVec);
+        const ctxProtoResult = meanTopK(contextVec, ld.contextProtoVecs);
+        const ctxProtoMean = ctxProtoResult.mean;
 
-        const positiveScore = config.descriptionWeight * descSim
-                            + config.prototypeWeight * protoMean;
+        const antiSim = ld.antiDescVec ? sim(targetVec, ld.antiDescVec) : 0;
 
-        const finalScore = positiveScore - config.antiDescriptionWeight * antiSim;
+        const targetScore = config.descriptionWeight * descSim
+                          + config.prototypeWeight * protoMean
+                          - config.antiDescriptionWeight * antiSim;
+
+        const contextScore = ctxProtoMean;
+
+        const finalScore = config.targetWeight * targetScore
+                         + config.contextWeight * contextScore;
 
         results.push({
           label: ld.name,
           descriptionSimilarity: descSim,
-          prototypeSimilarities: protoSims,    // full sorted list
+          prototypeSimilarities: protoResult.similarities,
+          contextPrototypeSimilarities: ctxProtoResult.similarities,
           antiDescriptionSimilarity: antiSim,
-          positiveScore,
+          targetScore,
+          contextScore,
           finalScore
         });
       }
@@ -427,8 +492,10 @@ color = "#9b59b6"
         details[r.label] = {
           descriptionSimilarity: r.descriptionSimilarity,
           prototypeSimilarities: r.prototypeSimilarities,
+          contextPrototypeSimilarities: r.contextPrototypeSimilarities,
           antiDescriptionSimilarity: r.antiDescriptionSimilarity,
-          positiveScore: r.positiveScore,
+          targetScore: r.targetScore,
+          contextScore: r.contextScore,
           finalScore: r.finalScore
         };
       }
