@@ -1,4 +1,4 @@
-/* global Zotero, FastKeySentenceModels */
+/* global Zotero, FastKeySentenceModels, FastKeySentenceRemote */
 
 var FastKeySentenceNLP = (() => {
   "use strict";
@@ -398,14 +398,23 @@ var FastKeySentenceNLP = (() => {
       );
     }
 
-    // 2. Score sparse baseline, then apply local Ollama relevance against summary and configured sections.
+    // 2. Score sparse baseline, then apply relevance against summary and configured sections.
     const summaryScores = summarySimilaritySpares(filtered, summary);
     const scored = scoreSparse(filtered, count, summaryScores);
-    if (useLocalRelevance && inferenceAvailable && !localSummaryFailed && summary) {
+    const useRemoteEmbed = !localSummaryFailed && summary && typeof FastKeySentenceRemote?.embeddings === "function";
+    const useLocalEmbed = inferenceAvailable && !localSummaryFailed && summary;
+    if (useLocalRelevance && (useRemoteEmbed || useLocalEmbed)) {
+      const embedFn = options.summarySource === "local" || !useRemoteEmbed
+        ? FastKeySentenceModels.embeddings
+        : FastKeySentenceRemote.embeddings;
+      const withProgress = (texts, operation) => options.onModelProgress?.({
+        stage: Array.isArray(texts) && texts.length > 5 ? "preparing" : "inference",
+        operation
+      });
       try {
         options.onModelProgress?.({ stage: "preparing", operation: "summary-relevance" });
         const texts = filtered.map(sentence => sentence.text);
-        const [summaryEmbedding, ...sentenceEmbeddings] = await FastKeySentenceModels.embeddings(
+        const [summaryEmbedding, ...sentenceEmbeddings] = await embedFn(
           [summary, ...texts],
           event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
         );
@@ -417,7 +426,7 @@ var FastKeySentenceNLP = (() => {
         let keywordRelevance = new Array(filtered.length).fill(0);
         if (keywords.length) {
           options.onModelProgress?.({ stage: "preparing", operation: "keyword-relevance" });
-          const vectors = await FastKeySentenceModels.embeddings(
+          const vectors = await embedFn(
             [...keywords, ...texts],
             event => options.onModelProgress?.({ ...event, operation: "keyword-relevance" })
           );

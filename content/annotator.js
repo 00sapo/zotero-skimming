@@ -300,7 +300,7 @@ FastOfflineKeySentenceAnnotator = {
     relevanceRow.append(
       relevanceCheck,
       create("label", { htmlFor: "local-relevance", style: "font-weight: 500; line-height: 1.35" }, "Semantic relevance"),
-      create("div", { style: "grid-column: 2; opacity: 0.78; font-size: 0.92rem; line-height: 1.38" }, "Compare sentences with the paper summary and configured scholarly keyword sections using local Ollama embeddings.")
+      create("div", { style: "grid-column: 2; opacity: 0.78; font-size: 0.92rem; line-height: 1.38" }, "Compare sentences with the paper summary and configured scholarly keyword sections using LLM embeddings. If unchecked, uses traditional TF-IDF features.")
     );
     nlpSection.appendChild(relevanceRow);
     form.appendChild(nlpSection);
@@ -353,7 +353,7 @@ FastOfflineKeySentenceAnnotator = {
     });
     const MODEL_PLACEHOLDERS = {
       local: { summary: "hf.co/unsloth/Qwen3.5-2B-GGUF:Q8_0", embedding: "hf.co/PeterAM4/Qwen3-Embedding-0.6B-GGUF:Q8_0" },
-      remote: { summary: "gpt-4o-mini", embedding: "" }
+      remote: { summary: "gpt-4o-mini", embedding: "text-embedding-3-small" }
     };
     const currentPlaceholders = MODEL_PLACEHOLDERS[initialSettings.summarySource] || MODEL_PLACEHOLDERS.local;
     const modelFields = [

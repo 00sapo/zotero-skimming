@@ -4,6 +4,7 @@ var FastKeySentenceRemote = (() => {
   "use strict";
 
   const DEFAULT_MODEL = "gpt-4o-mini";
+  const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
   const DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions";
   const DEFAULT_MAP_INPUT_TOKENS = 4096;
   const MIN_MAP_INPUT_TOKENS = 256;
@@ -229,14 +230,45 @@ var FastKeySentenceRemote = (() => {
     return { valid: true };
   }
 
+  async function embeddings(texts, callback) {
+    if (!Array.isArray(texts) || !texts.length) throw new Error("No texts provided for embedding.");
+    const config = getConfig();
+    if (!config.apiKey) throw new Error("No remote API key configured.");
+    const model = Zotero.Prefs.get("extensions.zotero-skimming." + "embeddingModel", true) || DEFAULT_EMBEDDING_MODEL;
+    const url = config.endpoint.replace(/\/chat\/completions$/, "").replace(/\/?$/, "") + "/embeddings";
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify({ model, input: texts })
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Remote embedding returned ${response.status}: ${text.slice(0, 200)}`);
+    }
+    const data = await response.json();
+    if (!Array.isArray(data?.data)) throw new Error("Remote embedding returned invalid response.");
+    const vectors = data.data
+      .sort((a, b) => a.index - b.index)
+      .map(item => item.embedding);
+    if (vectors.length !== texts.length) {
+      throw new Error(`Remote embedding returned ${vectors.length} vectors for ${texts.length} texts.`);
+    }
+    return vectors;
+  }
+
   return {
     DEFAULT_MODEL,
+    DEFAULT_EMBEDDING_MODEL,
     DEFAULT_ENDPOINT,
     MAP_PROMPT_TOKEN_RESERVE,
     getConfig,
     estimateTokens,
     splitByTokenLimit,
     summarize,
+    embeddings,
     validateConfig,
     log
   };
