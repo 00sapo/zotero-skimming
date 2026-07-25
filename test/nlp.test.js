@@ -16,6 +16,26 @@ function nlp(models) {
   const ctx = {};
   if (models) ctx.FastKeySentenceModels = models;
   ctx.FastKeySentenceRemote = models?.remote || null;
+  ctx.FastKeySentenceZeroShot = {
+    DEFAULT_CONFIG: "# config",
+    parseConfig(text) {
+      const labels = [];
+      const labelRe = /^\[([a-z][a-z0-9-]*)\]$/im;
+      const descRe = /^description\s*=\s*"(.+)"$/im;
+      const m = labelRe.exec(text);
+      if (m) {
+        const desc = descRe.exec(text);
+        labels.push({ name: `[${m[1]}]`, description: desc ? desc[1] : "", prototypes: ["prototype"], antiDescription: "anti", color: null });
+      }
+      if (!labels.length) {
+        // fallback: produce dummy labels so tag classification runs
+        ["literature", "method", "goal", "result", "conclusion", "contribution", "take-away"].forEach(name =>
+          labels.push({ name: `[${name}]`, description: `${name} description`, prototypes: ["prototype"], antiDescription: "anti", color: null })
+        );
+      }
+      return labels;
+    }
+  };
   return loadScript("content/nlp.js", ctx).FastKeySentenceNLP;
 }
 
@@ -135,7 +155,7 @@ describe("FastKeySentenceNLP", () => {
     expect(paperText).toBe("Body result one. Body result two.");
   });
 
-  it("uses Ollama relevance twice and relays progress", async () => {
+  it("scores sentences via dense summary relevance and relays progress", async () => {
     const progress = vi.fn();
     const embeddings = vi.fn(async texts => texts.map((_, index) => [index + 1, 1]));
     const models = {
@@ -148,7 +168,7 @@ describe("FastKeySentenceNLP", () => {
     });
     expect(selected.length).toBeGreaterThanOrEqual(1);
     expect(models.remote.summarize).toHaveBeenCalledWith(expect.not.stringContaining("A study"), "A study", 3, expect.any(Function));
-    expect(embeddings).toHaveBeenCalledTimes(3);
+    expect(embeddings).toHaveBeenCalledTimes(2);
     expect(progress).toHaveBeenCalled();
   });
 

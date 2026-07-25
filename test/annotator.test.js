@@ -2,12 +2,32 @@ import { describe, expect, it, vi } from "vitest";
 import { loadScript } from "./helpers.js";
 
 function annotator(globals = {}) {
-  const nlpContext = loadScript("content/nlp.js");
+  const zeroShotCtx = {
+    FastKeySentenceZeroShot: {
+      DEFAULT_CONFIG: "# config",
+      parseConfig(text) {
+        if (!text || !text.trim()) return [];
+        const labels = [];
+        for (const line of text.split(/\r?\n/)) {
+          const m = line.match(/^\[([a-z][a-z0-9-]*)\]$/i);
+          if (m) labels.push({ name: `[${m[1]}]`, description: `${m[1]} description`, prototypes: ["prototype"], antiDescription: "anti", color: null });
+        }
+        if (!labels.length) {
+          ["literature","method","goal","result","conclusion","contribution","take-away"].forEach(n =>
+            labels.push({ name: `[${n}]`, description: `${n} description`, prototypes: ["prototype"], antiDescription: "anti", color: null })
+          );
+        }
+        return labels;
+      }
+    }
+  };
+  const nlpContext = loadScript("content/nlp.js", zeroShotCtx);
   const defaultModels = { init: vi.fn(), shutdown: vi.fn(), summarize: async () => "A test summary.", embeddings: async () => [[1, 0], [0, 1]], testOllama: async () => {}, supportsInference: () => true, setModelOverrides: vi.fn(), appendToLog: vi.fn(), SUMMARY_MODEL: "test-summary", EMBEDDING_MODEL: "test-embed" };
   return loadScript("content/annotator.js", {
     FastKeySentenceNLP: nlpContext.FastKeySentenceNLP,
     FastKeySentenceModels: defaultModels,
     FastKeySentenceRemote: { DEFAULT_ENDPOINT: "https://api.example.com", DEFAULT_MODEL: "test-model", summarize: async () => "A test summary.", getConfig: () => ({ endpoint: "", apiKey: "", model: "" }) },
+    FastKeySentenceZeroShot: zeroShotCtx.FastKeySentenceZeroShot,
     Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" } },
     ...globals
   }).FastOfflineKeySentenceAnnotator;

@@ -1,38 +1,12 @@
-/* global Zotero, FastKeySentenceModels, FastKeySentenceRemote */
+/* global Zotero, FastKeySentenceModels, FastKeySentenceRemote, FastKeySentenceZeroShot */
 
 var FastKeySentenceNLP = (() => {
   "use strict";
 
   const STOP_WORDS = new Set(`a an and are as at be been being but by can could did do does doing for from had has have having he her hers herself him himself his how i if in into is it its itself may might more most must my myself no nor not of off on once only or other our ours ourselves out over own same she should so some such than that the their theirs them themselves then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yourself yourselves`.split(/\s+/));
-  const SCORING = Object.freeze(FastKeySentenceScoringConfig);
-  const KEYWORD_SECTIONS = Object.freeze([
-    "research objective, aim, goal, or question",
-    "method, approach, experiment, or design",
-    "main contribution, innovation, or proposal",
-    "empirical result, finding, performance, or measurement",
-    "conclusion, implication, limitation, or future work"
-  ]);
-  const DEFAULT_TAG_DEFINITIONS = [
-    "literature: prior work, theoretical background, related studies, or the state of existing knowledge",
-    "method: technical details of the proposed methodology, data processing, analysis, or experimental setup",
-    "goal: the research objective, motivation, problem statement, or question addressed by the paper",
-    "result: empirical observations, measurements, comparisons, or reported outcomes",
-    "conclusion: final interpretation, implications, limitations, or future research directions",
-    "contribution: a novel claim, capability, resource, framework, or advance introduced by the paper",
-    "take-away: a concise central insight or practical message that captures why the paper matters"
-  ].join("\n");
+  // ── keyword section descriptions (fallback when scoring-config is unavailable) ──
 
-  function parseTagDefinitions(text = DEFAULT_TAG_DEFINITIONS) {
-    const tags = [];
-    for (const line of String(text).split(/\r?\n/)) {
-      const separator = line.indexOf(":");
-      if (separator < 1) continue;
-      const name = line.slice(0, separator).trim();
-      const description = line.slice(separator + 1).trim();
-      if (name && description) tags.push({ name, description });
-    }
-    return tags;
-  }
+  const SCORING = Object.freeze(FastKeySentenceScoringConfig);
 
   function normalizeText(text) {
     return String(text || "")
@@ -243,9 +217,9 @@ var FastKeySentenceNLP = (() => {
     const S = minMax(summarySim);
     const L = minMax(lengths);
     sentences.forEach((sentence, i) => {
+      sentence.summaryRelevance = summarySim[i];
       sentence.importance = SCORING.initial.summarySimilarity * S[i]
         + SCORING.initial.sentenceLength * L[i];
-      sentence.baseImportance = sentence.importance;
     });
   }
 
@@ -398,7 +372,7 @@ var FastKeySentenceNLP = (() => {
       );
     }
 
-    // 2. Score sparse baseline, then apply relevance against summary and configured sections.
+    // 2. Score sparse baseline, then apply dense summary relevance if embeddings are available.
     const summaryScores = summarySimilaritySpares(filtered, summary);
     const scored = scoreSparse(filtered, count, summaryScores);
     const useRemoteEmbed = !localSummaryFailed && summary && typeof FastKeySentenceRemote?.embeddings === "function";
@@ -419,31 +393,14 @@ var FastKeySentenceNLP = (() => {
           event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
         );
         const sentenceNorms = sentenceEmbeddings.map(denseNorm);
-        const summaryRelevance = summarySimilarityDense(sentenceEmbeddings, sentenceNorms, summaryEmbedding);
-        const keywords = Array.isArray(SCORING.initial?.keywordSections)
-          ? SCORING.initial.keywordSections.filter(Boolean)
-          : KEYWORD_SECTIONS;
-        let keywordRelevance = new Array(filtered.length).fill(0);
-        if (keywords.length) {
-          options.onModelProgress?.({ stage: "preparing", operation: "keyword-relevance" });
-          const vectors = await embedFn(
-            [...keywords, ...texts],
-            event => options.onModelProgress?.({ ...event, operation: "keyword-relevance" })
-          );
-          const keywordVectors = vectors.slice(0, keywords.length);
-          const sentenceVectors = vectors.slice(keywords.length);
-          keywordRelevance = sentenceVectors.map((vector, index) => Math.max(...keywordVectors.map(keyword =>
-            vectorCosine(vector, keyword, denseNorm(vector), denseNorm(keyword))
-          ), 0));
-        }
-        const baseline = filtered.map(sentence => sentence.importance || 0);
-        const maximum = Math.max(...baseline, 1);
+        const denseRelevance = summarySimilarityDense(sentenceEmbeddings, sentenceNorms, summaryEmbedding);
+        const lengths = filtered.map(s => Math.exp(-Math.pow(s.text.split(/\s+/).length - 18, 2) / (2 * Math.pow(12, 2))));
+        const S = minMax(denseRelevance);
+        const L = minMax(lengths);
         filtered.forEach((sentence, index) => {
-          sentence.summaryRelevance = summaryRelevance[index] || 0;
-          sentence.keywordRelevance = keywordRelevance[index] || 0;
-          sentence.importance = 0.5 * baseline[index] / maximum
-            + 0.35 * Math.max(0, summaryRelevance[index] || 0)
-            + 0.15 * Math.max(0, keywordRelevance[index] || 0);
+          sentence.summaryRelevance = denseRelevance[index] || 0;
+          sentence.importance = SCORING.initial.summarySimilarity * S[index]
+            + SCORING.initial.sentenceLength * L[index];
         });
       }
       catch (error) {
@@ -481,7 +438,8 @@ var FastKeySentenceNLP = (() => {
     const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length), summaryParts);
 
     if (useLocalRelevance && inferenceAvailable && selected.length) {
-      const tags = parseTagDefinitions(options.tagDefinitions);
+      const labels = FastKeySentenceZeroShot.parseConfig(options.zeroShotConfig || FastKeySentenceZeroShot.DEFAULT_CONFIG);
+      const tags = labels.map(l => ({ name: l.name.replace(/^\[|\]$/g, ""), description: l.description }));
       if (tags.length) {
         try {
           options.onModelProgress?.({ stage: "preparing", operation: "tag-classification" });
@@ -532,8 +490,7 @@ var FastKeySentenceNLP = (() => {
     isReferenceEntry,
     isNoise,
     paperTextForSummary,
-    DEFAULT_TAG_DEFINITIONS,
-    parseTagDefinitions,
+
     analyze,
     analyzeAsync
   };

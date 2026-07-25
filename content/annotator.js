@@ -110,7 +110,7 @@ FastOfflineKeySentenceAnnotator = {
     compressionRatio: 10,
     localRelevance: false,
     ollamaCommand: "/usr/bin/ollama",
-    tagDefinitions: FastKeySentenceNLP.DEFAULT_TAG_DEFINITIONS,
+    zeroShotConfig: FastKeySentenceZeroShot.DEFAULT_CONFIG,
     remoteEndpoint: "",
     remoteApiKey: "",
     summarySource: "local",
@@ -127,7 +127,7 @@ FastOfflineKeySentenceAnnotator = {
       compressionRatio: Number.isFinite(compressionRatio) && compressionRatio >= 1.5 ? compressionRatio : defaults.compressionRatio,
       localRelevance: Zotero.Prefs.get(this.prefBranch + "localRelevance", true) ?? defaults.localRelevance,
       ollamaCommand: Zotero.Prefs.get(this.prefBranch + "ollamaCommand", true) || defaults.ollamaCommand,
-      tagDefinitions: Zotero.Prefs.get(this.prefBranch + "tagDefinitions", true) || defaults.tagDefinitions,
+      zeroShotConfig: Zotero.Prefs.get(this.prefBranch + "zeroShotConfig", true) || defaults.zeroShotConfig,
       remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
       summarySource: Zotero.Prefs.get(this.prefBranch + "summarySource", true) || defaults.summarySource,
@@ -151,8 +151,8 @@ FastOfflineKeySentenceAnnotator = {
         && ["local", "remote"].includes(settings.summarySource)
         && typeof settings.ollamaCommand === "string"
         && settings.ollamaCommand.startsWith("/")
-        && typeof settings.tagDefinitions === "string"
-        && FastKeySentenceNLP.parseTagDefinitions(settings.tagDefinitions).length > 0
+        && typeof settings.zeroShotConfig === "string"
+        && settings.zeroShotConfig.trim().length > 0
         && typeof settings.remoteEndpoint === "string"
         && typeof settings.remoteApiKey === "string"
         && typeof settings.summaryModel === "string"
@@ -163,7 +163,7 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "compressionRatio", settings.compressionRatio, true);
     Zotero.Prefs.set(this.prefBranch + "localRelevance", settings.localRelevance, true);
     Zotero.Prefs.set(this.prefBranch + "ollamaCommand", (settings.ollamaCommand || this.settingsDefaults.ollamaCommand).trim(), true);
-    Zotero.Prefs.set(this.prefBranch + "tagDefinitions", (settings.tagDefinitions || this.settingsDefaults.tagDefinitions).trim(), true);
+    Zotero.Prefs.set(this.prefBranch + "zeroShotConfig", (settings.zeroShotConfig || this.settingsDefaults.zeroShotConfig).trim(), true);
     Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
     Zotero.Prefs.set(this.prefBranch + "summarySource", settings.summarySource, true);
@@ -274,17 +274,17 @@ FastOfflineKeySentenceAnnotator = {
     });
     inputs["compression-ratio"] = crInput;
     nlpSection.append(crLabel, crInput);
-    const tagDefinitionsInput = create("textarea", {
-      id: "tag-definitions",
-      value: initialSettings.tagDefinitions,
-      rows: "7",
-      style: "width: 100%; box-sizing: border-box; resize: vertical; min-height: 132px; padding: 6px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit; line-height: 1.35"
+    const zeroShotConfigInput = create("textarea", {
+      id: "zero-shot-config",
+      value: initialSettings.zeroShotConfig,
+      rows: "14",
+      style: "width: 100%; box-sizing: border-box; resize: vertical; min-height: 200px; padding: 6px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit; font-family: monospace; font-size: 0.85rem; line-height: 1.35; white-space: pre; tab-size: 2"
     });
-    inputs["tag-definitions"] = tagDefinitionsInput;
+    inputs["zero-shot-config"] = zeroShotConfigInput;
     nlpSection.append(
-      create("label", { htmlFor: "tag-definitions", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Highlight tags"),
-      tagDefinitionsInput,
-      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "One tag per line: name: description. Colors follow tag order.")
+      create("label", { htmlFor: "zero-shot-config", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Zero-shot label definitions (TOML)"),
+      zeroShotConfigInput,
+      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Edit label descriptions, prototypes, and anti-descriptions for zero-shot rhetorical classification.")
     );
     const checks = {};
     const relevanceRow = create("div", {
@@ -501,7 +501,7 @@ FastOfflineKeySentenceAnnotator = {
       compressionRatio: Number(inputs["compression-ratio"].value),
       localRelevance: checks["local-relevance"].checked,
       ollamaCommand: inputs["ollama-command"].value.trim(),
-      tagDefinitions: inputs["tag-definitions"].value.trim(),
+      zeroShotConfig: inputs["zero-shot-config"].value.trim(),
       remoteEndpoint: inputs["remote-endpoint"].value.trim(),
       remoteApiKey: inputs["remote-api-key"].value.trim(),
       summarySource: inputs["summary-source"].value,
@@ -1077,7 +1077,7 @@ FastOfflineKeySentenceAnnotator = {
       for (const stageLine of Object.values(stageLines)) stageLine.setProgress(0);
       const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
         localRelevance: configuredSettings.localRelevance,
-        tagDefinitions: configuredSettings.tagDefinitions,
+        zeroShotConfig: configuredSettings.zeroShotConfig,
         summarySource: configuredSettings.summarySource,
         mapReduce: configuredSettings.mapReduce,
         mapReduceSentences: configuredSettings.mapReduceSentences,

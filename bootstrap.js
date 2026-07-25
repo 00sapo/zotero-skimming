@@ -1,6 +1,7 @@
 var FastOfflineKeySentenceAnnotator;
 var FastKeySentenceModels;
 var FastKeySentenceScoringConfig;
+var FastKeySentenceZeroShotConfig;
 
 function log(message) {
   Zotero.debug("Zotero Skimming: " + message);
@@ -14,6 +15,7 @@ async function startup({ id, version, rootURI }) {
   const scoringResponse = await fetch(rootURI + "scoring-config.json");
   if (!scoringResponse.ok) throw new Error(`Could not load scoring configuration (${scoringResponse.status})`);
   FastKeySentenceScoringConfig = Object.freeze(await scoringResponse.json());
+  Services.scriptloader.loadSubScript(rootURI + "content/zero-shot-classifier.js");
   Services.scriptloader.loadSubScript(rootURI + "content/nlp.js");
   Services.scriptloader.loadSubScript(rootURI + "content/model-manager.js");
   Services.scriptloader.loadSubScript(rootURI + "content/remote-llm.js");
@@ -23,7 +25,8 @@ async function startup({ id, version, rootURI }) {
   defaults.setIntPref("compressionRatio", 10);
   defaults.setBoolPref("localRelevance", false);
   defaults.setStringPref("ollamaCommand", "/usr/bin/ollama");
-  defaults.setStringPref("tagDefinitions", FastKeySentenceNLP.DEFAULT_TAG_DEFINITIONS);
+  defaults.setStringPref("zeroShotConfig", FastKeySentenceZeroShot.DEFAULT_CONFIG);
+  FastKeySentenceZeroShotConfig = Zotero.Prefs.get("extensions.zotero-skimming.zeroShotConfig", true) || FastKeySentenceZeroShot.DEFAULT_CONFIG;
   defaults.setStringPref("remoteEndpoint", "");
   defaults.setStringPref("remoteApiKey", "");
   defaults.setStringPref("summarySource", "local");
