@@ -56,7 +56,7 @@ fi
 echo "Building zotero-skimming.xpi …"
 XPI="zotero-skimming.xpi"
 zip -r -9 "$XPI" \
-  manifest.json bootstrap.js content/ assets/ \
+  manifest.json bootstrap.js content/ assets/book\ reader.svg \
   model-identifiers.json scoring-config.json \
   -x "*.DS_Store" "*.gitkeep"
 echo "✓ $XPI built"
