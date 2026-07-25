@@ -8,8 +8,8 @@ Say bye-bye to confused AI-generated summaries, abstract sentences, and hallucin
 First skim, then read. Skimming is also known as _"orientation reading"_.
 
 Requires Zotero 9 and one of:
-- Ollama
-- OpenAI-compatible API key (e.g. LiteLLM, Deepseek, Openrouter, OpenAI, etc.)
+- Ollama for efficient fully local processing
+- OpenAI-compatible API key (e.g. LiteLLM, Deepseek, Openrouter, OpenAI, etc.) if you have low budget hardware
 
 <img src="assets/screenshot.png" alt="Screenshot of a paper annotated" width="400" />
 
@@ -50,31 +50,29 @@ Choose **Local Ollama** to summarize with imported `Qwen/Qwen3.5-2B` or with you
 
 ### 2. Local semantic relevance and tag classification
 
-When enabled, a remote or local model (local defaults to `Qwen/Qwen3-Embedding-0.6B-GGUF`) embed candidates through Ollama against the paper synopsis and configured scholarly keyword sections.
+When enabled, the add-on downloads the embedding model and uses it to rank sentences by semantic similarity to the summary, replacing the baseline TF-IDF/TextRank scorer.
 
-The relevance of a sentence is computed as a weighted average of the similarity between the sentence
-and the paper summary and of a gaussian score encouraging sentence length around 20 words.
+Each candidate `i` is scored as:
 
-After MMR selection, each selected sentence is compared with the configured label definitions to classify it as one of the supported categories (literature, method, goal, result, conclusion, contribution). Tags and their descriptions are user-configurable in the settings dialog; colors are assigned deterministically by tag order. If disabled, the baseline TF-IDF ranker remains active and highlights are untagged.
-
-### 3. MMR selection
-
-Maximum marginal relevance selects the requested number of highlights while penalizing semantic redundancy and repeated sections:
-
-```text
-0.65 × relevance − 0.35 × redundancy
+```
+wᵢ·imp(i) + wᵢ·cov(i) − wᵣ·red(i) − pₛ·sec(i)
 ```
 
-| Term | Meaning |
-|------|---------|
-| `importance` | sentence salience from summary relevance and keyword relevance |
-| `redundancy` | cosine similarity to previously selected candidates |
-| `coverage penalty` | penalises similarity to a summary sentence already covered by a prior pick |
+| Term | What | Effect |
+|---|---|---|
+| `imp(i)` | `summarySimilarity` (embed→summary cos) + `sentenceLength` (Gaussian centered at 18 words), min-max norm→[0,1] | Prefer sentences relevant to summary with readable length |
+| `cov(i)` | `maxⱼ M[i][j]` — best cos to any summary sentence after column penalties | Favor sentences whose matched summary part is still uncovered |
+| `red(i)` | `maxₖ cos(pᵢ, pₖ)` over already-selected `k` | Spread selections across the paper, not just one region |
+| `sec(i)` | count of sentences already picked from the same section | Avoid over-sampling one section |
+| `wᵢ=0.65` | `SCORING.selection.importance` | Strength of relevance + coverage |
+| `wᵣ=0.35` | `SCORING.selection.redundancy` | Strength of diversity |
+| `pₛ=0.06` | `SCORING.selection.sectionPenalty` | Penalty per extra same-section pick |
 
-Coverage penalty is applied to the similarity matrix between the summary and a target sentence
-before of the importance computation.
+After picking sentence `i*`, penalize its best-matching summary column: `M[i][j*] = max(0, M[i][j*] − 0.1·σ)` for all remaining `i`. `σ` = stddev of all remaining matrix entries (recomputed each iteration). This pushes `cov(i)` down for candidates that would re-hit the same summary part, encouraging coverage of the whole synopsis.
 
-### 4. Selected annotations
+If tag definitions are supplied (TOML in the settings dialog), selected sentences are classified by cosine similarity to each tag's description vector. Each highlight receives the best-matching tag, its description, and a color from a fixed palette.
+
+### 3. Selected annotations
 
 Selected annotations are restored to PDF reading order and mapped back to their original rectangles.
 

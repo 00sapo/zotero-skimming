@@ -234,51 +234,74 @@ var FastKeySentenceNLP = (() => {
     const selected = [];
     const remaining = new Set(sentences.map((_, i) => i));
     const sectionCounts = new Map();
-    // Track which summary sentences are covered (for coverage encouragement)
+
     const summaryVecs = summarySentences ? summarySentences.map(s => s.vector) : null;
     const summaryNorms = summarySentences ? summarySentences.map(s => s.norm) : null;
-    const summaryCovered = summaryVecs ? new Array(summaryVecs.length).fill(0) : null;
-    const COVERAGE_WEIGHT = 0.03;
+    const m = summaryVecs ? summaryVecs.length : 0;
+    const n = sentences.length;
+
+    const M = m ? Array.from({ length: n }, () => new Array(m).fill(0)) : null;
+    if (M) {
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < m; j++) {
+          M[i][j] = vectorCosine(vectors[i], summaryVecs[j], norms[i], summaryNorms[j]);
+        }
+      }
+    }
 
     while (selected.length < count && remaining.size) {
+      let penalty = 0;
+      if (M) {
+        let sum = 0, sumSq = 0, vals = 0;
+        for (const i of remaining) {
+          for (let j = 0; j < m; j++) {
+            const v = M[i][j];
+            sum += v;
+            sumSq += v * v;
+            vals++;
+          }
+        }
+        const mean = sum / vals;
+        const sd = Math.sqrt(Math.max(0, sumSq / vals - mean * mean));
+        penalty = 0.1 * sd;
+      }
+
       let best = -1, bestScore = -Infinity;
       for (const i of remaining) {
         let redundancy = 0;
         for (const j of selected) {
           redundancy = Math.max(redundancy, vectorCosine(vectors[i], vectors[j], norms[i], norms[j]));
         }
-        let coveragePenalty = 0;
-        if (summaryVecs && summaryVecs.length) {
-          let bestCoverIdx = -1, bestCoverSim = -Infinity;
-          for (let k = 0; k < summaryVecs.length; k++) {
-            const sim = vectorCosine(vectors[i], summaryVecs[k], norms[i], summaryNorms[k]);
-            if (sim > bestCoverSim) { bestCoverSim = sim; bestCoverIdx = k; }
-          }
-          if (summaryCovered[bestCoverIdx]) {
-            coveragePenalty = bestCoverSim * COVERAGE_WEIGHT;
+        let coverageBonus = 0;
+        if (M) {
+          for (let j = 0; j < m; j++) {
+            if (M[i][j] > coverageBonus) coverageBonus = M[i][j];
           }
         }
         const sectionPenalty = SCORING.selection.sectionPenalty * (sectionCounts.get(sentences[i].section || "") || 0);
         const value = SCORING.selection.importance * sentences[i].importance
-          - SCORING.selection.redundancy * redundancy - sectionPenalty - coveragePenalty;
+          + SCORING.selection.importance * coverageBonus
+          - SCORING.selection.redundancy * redundancy - sectionPenalty;
         if (value > bestScore) {
           bestScore = value;
           best = i;
         }
       }
       if (best < 0) break;
+
       selected.push(best);
       remaining.delete(best);
       const section = sentences[best].section || "";
       sectionCounts.set(section, (sectionCounts.get(section) || 0) + 1);
-      // Mark the most similar summary sentence as covered
-      if (summaryVecs && summaryVecs.length) {
-        let bestCoverIdx = -1, bestCoverSim = -Infinity;
-        for (let k = 0; k < summaryVecs.length; k++) {
-          const sim = vectorCosine(vectors[best], summaryVecs[k], norms[best], summaryNorms[k]);
-          if (sim > bestCoverSim) { bestCoverSim = sim; bestCoverIdx = k; }
+
+      if (M) {
+        let bestJ = 0;
+        for (let j = 0; j < m; j++) {
+          if (M[best][j] > M[best][bestJ]) bestJ = j;
         }
-        if (bestCoverIdx >= 0) summaryCovered[bestCoverIdx] = 1;
+        for (const i of remaining) {
+          M[i][bestJ] = Math.max(0, M[i][bestJ] - penalty);
+        }
       }
     }
     return selected.map(i => sentences[i]).sort((a, b) => a.order - b.order);
