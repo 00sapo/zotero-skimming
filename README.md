@@ -80,9 +80,9 @@ Selected annotations are restored to PDF reading order and mapped back to their 
 
 Install Ollama separately, then use **Download Ollama models** to upload these Hugging Face GGUF files into Ollama's local store through its blob API.
 
-| Stage | Model |
+| Stage | Default Model |
 |-------|-------|
-| Summarization | `Qwen/Qwen2.5-0.5B-Instruct-GGUF` (Q4_K_M) |
+| Summarization | `Qwen/Qwen3.5-2B-Instruct-GGUF` (Q8_0) |
 | Semantic relevance | `Qwen/Qwen3-Embedding-0.6B-GGUF` (Q8_0) |
 
 `model-identifiers.json` records the imported model names and source repositories. `scoring-config.json` contains relevance prompts plus scoring and selection weights.
