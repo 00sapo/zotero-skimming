@@ -320,7 +320,10 @@ FastOfflineKeySentenceAnnotator = {
     summarySource.value = initialSettings.summarySource;
     inputs["summary-source"] = summarySource;
     sourceGrid.append(create("label", { htmlFor: "summary-source", style: "font-weight: 500" }, "Source"), summarySource);
-    apiSection.appendChild(sourceGrid);
+    const sourceHelp = create("p", {
+      style: "margin: 6px 0 10px; opacity: 0.78; font-size: 0.9rem; line-height: 1.35"
+    }, "");
+    apiSection.append(sourceGrid, sourceHelp);
 
     const remoteOptions = create("div");
     const remoteGrid = create("div", {
@@ -487,6 +490,9 @@ FastOfflineKeySentenceAnnotator = {
       const p = MODEL_PLACEHOLDERS[local ? "local" : "remote"];
       if (summaryModelInput) summaryModelInput.placeholder = p.summary;
       if (embeddingModelInput) embeddingModelInput.placeholder = p.embedding;
+      sourceHelp.textContent = local
+        ? "Need Ollama installed, models will be downloaded automatically."
+        : "Any OpenAI-compatible endpoint such as LiteLLM, Deepseek, OpenRouter, OpenAI, etc.";
     };
     summarySource.addEventListener("change", syncSummarySource);
     syncSummarySource();
