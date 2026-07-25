@@ -113,7 +113,6 @@ FastOfflineKeySentenceAnnotator = {
     tagDefinitions: FastKeySentenceNLP.DEFAULT_TAG_DEFINITIONS,
     remoteEndpoint: "",
     remoteApiKey: "",
-    remoteModel: "",
     summarySource: "local",
     mapReduce: false,
     mapReduceSentences: 40,
@@ -131,7 +130,6 @@ FastOfflineKeySentenceAnnotator = {
       tagDefinitions: Zotero.Prefs.get(this.prefBranch + "tagDefinitions", true) || defaults.tagDefinitions,
       remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
-      remoteModel: Zotero.Prefs.get(this.prefBranch + "remoteModel", true) || defaults.remoteModel,
       summarySource: Zotero.Prefs.get(this.prefBranch + "summarySource", true) || defaults.summarySource,
       mapReduce: Zotero.Prefs.get(this.prefBranch + "mapReduce", true) ?? defaults.mapReduce,
       mapReduceSentences: Number(Zotero.Prefs.get(this.prefBranch + "mapReduceSentences", true)) || defaults.mapReduceSentences,
@@ -157,7 +155,6 @@ FastOfflineKeySentenceAnnotator = {
         && FastKeySentenceNLP.parseTagDefinitions(settings.tagDefinitions).length > 0
         && typeof settings.remoteEndpoint === "string"
         && typeof settings.remoteApiKey === "string"
-        && typeof settings.remoteModel === "string"
         && typeof settings.summaryModel === "string"
         && typeof settings.embeddingModel === "string";
   },
@@ -169,7 +166,6 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "tagDefinitions", (settings.tagDefinitions || this.settingsDefaults.tagDefinitions).trim(), true);
     Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
-    Zotero.Prefs.set(this.prefBranch + "remoteModel", settings.remoteModel || "", true);
     Zotero.Prefs.set(this.prefBranch + "summarySource", settings.summarySource, true);
     Zotero.Prefs.set(this.prefBranch + "mapReduce", settings.mapReduce, true);
     Zotero.Prefs.set(this.prefBranch + "mapReduceSentences", settings.mapReduceSentences, true);
@@ -266,7 +262,7 @@ FastOfflineKeySentenceAnnotator = {
       return fieldset;
     };
 
-    const compressionField = makeFieldset("Compression");
+    const nlpSection = makeFieldset("NLP analysis");
     const inputs = {};
     const crLabel = create("label", { htmlFor: "compression-ratio", style: "font-weight: 500; line-height: 1.35" }, "Compression ratio (e.g. 2 → half the sentences)");
     const crInput = create("input", {
@@ -277,43 +273,7 @@ FastOfflineKeySentenceAnnotator = {
       style: "width: 96px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
     });
     inputs["compression-ratio"] = crInput;
-    compressionField.append(crLabel, crInput);
-    form.appendChild(compressionField);
-
-    const stages = makeFieldset("Local Ollama relevance");
-    const options = [
-      ["local-relevance", "Semantic relevance", "Compare sentences with the paper summary and configured scholarly keyword sections using local Ollama embeddings.", initialSettings.localRelevance]
-    ];
-    const checks = {};
-    for (const [id, labelText, helpText, checked] of options) {
-      const row = create("div", {
-        style: "display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; margin-bottom: 12px; align-items: start"
-      });
-      const check = create("input", {
-        id,
-        type: "checkbox",
-        checked: checked === true,
-        style: "margin: 3px 0 0"
-      });
-      const label = create("label", {
-        htmlFor: id,
-        style: "font-weight: 500; line-height: 1.35"
-      }, labelText);
-      const help = create("div", {
-        style: "grid-column: 2; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-      }, helpText);
-      checks[id] = check;
-      row.append(check, label, help);
-      stages.appendChild(row);
-    }
-    const ollamaCommandInput = create("input", {
-      id: "ollama-command",
-      type: "text",
-      value: initialSettings.ollamaCommand,
-      placeholder: "/usr/bin/ollama",
-      style: "width: 100%; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
-    });
-    inputs["ollama-command"] = ollamaCommandInput;
+    nlpSection.append(crLabel, crInput);
     const tagDefinitionsInput = create("textarea", {
       id: "tag-definitions",
       value: initialSettings.tagDefinitions,
@@ -321,17 +281,31 @@ FastOfflineKeySentenceAnnotator = {
       style: "width: 100%; box-sizing: border-box; resize: vertical; min-height: 132px; padding: 6px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit; line-height: 1.35"
     });
     inputs["tag-definitions"] = tagDefinitionsInput;
-    stages.append(
-      create("label", { htmlFor: "ollama-command", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Ollama command"),
-      ollamaCommandInput,
-      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Absolute path to the Ollama binary (required)."),
+    nlpSection.append(
       create("label", { htmlFor: "tag-definitions", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Highlight tags"),
       tagDefinitionsInput,
       create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "One tag per line: name: description. Colors follow tag order.")
     );
-    form.appendChild(stages);
+    const checks = {};
+    const relevanceRow = create("div", {
+      style: "display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; margin-top: 12px; align-items: start"
+    });
+    const relevanceCheck = create("input", {
+      id: "local-relevance",
+      type: "checkbox",
+      checked: initialSettings.localRelevance === true,
+      style: "margin: 3px 0 0"
+    });
+    checks["local-relevance"] = relevanceCheck;
+    relevanceRow.append(
+      relevanceCheck,
+      create("label", { htmlFor: "local-relevance", style: "font-weight: 500; line-height: 1.35" }, "Semantic relevance"),
+      create("div", { style: "grid-column: 2; opacity: 0.78; font-size: 0.92rem; line-height: 1.38" }, "Compare sentences with the paper summary and configured scholarly keyword sections using local Ollama embeddings.")
+    );
+    nlpSection.appendChild(relevanceRow);
+    form.appendChild(nlpSection);
 
-    const remoteConfig = makeFieldset("Summarization");
+    const apiSection = makeFieldset("API");
     const sourceGrid = create("div", {
       style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center; margin-bottom: 12px"
     });
@@ -340,23 +314,23 @@ FastOfflineKeySentenceAnnotator = {
       style: "min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
     });
     summarySource.append(
-      create("option", { value: "remote" }, "Remote API"),
-      create("option", { value: "local" }, "Local Ollama")
+      create("option", { value: "local" }, "Local Ollama"),
+      create("option", { value: "remote" }, "Remote API")
     );
     summarySource.value = initialSettings.summarySource;
     inputs["summary-source"] = summarySource;
     sourceGrid.append(create("label", { htmlFor: "summary-source", style: "font-weight: 500" }, "Source"), summarySource);
-    remoteConfig.appendChild(sourceGrid);
+    apiSection.appendChild(sourceGrid);
+
     const remoteOptions = create("div");
     const remoteGrid = create("div", {
       style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center"
     });
     const remoteFields = [
       ["remote-endpoint", "Endpoint", initialSettings.remoteEndpoint || FastKeySentenceRemote.DEFAULT_ENDPOINT, "https://api.openai.com/v1/chat/completions"],
-      ["remote-model", "Model", initialSettings.remoteModel || FastKeySentenceRemote.DEFAULT_MODEL, "gpt-4o-mini"],
       ["remote-api-key", "API key", initialSettings.remoteApiKey, "sk-..."]
     ];
-    let remoteEndpointInput, remoteModelInput, remoteApiKeyInput;
+    let remoteEndpointInput, remoteApiKeyInput;
     for (const [id, labelText, value, placeholder] of remoteFields) {
       remoteGrid.appendChild(create("label", { htmlFor: id, style: "font-weight: 500" }, labelText));
       const input = create("input", {
@@ -369,16 +343,22 @@ FastOfflineKeySentenceAnnotator = {
       inputs[id] = input;
       remoteGrid.appendChild(input);
       if (id === "remote-endpoint") remoteEndpointInput = input;
-      if (id === "remote-model") remoteModelInput = input;
       if (id === "remote-api-key") remoteApiKeyInput = input;
     }
     remoteOptions.appendChild(remoteGrid);
+    apiSection.appendChild(remoteOptions);
+
     const modelGrid = create("div", {
-      style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center; margin-top: 12px"
+      style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center; margin-bottom: 12px"
     });
+    const MODEL_PLACEHOLDERS = {
+      local: { summary: "hf.co/unsloth/Qwen3.5-2B-GGUF:Q8_0", embedding: "hf.co/PeterAM4/Qwen3-Embedding-0.6B-GGUF:Q8_0" },
+      remote: { summary: "gpt-4o-mini", embedding: "" }
+    };
+    const currentPlaceholders = MODEL_PLACEHOLDERS[initialSettings.summarySource] || MODEL_PLACEHOLDERS.local;
     const modelFields = [
-      ["summary-model", "Summary model", initialSettings.summaryModel, "hf.co/unsloth/Qwen3.5-2B-GGUF:Q8_0"],
-      ["embedding-model", "Embedding model", initialSettings.embeddingModel, "hf.co/PeterAM4/Qwen3-Embedding-0.6B-GGUF:Q8_0"]
+      ["summary-model", "Summary model", initialSettings.summaryModel, currentPlaceholders.summary],
+      ["embedding-model", "Embedding model", initialSettings.embeddingModel, currentPlaceholders.embedding]
     ];
     let summaryModelInput, embeddingModelInput;
     for (const [id, labelText, value, placeholder] of modelFields) {
@@ -395,7 +375,22 @@ FastOfflineKeySentenceAnnotator = {
       if (id === "summary-model") summaryModelInput = input;
       if (id === "embedding-model") embeddingModelInput = input;
     }
-    remoteOptions.appendChild(modelGrid);
+    apiSection.appendChild(modelGrid);
+
+    const localOptions = create("div");
+    const ollamaCommandInput = create("input", {
+      id: "ollama-command",
+      type: "text",
+      value: initialSettings.ollamaCommand,
+      placeholder: "/usr/bin/ollama",
+      style: "width: 100%; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
+    });
+    inputs["ollama-command"] = ollamaCommandInput;
+    localOptions.append(
+      create("label", { htmlFor: "ollama-command", style: "display: block; margin-bottom: 4px; font-weight: 500" }, "Ollama command"),
+      ollamaCommandInput,
+      create("p", { style: "margin: 5px 0 12px; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Absolute path to the Ollama binary.")
+    );
     const mapReduceRow = create("div", {
       style: "display: grid; grid-template-columns: auto minmax(0, 1fr) auto 80px; column-gap: 8px; row-gap: 2px; margin-top: 12px; align-items: center"
     });
@@ -409,7 +404,7 @@ FastOfflineKeySentenceAnnotator = {
       id: "map-reduce-sentences",
       type: "number",
       "aria-label": "Sentences per chunk",
-      value: String(initialSettings.mapReduceSentences || 10),
+      value: String(initialSettings.mapReduceSentences || 40),
       min: "2",
       step: "1",
       style: "width: 80px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
@@ -422,12 +417,12 @@ FastOfflineKeySentenceAnnotator = {
       create("span", { style: "font-weight: 500" }, "N ="),
       mapReduceSentences
     );
-    remoteConfig.appendChild(remoteOptions);
-    remoteConfig.appendChild(mapReduceRow);
-    remoteConfig.appendChild(create("p", {
+    localOptions.appendChild(mapReduceRow);
+    localOptions.appendChild(create("p", {
       style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
     }, "Map-reduce is needed only when using smaller models with limited context windows. The default Qwen 3.5 has enough context for any paper."));
-    form.appendChild(remoteConfig);
+    apiSection.appendChild(localOptions);
+    form.appendChild(apiSection);
 
     const error = create("p", {
       role: "alert",
@@ -483,11 +478,15 @@ FastOfflineKeySentenceAnnotator = {
     const syncSummarySource = () => {
       const local = summarySource.value === "local";
       remoteOptions.hidden = local;
+      localOptions.hidden = !local;
       remoteEndpointInput.disabled = local;
-      remoteModelInput.disabled = local;
       remoteApiKeyInput.disabled = local;
-      if (summaryModelInput) summaryModelInput.disabled = !local;
-      if (embeddingModelInput) embeddingModelInput.disabled = !local;
+      ollamaCommandInput.disabled = !local;
+      mapReduceCheck.disabled = !local;
+      mapReduceSentences.disabled = !local;
+      const p = MODEL_PLACEHOLDERS[local ? "local" : "remote"];
+      if (summaryModelInput) summaryModelInput.placeholder = p.summary;
+      if (embeddingModelInput) embeddingModelInput.placeholder = p.embedding;
     };
     summarySource.addEventListener("change", syncSummarySource);
     syncSummarySource();
@@ -499,7 +498,6 @@ FastOfflineKeySentenceAnnotator = {
       tagDefinitions: inputs["tag-definitions"].value.trim(),
       remoteEndpoint: inputs["remote-endpoint"].value.trim(),
       remoteApiKey: inputs["remote-api-key"].value.trim(),
-      remoteModel: inputs["remote-model"].value.trim(),
       summarySource: inputs["summary-source"].value,
       mapReduce: checks["map-reduce"].checked,
       mapReduceSentences: Number(inputs["map-reduce-sentences"].value),

@@ -38,7 +38,7 @@ describe("FastKeySentenceRemote", () => {
     const api = remote(new Map([
       [prefix + "remoteApiKey", "key"],
       [prefix + "remoteEndpoint", "https://api.example.test/chat"],
-      [prefix + "remoteModel", "test-model"]
+      [prefix + "summaryModel", "test-model"]
     ]), fetch);
 
     await expect(api.summarize("Paper body.", "Title", 3)).resolves.toBe("A compact summary.");

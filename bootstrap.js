@@ -26,7 +26,6 @@ async function startup({ id, version, rootURI }) {
   defaults.setStringPref("tagDefinitions", FastKeySentenceNLP.DEFAULT_TAG_DEFINITIONS);
   defaults.setStringPref("remoteEndpoint", "");
   defaults.setStringPref("remoteApiKey", "");
-  defaults.setStringPref("remoteModel", "");
   defaults.setStringPref("summarySource", "local");
   defaults.setBoolPref("mapReduce", false);
   defaults.setIntPref("mapReduceSentences", 40);

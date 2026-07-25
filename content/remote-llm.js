@@ -29,7 +29,7 @@ var FastKeySentenceRemote = (() => {
     return {
       endpoint: Zotero.Prefs.get(pref + "remoteEndpoint", true) || DEFAULT_ENDPOINT,
       apiKey: Zotero.Prefs.get(pref + "remoteApiKey", true) || "",
-      model: Zotero.Prefs.get(pref + "remoteModel", true) || DEFAULT_MODEL,
+      model: Zotero.Prefs.get(pref + "summaryModel", true) || DEFAULT_MODEL,
       mapReduce: Zotero.Prefs.get(pref + "mapReduce", true) === true,
       mapInputTokens: Number.isInteger(mapInputTokens) && mapInputTokens >= MIN_MAP_INPUT_TOKENS
         ? mapInputTokens
@@ -41,7 +41,7 @@ var FastKeySentenceRemote = (() => {
     const pref = "extensions.zotero-skimming.";
     Zotero.Prefs.set(pref + "remoteEndpoint", endpoint || "", true);
     Zotero.Prefs.set(pref + "remoteApiKey", apiKey || "", true);
-    Zotero.Prefs.set(pref + "remoteModel", model || "", true);
+    Zotero.Prefs.set(pref + "summaryModel", model || "", true);
     Zotero.Prefs.set(pref + "mapReduce", mapReduce === true, true);
     Zotero.Prefs.set(pref + "mapReduceInputTokens", mapInputTokens, true);
   }
