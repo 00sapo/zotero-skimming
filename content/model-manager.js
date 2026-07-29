@@ -130,8 +130,24 @@ var FastKeySentenceModels = (() => {
     return chunks.filter(Boolean);
   }
 
-  async function summarizeChunk(text, callback, { sentenceCount = 10 } = {}) {
-    const prompt = `${text}\n\nWrite a summary of exactly ${sentenceCount} numbered sentences. Summary:`;
+  function labelsBlock(labels = []) {
+    if (!Array.isArray(labels) || !labels.length) return "";
+    return [
+      "Label category descriptions:",
+      ...labels.map(label => `${label.name} ${String(label.description || "").replace(/\s+/g, " ").trim()}`),
+      ""
+    ].join("\n");
+  }
+
+  function summaryInstruction(sentenceCount, labels = []) {
+    if (Array.isArray(labels) && labels.length) {
+      return `Write a summary of exactly ${sentenceCount} numbered sentences. Format every sentence as \"N. [label] sentence\", choosing one category defined above for each sentence. Summary:`;
+    }
+    return `Write a summary of exactly ${sentenceCount} numbered sentences. Summary:`;
+  }
+
+  async function summarizeChunk(text, callback, { sentenceCount = 10, labels = [] } = {}) {
+    const prompt = `${text}\n\n${labelsBlock(labels)}${summaryInstruction(sentenceCount, labels)}`;
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 0 });
     const result = await ollamaRequest("/api/generate", {
       model: SUMMARY_MODEL,
@@ -150,13 +166,13 @@ var FastKeySentenceModels = (() => {
     return collapsed;
   }
 
-  async function summarize(text, callback, { mapReduce = false, mapReduceSentences = 10, sentenceCount = 10 } = {}) {
+  async function summarize(text, callback, { mapReduce = false, mapReduceSentences = 10, sentenceCount = 10, labels = [] } = {}) {
     if (!text) return "";
     await ensureOllama(callback);
     const count = Math.max(1, Math.round(Number(sentenceCount) || 10));
     Services.console.logStringMessage(`Zotero Skimming local: summarize inputChars=${text.length} targetSentences=${count} mapReduce=${mapReduce}`);
     if (!mapReduce) {
-      return summarizeChunk(text, callback, { sentenceCount: count });
+      return summarizeChunk(text, callback, { sentenceCount: count, labels });
     }
     // Map-reduce: split by sentence count, summarize each chunk, then reduce
     const chunkSize = Math.max(2, Math.round(Number(mapReduceSentences) || 10));
@@ -166,7 +182,7 @@ var FastKeySentenceModels = (() => {
     const summaries = [];
     for (let index = 0; index < chunks.length; index++) {
       callback?.({ stage: "mapping", model: SUMMARY_MODEL, completed: index, total: chunks.length, progress: 100 * index / chunks.length });
-      summaries.push(await summarizeChunk(chunks[index], callback, { sentenceCount: mapSentences }));
+      summaries.push(await summarizeChunk(chunks[index], callback, { sentenceCount: mapSentences, labels }));
       callback?.({ stage: "mapping", model: SUMMARY_MODEL, completed: index + 1, total: chunks.length, progress: 100 * (index + 1) / chunks.length });
     }
     // Reduce: combine chunk summaries
@@ -178,7 +194,7 @@ var FastKeySentenceModels = (() => {
       const reduction = [];
       for (let index = 0; index < parts.length; index++) {
         callback?.({ stage: "reducing", model: SUMMARY_MODEL, round: round + 1, completed: index + 1, total: parts.length, progress: 100 * (index + 1) / parts.length });
-        reduction.push(await summarizeChunk(parts[index], callback, { sentenceCount: count }));
+        reduction.push(await summarizeChunk(parts[index], callback, { sentenceCount: count, labels }));
       }
       combined = reduction.join("\n\n");
     }

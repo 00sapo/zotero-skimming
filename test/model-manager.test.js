@@ -22,13 +22,14 @@ function makeXHR(overrides) {
   return vi.fn(function mockXHR() {
     this.open = vi.fn(function (method, url) { this._url = url; });
     this.setRequestHeader = vi.fn();
-    this.send = vi.fn(function () {
+    this.send = vi.fn(function (requestBody) {
+      this._body = requestBody;
       this.status = 200;
       this.statusText = "OK";
       const match = Object.entries(routes).find(([pattern]) => this._url.includes(pattern));
       const route = match ? match[1] : { body: new Uint8Array(0) };
       if (route.status) this.status = typeof route.status === "function" ? route.status() : route.status;
-      const body = typeof route.body === "function" ? route.body(this._url) : route.body;
+      const body = typeof route.body === "function" ? route.body(this._url, this) : route.body;
       if (body instanceof Uint8Array) {
         this.response = body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength);
       } else {
@@ -71,7 +72,7 @@ function manager({ path = "/usr/bin/ollama", xhr, io } = {}) {
     ChromeUtils: { importESModule: () => ({ Subprocess: subprocess }) }
   });
   context.FastKeySentenceModels.init();
-  return { api: context.FastKeySentenceModels, Zotero, IOUtils, files, subprocess };
+  return { api: context.FastKeySentenceModels, Zotero, IOUtils, files, subprocess, xhr: XMLHttpRequest };
 }
 
 describe("FastKeySentenceModels Ollama", () => {
@@ -103,6 +104,25 @@ describe("FastKeySentenceModels Ollama", () => {
     const result = await api.summarize("Significant paper text content that matters for research.");
     expect(result).toBeTruthy();
     expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("supports label-aware summarization prompts when labels are provided", async () => {
+    const xhr = makeXHR({
+      "/api/generate": {
+        body: (_url, req) => {
+          const payload = JSON.parse(req._body);
+          expect(payload.prompt).toContain("Label category descriptions:");
+          expect(payload.prompt).toContain("[method] Explains how the current study");
+          expect(payload.prompt).toContain("Write a summary of exactly 2 numbered sentences");
+          expect(payload.prompt.indexOf("Label category descriptions:")).toBeGreaterThan(payload.prompt.indexOf("Another sentence."));
+          expect(payload.prompt).toMatch(/Format every sentence as .*Summary:$/);
+          return { response: "1. [method] The method is described.\n2. [result] The results are reported." };
+        }
+      }
+    });
+    const { api } = manager({ xhr, io: { exists: async () => true } });
+    const result = await api.summarize("A sentence. Another sentence.", null, { sentenceCount: 2, labels: [{ name: "[method]", description: "Explains how the current study" }, { name: "[result]", description: "Reports evidence" }] });
+    expect(result).toBeTruthy();
   });
 
   it("generates embeddings for tag classification", async () => {

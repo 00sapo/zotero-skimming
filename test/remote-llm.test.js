@@ -48,6 +48,22 @@ describe("FastKeySentenceRemote", () => {
     expect(body.messages[1].content).toContain("Title: Title");
   });
 
+  it("puts label descriptions at the bottom and the template instruction last", async () => {
+    const fetch = vi.fn().mockResolvedValue(response("1. [method] A method sentence.\n2. [result] A result sentence.\n3. [method] Another method sentence."));
+    const api = remote(new Map([
+      [prefix + "remoteApiKey", "key"],
+      [prefix + "remoteEndpoint", "https://api.example.test/chat"]
+    ]), fetch);
+    await api.summarize("Paper body.", "", 3, null, [
+      { name: "[method]", description: "Explains how the study was carried out." },
+      { name: "[result]", description: "Reports evidence or outcomes." }
+    ]);
+    const prompt = JSON.parse(fetch.mock.calls[0][1].body).messages[1].content;
+    expect(prompt.indexOf("Label category descriptions:")).toBeGreaterThan(prompt.indexOf("Paper body."));
+    expect(prompt).toContain("[method] Explains how the study was carried out.");
+    expect(prompt).toMatch(/Format every sentence as .*Summary:$/);
+  });
+
   it("maps and reduces long text without exceeding the reserved map input window", async () => {
     const fetch = vi.fn().mockResolvedValue(response());
     const api = remote(new Map([

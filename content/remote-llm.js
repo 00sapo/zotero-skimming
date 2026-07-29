@@ -154,7 +154,19 @@ var FastKeySentenceRemote = (() => {
     "Number the lines starting from 1."
   ].join(" ");
 
-  function summaryPrompt(targetSentences) {
+  function labelsBlock(labels = []) {
+    if (!Array.isArray(labels) || !labels.length) return "";
+    return [
+      "Label category descriptions:",
+      ...labels.map(label => `${label.name} ${String(label.description || "").replace(/\s+/g, " ").trim()}`),
+      ""
+    ].join("\n");
+  }
+
+  function summaryPrompt(targetSentences, labels = []) {
+    if (Array.isArray(labels) && labels.length) {
+      return `Write a summary of exactly ${targetSentences} numbered sentences. Format every sentence as \"N. [label] sentence\", choosing one category defined above for each sentence. Summary:`;
+    }
     return `Write a summary of exactly ${targetSentences} numbered sentences. Summary:`;
   }
 
@@ -166,7 +178,7 @@ var FastKeySentenceRemote = (() => {
     };
   }
 
-  async function summarizeMapReduce(paperText, documentTitle, targetSentences, targetTokens, config, onProgress) {
+  async function summarizeMapReduce(paperText, documentTitle, targetSentences, targetTokens, config, onProgress, labels = []) {
     const budget = mapBudget(config.mapInputTokens);
     const inputLimit = budget.input;
     const source = documentTitle ? `Title: ${documentTitle}\n\n${paperText}` : paperText;
@@ -175,7 +187,7 @@ var FastKeySentenceRemote = (() => {
     let round = 0;
     while (round < MAX_REDUCE_ROUNDS) {
       const total = chunks.length;
-      const prompt = summaryPrompt(targetSentences);
+      const prompt = `${labelsBlock(labels)}${summaryPrompt(targetSentences, labels)}`;
       const outputTokens = Math.min(targetTokens, budget.output);
       const summaries = [];
       for (let index = 0; index < chunks.length; index++) {
@@ -194,7 +206,7 @@ var FastKeySentenceRemote = (() => {
     throw new Error("Map-reduce summarization did not produce a final summary.");
   }
 
-  async function summarize(paperText, documentTitle, sentenceCount = 10, onProgress = null) {
+  async function summarize(paperText, documentTitle, sentenceCount = 10, onProgress = null, labels = []) {
     const config = getConfig();
     if (!config.apiKey) throw new Error("No remote API key configured. Set it in the annotator settings.");
     if (!config.endpoint) throw new Error("No remote endpoint configured.");
@@ -204,11 +216,11 @@ var FastKeySentenceRemote = (() => {
     const targetTokens = Math.min(1000, Math.max(120, targetSentences * 30));
     let summary;
     if (config.mapReduce) {
-      summary = await summarizeMapReduce(paperText, documentTitle, targetSentences, targetTokens, config, onProgress);
+      summary = await summarizeMapReduce(paperText, documentTitle, targetSentences, targetTokens, config, onProgress, labels);
     }
     else {
       const userText = documentTitle ? `Title: ${documentTitle}\n\n${paperText}` : paperText;
-      const instruction = summaryPrompt(targetSentences);
+      const instruction = `${labelsBlock(labels)}${summaryPrompt(targetSentences, labels)}`;
       summary = await requestSummary(config, SYSTEM_PROMPT, (userText + "\n\n" + instruction).slice(0, 128000), targetTokens, onProgress);
     }
     const responseSentences = (summary || "").split(/\n/).filter(line => line.trim()).length;

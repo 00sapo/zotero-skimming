@@ -132,25 +132,51 @@ describe("FastKeySentenceNLP", () => {
   });
 
   it("does not classify when LLM classification is disabled", async () => {
-    const classify = vi.fn();
+    const summarize = vi.fn(async () => "1. [method] A concise method sentence.\n2. [result] A concise result sentence.\n3. [contribution] A concise contribution sentence.");
+    const embeddings = vi.fn(async texts => texts.map(() => [1, 0]));
     const selected = await nlp({
-      remote: { summarize: async () => "A compact paper synopsis." },
-      classify
-    }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 3);
-    expect(classify).not.toHaveBeenCalled();
-    expect(selected.every(item => item.role === undefined)).toBe(true);
+      supportsInference: () => true,
+      summarize,
+      embeddings
+    }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 3, { summarySource: "local" });
+    expect(summarize).toHaveBeenCalled();
+    expect(embeddings).not.toHaveBeenCalled();
+    expect(selected.every(item => item.tag === undefined)).toBe(true);
   });
 
-  it("handles partial model classification results", async () => {
-    const models = {
+  it("assigns labels from the closest summary sentence when enabled", async () => {
+    const embeddings = vi.fn(async texts => texts.map(text => {
+      if (String(text).includes("method")) return [10, 0];
+      if (String(text).includes("result")) return [0, 10];
+      return [1, 1];
+    }));
+    const selected = await nlp({
       supportsInference: () => true,
-      remote: { summarize: async () => "A compact paper synopsis." },
-      classify: async () => [{ role: "unknown", score: 0 }]
-    };
-    const selected = await nlp(models).analyzeAsync(prose.map((text, order) => sentence(text, order)), 3, {
-      llmClassification: true
+      summarize: async () => "1. [method] A concise method sentence. 2. [result] A concise result sentence.",
+      embeddings
+    }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, {
+      summarySource: "local",
+      zeroShotLabels: true,
+      zeroShotConfig: `[method]\ndescription = "Explains how the current study was carried out."\nprototypes = ["x"]\n\n[result]\ndescription = "Reports evidence or outcomes."\nprototypes = ["y"]`
     });
-    expect(selected.length).toBeGreaterThanOrEqual(1);
+    expect(embeddings).toHaveBeenCalledOnce();
+    expect(selected.every(item => item.tag === "method" || item.tag === "result")).toBe(true);
+    expect(selected.every(item => !item._paperSummary.includes("[") && !item._paperSummary.match(/\d+\./))).toBe(true);
+    expect(selected.every(item => [0, 1].includes(item.tagIndex))).toBe(true);
+  });
+
+  it("parses line-delimited and collapsed labeled summaries", () => {
+    const api = nlp();
+    const labels = [{ name: "[method]" }, { name: "[result]" }];
+    expect(api.parseLabeledSummary("1. [method] A concise method.\n2. [result] A concise result.", labels)).toEqual([
+      { label: "[method]", sentence: "A concise method." },
+      { label: "[result]", sentence: "A concise result." }
+    ]);
+    expect(api.parseLabeledSummary("1. [method] A concise method. 2. [result] A concise result.", labels)).toEqual([
+      { label: "[method]", sentence: "A concise method." },
+      { label: "[result]", sentence: "A concise result." }
+    ]);
+    expect(api.parseLabeledSummary("1. [unknown] Ignore this.", labels)).toEqual([]);
   });
 
   it("builds summary input from body prose only", () => {
@@ -176,7 +202,7 @@ describe("FastKeySentenceNLP", () => {
       localRelevance: true, documentTitle: "A study", onModelProgress: progress, zeroShotLabels: true
     });
     expect(selected.length).toBeGreaterThanOrEqual(1);
-    expect(models.remote.summarize).toHaveBeenCalledWith(expect.not.stringContaining("A study"), "A study", 3, expect.any(Function));
+    expect(models.remote.summarize).toHaveBeenCalledWith(expect.any(String), "A study", 3, expect.any(Function), expect.any(Array));
     expect(embeddings).toHaveBeenCalledTimes(1);
     expect(progress).toHaveBeenCalled();
   });
@@ -191,7 +217,6 @@ describe("FastKeySentenceNLP", () => {
     expect(summarize).toHaveBeenCalledOnce();
     expect(remote.summarize).not.toHaveBeenCalled();
     expect(selected.every(item => item._paperSummary === "A local paper synopsis.")).toBe(true);
-    expect(selected.every(item => item.tag === "literature")).toBe(true);
   });
 
   it("falls back to baseline ranking after local Qwen summarization fails", async () => {

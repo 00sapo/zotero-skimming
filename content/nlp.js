@@ -323,6 +323,25 @@ var FastKeySentenceNLP = (() => {
     return vectors.map((vec, i) => vectorCosine(vec, summaryEmbedding, norms[i], summaryNorm));
   }
 
+  function cleanSummarySentence(text) {
+    return normalizeText(String(text || "")
+      .replace(/^\s*\d+\.\s*/, "")
+      .replace(/^\s*\[[a-z][a-z0-9-]*\]\s*/i, "")
+      .replace(/^\s*/, ""));
+  }
+
+  function parseLabeledSummary(summaryText, labels = []) {
+    const validLabels = new Set(labels.map(label => label.name));
+    const entries = [];
+    const pattern = /(?:^|\s)\d+\.\s*\[([a-z][a-z0-9-]*)\]\s*(.*?)(?=\s+\d+\.\s*\[[a-z][a-z0-9-]*\]|$)/gis;
+    for (const match of String(summaryText || "").matchAll(pattern)) {
+      const label = `[${match[1]}]`;
+      const sentence = cleanSummarySentence(match[2]);
+      if (sentence && (!validLabels.size || validLabels.has(label))) entries.push({ label, sentence });
+    }
+    return entries;
+  }
+
   function analyze(sentences, count) {
     const filtered = sentences.filter(sentence => !isNoise(sentence));
     const { vectors, norms } = scoreSparse(filtered, count);
@@ -342,9 +361,10 @@ var FastKeySentenceNLP = (() => {
     const filtered = sentences.filter(sentence => !isNoise(sentence));
     if (!filtered.length) return [];
 
+    const labelsEnabled = options.zeroShotLabels === true;
     const useLocalSummary = options.summarySource === "local";
     const useLocalRelevance = options.localRelevance === true;
-    const useLocalModels = useLocalSummary || useLocalRelevance;
+    const useLocalModels = useLocalSummary || useLocalRelevance || labelsEnabled;
     if (useLocalModels && typeof FastKeySentenceModels === "undefined") {
       throw new Error("The transformer model manager was not loaded.");
     }
@@ -357,6 +377,8 @@ var FastKeySentenceNLP = (() => {
         message: "Transformer inference is unavailable. Using the baseline ranker."
       });
     }
+
+    const labels = labelsEnabled ? FastKeySentenceZeroShot.parseConfig(options.zeroShotConfig || FastKeySentenceZeroShot.DEFAULT_CONFIG) : [];
 
     // 1. Summarize via the selected source
     options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
@@ -372,7 +394,8 @@ var FastKeySentenceNLP = (() => {
             {
               mapReduce: options.mapReduce === true,
               mapReduceSentences: options.mapReduceSentences,
-              sentenceCount: Math.max(3, Math.round(count * 1.5))
+              sentenceCount: Math.max(3, Math.round(count * 1.5)),
+              labels
             }
           );
         }
@@ -391,9 +414,14 @@ var FastKeySentenceNLP = (() => {
         paperText,
         options.documentTitle || "",
         count,
-        event => options.onModelProgress?.({ ...event, operation: "summarization" })
+        event => options.onModelProgress?.({ ...event, operation: "summarization" }),
+        labels
       );
     }
+
+    const summaryEntries = labelsEnabled ? parseLabeledSummary(summary, labels) : [];
+    const summaryLabelMap = new Map(summaryEntries.map(entry => [entry.sentence, labels.find(label => label.name === entry.label)]));
+    if (summaryEntries.length) summary = summaryEntries.map(entry => entry.sentence).join("\n");
 
     // 2. Score sparse baseline, then apply dense summary relevance if embeddings are available.
     const summaryScores = summarySimilaritySpares(filtered, summary);
@@ -404,10 +432,6 @@ var FastKeySentenceNLP = (() => {
       const embedFn = options.summarySource === "local" || !useRemoteEmbed
         ? FastKeySentenceModels.embeddings
         : FastKeySentenceRemote.embeddings;
-      const withProgress = (texts, operation) => options.onModelProgress?.({
-        stage: Array.isArray(texts) && texts.length > 5 ? "preparing" : "inference",
-        operation
-      });
       try {
         options.onModelProgress?.({ stage: "preparing", operation: "summary-relevance" });
         const texts = filtered.map(sentence => sentence.text);
@@ -464,83 +488,53 @@ var FastKeySentenceNLP = (() => {
 
     const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length), summaryParts);
 
-    const doZeroShot = options.zeroShotLabels === true;
-    const dbg = typeof Services !== "undefined" ? msg => Services.console.logStringMessage(msg) : () => {};
-    dbg(`Zotero Skimming: tag-classification entry — selected=${selected.length} zeroShotLabels=${doZeroShot} summarySource=${options.summarySource || "local"}`);
-    if (doZeroShot && selected.length) {
+    if (labelsEnabled && selected.length) {
       try {
         options.onModelProgress?.({ stage: "preparing", operation: "tag-classification" });
-
-        const labels = FastKeySentenceZeroShot.parseConfig(options.zeroShotConfig || FastKeySentenceZeroShot.DEFAULT_CONFIG);
-        const labelDescs = new Map(labels.map(l => [l.name, l.description]));
-        dbg(`Zotero Skimming: tag-classification — ${labels.length} labels parsed: ${labels.map(l => l.name).join(", ")}`);
-
+        if (!summaryEntries.length) throw new Error("No labeled summary sentences were returned.");
         const remoteAvailable = typeof FastKeySentenceRemote?.embeddings === "function";
         const useRemoteClassify = options.summarySource === "remote" && remoteAvailable;
         const primaryEmbed = useRemoteClassify ? FastKeySentenceRemote.embeddings : FastKeySentenceModels.embeddings;
         const fallbackEmbed = useRemoteClassify ? FastKeySentenceModels.embeddings : (remoteAvailable ? FastKeySentenceRemote.embeddings : null);
-        dbg(`Zotero Skimming: tag-classification — embed source: ${useRemoteClassify ? "remote" : "local"}, fallback: ${fallbackEmbed ? "available" : "none"}`);
-
-        const embeddingModel = {
-          embed: async (texts) => {
-            try {
-              return await primaryEmbed(texts,
-                event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
-            }
-            catch (primaryError) {
-              if (!fallbackEmbed) throw primaryError;
-              options.onModelProgress?.({
-                stage: "unavailable",
-                operation: "tag-classification",
-                message: `Primary embedding failed; trying fallback. ${primaryError.message || primaryError}`
-              });
-              return await fallbackEmbed(texts,
-                event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
+        const texts = [...summaryLabelMap.keys(), ...selected.map(sentence => sentence.text)];
+        let vectors;
+        try {
+          vectors = await primaryEmbed(texts, event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
+        }
+        catch (primaryError) {
+          if (!fallbackEmbed) throw primaryError;
+          options.onModelProgress?.({
+            stage: "unavailable",
+            operation: "tag-classification",
+            message: `Primary embedding failed; trying fallback. ${primaryError.message || primaryError}`
+          });
+          vectors = await fallbackEmbed(texts, event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
+        }
+        const summaryVectors = vectors.slice(0, summaryEntries.length);
+        const sourceVectors = vectors.slice(summaryEntries.length);
+        const summaryNorms = summaryVectors.map(denseNorm);
+        const sourceNorms = sourceVectors.map(denseNorm);
+        for (let i = 0; i < selected.length; i++) {
+          let bestIndex = 0;
+          let bestScore = -1;
+          for (let j = 0; j < summaryEntries.length; j++) {
+            const score = vectorCosine(sourceVectors[i], summaryVectors[j], sourceNorms[i], summaryNorms[j]);
+            if (score > bestScore) {
+              bestScore = score;
+              bestIndex = j;
             }
           }
-        };
-
-        const classifier = await FastKeySentenceZeroShot.createClassifier({
-          embeddingModel,
-          config: options.zeroShotConfig
-        });
-        dbg(`Zotero Skimming: tag-classification — classifier created, ${classifier.labels.length} classifier labels`);
-
-        const byOrder = new Map();
-        for (const s of filtered) byOrder.set(s.order, s);
-        const sortedOrders = [...byOrder.keys()].sort((a, b) => a - b);
-        const orderToPos = new Map(sortedOrders.map((o, i) => [o, i]));
-
-        let classified = 0;
-        for (const sentence of selected) {
-          const pos = orderToPos.get(sentence.order);
-          if (pos === undefined) { dbg(`Zotero Skimming: tag-classification — sentence order=${sentence.order} not in orderToPos, skipping`); continue; }
-
-          const prev = [sortedOrders[pos - 2], sortedOrders[pos - 1]]
-            .filter(o => byOrder.has(o))
-            .map(o => byOrder.get(o).text);
-          const next = [sortedOrders[pos + 1], sortedOrders[pos + 2]]
-            .filter(o => byOrder.has(o))
-            .map(o => byOrder.get(o).text);
-
-          const contextText = `Previous: ${prev.join(" ")}\nTarget: ${sentence.text}\nNext: ${next.join(" ")}`;
-
-          const result = await classifier.classify(sentence.text, contextText);
-          const labelName = result.predicted.replace(/^\[|\]$/g, "");
-          sentence.tag = labelName;
-          sentence.tagDescription = labelDescs.get(result.predicted) || "";
-          sentence.tagIndex = classifier.labels.findIndex(l => l.name === result.predicted);
-          sentence.tagScore = result.scores[result.predicted] || 0;
-          classified++;
-          dbg(`Zotero Skimming: tag-classification — sentence #${classified} tag=${sentence.tag} tagIndex=${sentence.tagIndex} predicted=${result.predicted} margin=${result.margin?.toFixed(3)}`);
+          const match = summaryEntries[bestIndex];
+          const label = summaryLabelMap.get(match.sentence);
+          selected[i].tag = match.label.replace(/^\[|\]$/g, "");
+          selected[i].tagDescription = label?.description || "";
+          selected[i].tagIndex = labels.indexOf(label);
+          selected[i].tagScore = bestScore;
         }
-        dbg(`Zotero Skimming: tag-classification — done: ${classified}/${selected.length} sentences tagged`);
       }
       catch (error) {
         const msg = error?.message || String(error);
-        const stack = error?.stack || "";
-        if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: tag-classification FAILED — ${msg}\n${stack}`);
-        Zotero.debug(`Zotero Skimming: tag classification failed — ${msg}\n${stack}`);
+        if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: tag classification failed — ${msg}`);
         options.onModelProgress?.({
           stage: "unavailable",
           operation: "tag-classification",
@@ -549,7 +543,6 @@ var FastKeySentenceNLP = (() => {
       }
     }
 
-    // Attach summary to each selected sentence for downstream use
     selected.forEach(s => { s._paperSummary = summary; });
     return selected;
   }
@@ -562,6 +555,7 @@ var FastKeySentenceNLP = (() => {
     isReferenceEntry,
     isNoise,
     paperTextForSummary,
+    parseLabeledSummary,
 
     analyze,
     analyzeAsync
