@@ -34,15 +34,6 @@ function nlp(models) {
         );
       }
       return labels;
-    },
-    async createClassifier(options) {
-      const labels = this.parseConfig(options.config || this.DEFAULT_CONFIG);
-      return {
-        labels: labels.map(l => ({ name: l.name, color: l.color })),
-        async classify(targetText, contextText) {
-          return { predicted: labels[0].name, scores: { [labels[0].name]: 0.5 }, margin: 1, runnerUp: null };
-        }
-      };
     }
   };
   return loadScript("content/nlp.js", ctx).FastKeySentenceNLP;

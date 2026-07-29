@@ -18,15 +18,6 @@ function annotator(globals = {}) {
           );
         }
         return labels;
-      },
-      async createClassifier(options) {
-        const labels = options.config ? this.parseConfig(options.config) : [];
-        return {
-          labels: labels.map(l => ({ name: l.name, color: l.color })),
-          async classify(targetText, contextText) {
-            return { predicted: labels[0]?.name || "[literature]", scores: {}, margin: 1, runnerUp: null };
-          }
-        };
       }
     }
   };
