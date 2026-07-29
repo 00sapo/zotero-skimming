@@ -165,13 +165,17 @@ FastOfflineKeySentenceAnnotator = {
       return;
     }
     this.showSettingsOverlay(window, this.getConfiguredSettings(), body).then(async result => {
-      if (!result) return;
-      if (!this.isValidSettings(result)) throw new Error("Invalid annotation settings.");
-      this.saveSettings(result);
-      if (result.action === "summarize") await this.summarizeForSelection(window, result);
-      else if (result.action === "delete") await this.deleteSkimAnnotationsForSelection(window);
-      else await this.runForSelection(window, result);
-      this.renderSidebar(body, window, item, tabType);
+      try {
+        if (!result) return;
+        if (!this.isValidSettings(result)) throw new Error("Invalid annotation settings.");
+        this.saveSettings(result);
+        if (result.action === "summarize") await this.summarizeForSelection(window, result);
+        else if (result.action === "delete") await this.deleteSkimAnnotationsForSelection(window);
+        else await this.runForSelection(window, result);
+      }
+      finally {
+        this.renderSidebar(body, window, item, tabType);
+      }
     }).catch(error => {
       this.log(error.stack || String(error));
       Services.prompt.alert(window, "Zotero Skimming", error.message || String(error));
