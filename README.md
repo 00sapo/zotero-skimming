@@ -8,8 +8,8 @@ Say bye-bye to confused AI-generated summaries, abstract sentences, and hallucin
 First skim, then read. Skimming is also known as _"orientation reading"_.
 
 Requires Zotero 9 and one of:
-- Ollama for efficient fully local processing
-- OpenAI-compatible API key (e.g. LiteLLM, Deepseek, Openrouter, OpenAI, etc.) if you have low budget hardware
+- Ollama for efficient fully local processing on most consumer laptops
+- OpenAI-compatible API key (e.g. LiteLLM, Deepseek, Openrouter, OpenAI, etc.) if you have very low budget hardware
 
 <img src="assets/screenshot.png" alt="Screenshot of a paper annotated" width="400" />
 
@@ -21,8 +21,8 @@ Requires Zotero 9 and one of:
 4. Select the downloaded `.xpi` and restart Zotero if prompted.
 5. **Optional**: Install Ollama from https://ollama.com/download
    Ollama is needed to efficiently run the LLM models locally. You can alternatively use a remote
-   API endpoint. For Google and Deepseek, consider using a local LiteLLM gateway, which offers
-   OpenAI-compatible API.
+   API endpoint (DeepSeek recommended). For Google and Anthropic, consider using a local LiteLLM gateway, which offers
+   OpenAI-compatible API. 
 
 The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native positioned highlight annotations.
 
@@ -80,9 +80,9 @@ Selected annotations are restored to PDF reading order and mapped back to their 
 
 Install Ollama separately, then use **Download Ollama models** to upload these Hugging Face GGUF files into Ollama's local store through its blob API.
 
-| Stage | Model |
+| Stage | Default Model |
 |-------|-------|
-| Summarization | `Qwen/Qwen2.5-0.5B-Instruct-GGUF` (Q4_K_M) |
+| Summarization | `Qwen/Qwen3.5-2B-Instruct-GGUF` (Q8_0) |
 | Semantic relevance | `Qwen/Qwen3-Embedding-0.6B-GGUF` (Q8_0) |
 
 `model-identifiers.json` records the imported model names and source repositories. `scoring-config.json` contains relevance prompts plus scoring and selection weights.
