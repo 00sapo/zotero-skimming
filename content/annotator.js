@@ -67,9 +67,9 @@ FastOfflineKeySentenceAnnotator = {
   settingsDefaults: Object.freeze({
     compressionRatio: 10,
     localRelevance: false,
-    zeroShotLabels: false,
+    summaryLabels: false,
     ollamaCommand: "/usr/bin/ollama",
-    zeroShotConfig: FastKeySentenceZeroShot.DEFAULT_CONFIG,
+    summaryLabelConfigV2: FastKeySentenceSummaryLabels.DEFAULT_CONFIG,
     remoteEndpoint: "",
     remoteApiKey: "",
     summarySource: "local",
@@ -85,9 +85,9 @@ FastOfflineKeySentenceAnnotator = {
     const settings = {
       compressionRatio: Number.isFinite(compressionRatio) && compressionRatio >= 1.5 ? compressionRatio : defaults.compressionRatio,
       localRelevance: Zotero.Prefs.get(this.prefBranch + "localRelevance", true) ?? defaults.localRelevance,
-      zeroShotLabels: Zotero.Prefs.get(this.prefBranch + "zeroShotLabels", true) ?? defaults.zeroShotLabels,
+      summaryLabels: Zotero.Prefs.get(this.prefBranch + "zeroShotLabels", true) ?? defaults.summaryLabels,
       ollamaCommand: Zotero.Prefs.get(this.prefBranch + "ollamaCommand", true) || defaults.ollamaCommand,
-      zeroShotConfig: FastKeySentenceZeroShotConfig || defaults.zeroShotConfig,
+      summaryLabelConfigV2: FastKeySentenceSummaryLabelConfigV2 || defaults.summaryLabelConfigV2,
       remoteEndpoint: Zotero.Prefs.get(this.prefBranch + "remoteEndpoint", true) || defaults.remoteEndpoint,
       remoteApiKey: Zotero.Prefs.get(this.prefBranch + "remoteApiKey", true) || defaults.remoteApiKey,
       summarySource: Zotero.Prefs.get(this.prefBranch + "summarySource", true) || defaults.summarySource,
@@ -97,7 +97,7 @@ FastOfflineKeySentenceAnnotator = {
       embeddingModel: Zotero.Prefs.get(this.prefBranch + "embeddingModel", true) || defaults.embeddingModel
     };
     settings.localRelevance = settings.localRelevance === true;
-    settings.zeroShotLabels = settings.zeroShotLabels === true;
+    settings.summaryLabels = settings.summaryLabels === true;
     settings.mapReduce = settings.mapReduce === true;
     settings.summarySource = settings.summarySource === "local" ? "local" : "remote";
     return this.isValidSettings(settings) ? settings : { ...defaults };
@@ -107,13 +107,13 @@ FastOfflineKeySentenceAnnotator = {
     return Number.isFinite(settings.compressionRatio)
         && settings.compressionRatio >= 1.5
         && (!settings.mapReduce || (Number.isInteger(settings.mapReduceSentences) && settings.mapReduceSentences >= 2))
-        && ["localRelevance", "mapReduce", "zeroShotLabels"]
+        && ["localRelevance", "mapReduce", "summaryLabels"]
           .every(key => typeof settings[key] === "boolean")
         && ["local", "remote"].includes(settings.summarySource)
         && typeof settings.ollamaCommand === "string"
         && settings.ollamaCommand.startsWith("/")
-        && typeof settings.zeroShotConfig === "string"
-        && settings.zeroShotConfig.trim().length > 0
+        && typeof settings.summaryLabelConfigV2 === "string"
+        && settings.summaryLabelConfigV2.trim().length > 0
         && typeof settings.remoteEndpoint === "string"
         && typeof settings.remoteApiKey === "string"
         && typeof settings.summaryModel === "string"
@@ -123,20 +123,20 @@ FastOfflineKeySentenceAnnotator = {
   saveSettings(settings) {
     Zotero.Prefs.set(this.prefBranch + "compressionRatio", settings.compressionRatio, true);
     Zotero.Prefs.set(this.prefBranch + "localRelevance", settings.localRelevance, true);
-    Zotero.Prefs.set(this.prefBranch + "zeroShotLabels", settings.zeroShotLabels, true);
+    Zotero.Prefs.set(this.prefBranch + "zeroShotLabels", settings.summaryLabels, true);
     Zotero.Prefs.set(this.prefBranch + "ollamaCommand", (settings.ollamaCommand || this.settingsDefaults.ollamaCommand).trim(), true);
-    Zotero.Prefs.set(this.prefBranch + "zeroShotConfig", "", true);
-    if (FastKeySentenceZeroShotConfigPath) {
-      const content = (settings.zeroShotConfig || this.settingsDefaults.zeroShotConfig).trim();
+    Zotero.Prefs.set(this.prefBranch + "summaryLabelConfigV2", "", true);
+    if (FastKeySentenceSummaryLabelConfigV2Path) {
+      const content = (settings.summaryLabelConfigV2 || this.settingsDefaults.summaryLabelConfigV2).trim();
       // Validate before persisting
       try {
-        FastKeySentenceZeroShot.parseConfig(content);
+        FastKeySentenceSummaryLabels.parseConfig(content);
       } catch (e) {
-        this.log(`Refusing to save invalid zero-shot config: ${e.message || e}`);
+        this.log(`Refusing to save invalid summary label config: ${e.message || e}`);
         return;
       }
-      FastKeySentenceZeroShotConfig = content;
-      IOUtils.writeUTF8(FastKeySentenceZeroShotConfigPath, content).catch(() => {});
+      FastKeySentenceSummaryLabelConfigV2 = content;
+      IOUtils.writeUTF8(FastKeySentenceSummaryLabelConfigV2Path, content).catch(() => {});
     }
     Zotero.Prefs.set(this.prefBranch + "remoteEndpoint", settings.remoteEndpoint || "", true);
     Zotero.Prefs.set(this.prefBranch + "remoteApiKey", settings.remoteApiKey || "", true);
@@ -286,30 +286,30 @@ FastOfflineKeySentenceAnnotator = {
 
     const checks = {};
 
-    const zeroShotCheck = create("input", {
-      id: "zero-shot-labels",
+    const summaryLabelsCheck = create("input", {
+      id: "summary-labels",
       type: "checkbox",
-      checked: initialSettings.zeroShotLabels === true,
+      checked: initialSettings.summaryLabels === true,
       style: "margin: 12px 3px 0 0"
     });
-    checks["zero-shot-labels"] = zeroShotCheck;
-    const zeroShotRow = create("div", { style: "margin-top: 12px" });
-    zeroShotRow.append(
-      zeroShotCheck,
-      create("label", { htmlFor: "zero-shot-labels", style: "font-weight: 500; line-height: 1.35" }, "Enable zero-shot label classification [experimental]")
+    checks["summary-labels"] = summaryLabelsCheck;
+    const summaryLabelsRow = create("div", { style: "margin-top: 12px" });
+    summaryLabelsRow.append(
+      summaryLabelsCheck,
+      create("label", { htmlFor: "summary-labels", style: "font-weight: 500; line-height: 1.35" }, "Classify highlights from labeled summary [experimental]")
     );
-    nlpSection.append(zeroShotRow);
+    nlpSection.append(summaryLabelsRow);
 
-    const zeroShotConfigInput = create("textarea", {
-      id: "zero-shot-config",
-      value: initialSettings.zeroShotConfig,
+    const summaryLabelConfigV2Input = create("textarea", {
+      id: "summary-label-config-v2",
+      value: initialSettings.summaryLabelConfigV2,
       rows: "14",
       style: "width: 100%; box-sizing: border-box; resize: vertical; min-height: 200px; padding: 6px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit; font-family: monospace; font-size: 0.85rem; line-height: 1.35; white-space: pre; tab-size: 2"
     });
-    inputs["zero-shot-config"] = zeroShotConfigInput;
+    inputs["summary-label-config-v2"] = summaryLabelConfigV2Input;
     nlpSection.append(
-      create("label", { htmlFor: "zero-shot-config", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Zero-shot label definitions (TOML)"),
-      zeroShotConfigInput,
+      create("label", { htmlFor: "summary-label-config-v2", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Summary label definitions (TOML)"),
+      summaryLabelConfigV2Input,
       create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Edit label descriptions and colors used in the labeled summary.")
     );
     const relevanceRow = create("div", {
@@ -534,9 +534,9 @@ FastOfflineKeySentenceAnnotator = {
     const readSettings = () => ({
       compressionRatio: Number(inputs["compression-ratio"].value),
       localRelevance: checks["local-relevance"].checked,
-      zeroShotLabels: checks["zero-shot-labels"].checked,
+      summaryLabels: checks["summary-labels"].checked,
       ollamaCommand: inputs["ollama-command"].value.trim(),
-      zeroShotConfig: inputs["zero-shot-config"].value.trim(),
+      summaryLabelConfigV2: inputs["summary-label-config-v2"].value.trim(),
       remoteEndpoint: inputs["remote-endpoint"].value.trim(),
       remoteApiKey: inputs["remote-api-key"].value.trim(),
       summarySource: inputs["summary-source"].value,
@@ -640,10 +640,10 @@ FastOfflineKeySentenceAnnotator = {
         }
       });
 
-      const validateZeroShot = (text) => {
+      const validateSummaryLabels = (text) => {
         if (!text || !text.trim()) return "Config must not be empty.";
         try {
-          FastKeySentenceZeroShot.parseConfig(text);
+          FastKeySentenceSummaryLabels.parseConfig(text);
           return null;
         } catch (e) {
           return e.message || String(e);
@@ -675,10 +675,10 @@ FastOfflineKeySentenceAnnotator = {
           inputs["compression-ratio"].focus();
           return;
         }
-        const zsError = validateZeroShot(settings.zeroShotConfig);
+        const zsError = validateSummaryLabels(settings.summaryLabelConfigV2);
         if (zsError) {
-          error.textContent = `Zero-shot config invalid: ${zsError}`;
-          inputs["zero-shot-config"].focus();
+          error.textContent = `Summary label config invalid: ${zsError}`;
+          inputs["summary-label-config-v2"].focus();
           return;
         }
         finish(settings);
@@ -690,15 +690,15 @@ FastOfflineKeySentenceAnnotator = {
         });
       }
 
-      // Live zero-shot config validation
-      zeroShotConfigInput.addEventListener("input", () => {
-        const zsError = validateZeroShot(zeroShotConfigInput.value);
+      // Live summary label config validation
+      summaryLabelConfigV2Input.addEventListener("input", () => {
+        const zsError = validateSummaryLabels(summaryLabelConfigV2Input.value);
         if (zsError) {
-          zeroShotConfigInput.style.borderColor = "#c62828";
-          zeroShotConfigInput.title = zsError;
+          summaryLabelConfigV2Input.style.borderColor = "#c62828";
+          summaryLabelConfigV2Input.title = zsError;
         } else {
-          zeroShotConfigInput.style.borderColor = "";
-          zeroShotConfigInput.title = "";
+          summaryLabelConfigV2Input.style.borderColor = "";
+          summaryLabelConfigV2Input.title = "";
         }
       });
 
@@ -1001,7 +1001,7 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   modelProgressHandler(line, settings, stageLines = null) {
-    const enabled = [settings.localRelevance && "summary-relevance", settings.localRelevance && "keyword-relevance", settings.zeroShotLabels && "tag-classification"].filter(Boolean);
+    const enabled = [settings.localRelevance && "summary-relevance", settings.localRelevance && "keyword-relevance", settings.summaryLabels && "tag-classification"].filter(Boolean);
     const ranges = new Map();
     const width = enabled.length ? 25 / enabled.length : 25;
     enabled.forEach((operation, index) => {
@@ -1127,15 +1127,15 @@ FastOfflineKeySentenceAnnotator = {
           "summary-relevance": new progress.ItemProgress(this.iconURI, "Summary relevance"),
           "keyword-relevance": new progress.ItemProgress(this.iconURI, "Keyword relevance"),
         } : {}),
-        ...(configuredSettings.zeroShotLabels ? {
+        ...(configuredSettings.summaryLabels ? {
           "tag-classification": new progress.ItemProgress(this.iconURI, "Tag classification")
         } : {})
       };
       for (const stageLine of Object.values(stageLines)) stageLine.setProgress(0);
       const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
         localRelevance: configuredSettings.localRelevance,
-        zeroShotLabels: configuredSettings.zeroShotLabels,
-        zeroShotConfig: configuredSettings.zeroShotConfig,
+        summaryLabels: configuredSettings.summaryLabels,
+        summaryLabelConfigV2: configuredSettings.summaryLabelConfigV2,
         summarySource: configuredSettings.summarySource,
         mapReduce: configuredSettings.mapReduce,
         mapReduceSentences: configuredSettings.mapReduceSentences,

@@ -1,8 +1,8 @@
 var FastOfflineKeySentenceAnnotator;
 var FastKeySentenceModels;
 var FastKeySentenceScoringConfig;
-var FastKeySentenceZeroShotConfig;
-var FastKeySentenceZeroShotConfigPath;
+var FastKeySentenceSummaryLabelConfigV2;
+var FastKeySentenceSummaryLabelConfigV2Path;
 
 function log(message) {
   Zotero.debug("Zotero Skimming: " + message);
@@ -16,23 +16,23 @@ async function startup({ id, version, rootURI }) {
   const scoringResponse = await fetch(rootURI + "scoring-config.json");
   if (!scoringResponse.ok) throw new Error(`Could not load scoring configuration (${scoringResponse.status})`);
   FastKeySentenceScoringConfig = Object.freeze(await scoringResponse.json());
-  Services.scriptloader.loadSubScript(rootURI + "content/zero-shot-classifier.js");
+  Services.scriptloader.loadSubScript(rootURI + "content/summary-label-config.js");
 
-  FastKeySentenceZeroShotConfigPath = PathUtils.join(PathUtils.profileDir, "zotero-skimming", "zero-shot-config.toml");
-  await IOUtils.makeDirectory(PathUtils.parent(FastKeySentenceZeroShotConfigPath), { ignoreExisting: true });
-  if (!await IOUtils.exists(FastKeySentenceZeroShotConfigPath)) {
-    await IOUtils.writeUTF8(FastKeySentenceZeroShotConfigPath, FastKeySentenceZeroShot.DEFAULT_CONFIG);
+  FastKeySentenceSummaryLabelConfigV2Path = PathUtils.join(PathUtils.profileDir, "zotero-skimming", "summary-label-config-v2.toml");
+  await IOUtils.makeDirectory(PathUtils.parent(FastKeySentenceSummaryLabelConfigV2Path), { ignoreExisting: true });
+  if (!await IOUtils.exists(FastKeySentenceSummaryLabelConfigV2Path)) {
+    await IOUtils.writeUTF8(FastKeySentenceSummaryLabelConfigV2Path, FastKeySentenceSummaryLabels.DEFAULT_CONFIG);
   }
-  FastKeySentenceZeroShotConfig = new TextDecoder().decode(await IOUtils.read(FastKeySentenceZeroShotConfigPath));
+  FastKeySentenceSummaryLabelConfigV2 = new TextDecoder().decode(await IOUtils.read(FastKeySentenceSummaryLabelConfigV2Path));
 
-  // Validate config at startup; fall back to DEFAULT_CONFIG on parse errors
+  // Validate the v2 summary-label config; retired config files are intentionally ignored.
   try {
-    FastKeySentenceZeroShot.parseConfig(FastKeySentenceZeroShotConfig);
+    FastKeySentenceSummaryLabels.parseConfig(FastKeySentenceSummaryLabelConfigV2);
   } catch (error) {
-    log(`Zero-shot config parse error — falling back to default. ${error.message || error}`);
-    if (typeof Services?.console?.logStringMessage === "function") Services.console.logStringMessage(`Zotero Skimming: zero-shot-config.toml is invalid — ${error.message || error}. Using built-in defaults.`);
-    FastKeySentenceZeroShotConfig = FastKeySentenceZeroShot.DEFAULT_CONFIG;
-    await IOUtils.writeUTF8(FastKeySentenceZeroShotConfigPath, FastKeySentenceZeroShotConfig).catch(() => {});
+    log(`Summary label config v2 parse error — falling back to default. ${error.message || error}`);
+    if (typeof Services?.console?.logStringMessage === "function") Services.console.logStringMessage(`Zotero Skimming: summary-label-config-v2.toml is invalid — ${error.message || error}. Using built-in defaults.`);
+    FastKeySentenceSummaryLabelConfigV2 = FastKeySentenceSummaryLabels.DEFAULT_CONFIG;
+    await IOUtils.writeUTF8(FastKeySentenceSummaryLabelConfigV2Path, FastKeySentenceSummaryLabelConfigV2).catch(() => {});
   }
 
   Services.scriptloader.loadSubScript(rootURI + "content/nlp.js");

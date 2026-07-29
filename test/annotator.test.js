@@ -2,34 +2,34 @@ import { describe, expect, it, vi } from "vitest";
 import { loadScript } from "./helpers.js";
 
 function annotator(globals = {}) {
-  const zeroShotCtx = {
-    FastKeySentenceZeroShot: {
+  const summaryLabelsCtx = {
+    FastKeySentenceSummaryLabels: {
       DEFAULT_CONFIG: "# config",
       parseConfig(text) {
         if (!text || !text.trim()) return [];
         const labels = [];
         for (const line of text.split(/\r?\n/)) {
           const m = line.match(/^\[([a-z][a-z0-9-]*)\]$/i);
-          if (m) labels.push({ name: `[${m[1]}]`, description: `${m[1]} description`, prototypes: ["prototype"], contextPrototypes: ["context"], color: null });
+          if (m) labels.push({ name: `[${m[1]}]`, description: `${m[1]} description`, color: null });
         }
         if (!labels.length) {
           ["literature","method","goal","result","conclusion","contribution","take-away"].forEach(n =>
-            labels.push({ name: `[${n}]`, description: `${n} description`, prototypes: ["prototype"], contextPrototypes: ["context"], color: null })
+            labels.push({ name: `[${n}]`, description: `${n} description`, color: null })
           );
         }
         return labels;
       }
     }
   };
-  const nlpContext = loadScript("content/nlp.js", zeroShotCtx);
+  const nlpContext = loadScript("content/nlp.js", summaryLabelsCtx);
   const defaultModels = { init: vi.fn(), shutdown: vi.fn(), summarize: async () => "A test summary.", embeddings: async () => [[1, 0], [0, 1]], testOllama: async () => {}, supportsInference: () => true, setModelOverrides: vi.fn(), appendToLog: vi.fn(), SUMMARY_MODEL: "test-summary", EMBEDDING_MODEL: "test-embed" };
   return loadScript("content/annotator.js", {
     FastKeySentenceNLP: nlpContext.FastKeySentenceNLP,
     FastKeySentenceModels: defaultModels,
     FastKeySentenceRemote: { DEFAULT_ENDPOINT: "https://api.example.com", DEFAULT_MODEL: "test-model", summarize: async () => "A test summary.", getConfig: () => ({ endpoint: "", apiKey: "", model: "" }) },
-    FastKeySentenceZeroShot: zeroShotCtx.FastKeySentenceZeroShot,
-    FastKeySentenceZeroShotConfig: globals.FastKeySentenceZeroShotConfig || "# config",
-    FastKeySentenceZeroShotConfigPath: globals.FastKeySentenceZeroShotConfigPath || "/tmp/zero-shot-config.toml",
+    FastKeySentenceSummaryLabels: summaryLabelsCtx.FastKeySentenceSummaryLabels,
+    FastKeySentenceSummaryLabelConfigV2: globals.FastKeySentenceSummaryLabelConfigV2 || "# config",
+    FastKeySentenceSummaryLabelConfigV2Path: globals.FastKeySentenceSummaryLabelConfigV2Path || "/tmp/summary-label-config-v2.toml",
     IOUtils: globals.IOUtils || { writeUTF8: vi.fn(async () => {}), makeDirectory: vi.fn(async () => {}), exists: vi.fn(async () => false), read: vi.fn(async () => new Uint8Array()) },
     Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, ItemPaneManager: { registerSection: vi.fn(() => 1), unregisterSection: vi.fn() } },
     ...globals

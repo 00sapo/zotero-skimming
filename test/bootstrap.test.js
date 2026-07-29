@@ -1,17 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadScript } from "./helpers.js";
 
-function bootstrap({ windows = [] } = {}) {
+function bootstrap({ windows = [], configExists = true } = {}) {
   const models = { init: vi.fn(), shutdown: vi.fn() };
   const annotator = { init: vi.fn(), addToWindow: vi.fn(), removeFromWindow: vi.fn() };
   const Zotero = { debug: vi.fn(), getMainWindows: vi.fn(() => windows), Prefs: { get: vi.fn(() => "") } };
   const defaults = { setIntPref: vi.fn(), setBoolPref: vi.fn(), setStringPref: vi.fn() };
   const Services = { scriptloader: { loadSubScript: vi.fn() }, prefs: { getDefaultBranch: vi.fn(() => defaults) } };
-  const configFileContent = "# dummy TOML\n[test]\ndescription = \"T\"\nprototypes = [\"P\"]\ncontext-prototypes = [\"C\"]";
-  const PathUtils = { join: vi.fn(() => "/profile/zotero-skimming/zero-shot-config.toml"), parent: vi.fn(() => "/profile/zotero-skimming"), profileDir: "/profile" };
+  const configFileContent = "# dummy TOML\n[test]\ndescription = \"T\"";
+  const PathUtils = { join: vi.fn(() => "/profile/zotero-skimming/summary-label-config-v2.toml"), parent: vi.fn(() => "/profile/zotero-skimming"), profileDir: "/profile" };
   const IOUtils = {
     makeDirectory: vi.fn(async () => {}),
-    exists: vi.fn(async () => true),
+    exists: vi.fn(async () => configExists),
     read: vi.fn(async () => new TextEncoder().encode(configFileContent)),
     writeUTF8: vi.fn(async () => {})
   };
@@ -22,16 +22,23 @@ function bootstrap({ windows = [] } = {}) {
     IOUtils,
     TextEncoder,
     TextDecoder,
-    FastKeySentenceZeroShot: { DEFAULT_CONFIG: configFileContent },
+    FastKeySentenceSummaryLabels: { DEFAULT_CONFIG: configFileContent, parseConfig: vi.fn(() => []) },
     FastKeySentenceNLP: {},
     FastKeySentenceModels: models,
     FastOfflineKeySentenceAnnotator: annotator,
     fetch: vi.fn(async () => ({ ok: true, json: async () => ({}) }))
   });
-  return { context, models, annotator, Zotero, Services };
+  return { context, models, annotator, Zotero, Services, PathUtils, IOUtils };
 }
 
 describe("bootstrap", () => {
+  it("creates the v2 summary-label config instead of reading the retired namespace", async () => {
+    const { context, PathUtils, IOUtils } = bootstrap({ configExists: false });
+    await context.startup({ id: "addon@example.com", version: "1.2.3", rootURI: "resource://addon/" });
+    expect(PathUtils.join).toHaveBeenCalledWith("/profile", "zotero-skimming", "summary-label-config-v2.toml");
+    expect(IOUtils.writeUTF8).toHaveBeenCalledWith("/profile/zotero-skimming/summary-label-config-v2.toml", expect.stringContaining("[test]"));
+  });
+
   it("loads scripts, initializes modules, and registers existing Zotero windows", async () => {
     const validWindow = { ZoteroPane: {} };
     const { context, models, annotator, Services } = bootstrap({ windows: [validWindow, {}, null] });
@@ -39,7 +46,7 @@ describe("bootstrap", () => {
     await context.startup({ id: "addon@example.com", version: "1.2.3", rootURI: "resource://addon/" });
 
     expect(Services.scriptloader.loadSubScript.mock.calls.map(([url]) => url)).toEqual([
-      "resource://addon/content/zero-shot-classifier.js",
+      "resource://addon/content/summary-label-config.js",
       "resource://addon/content/nlp.js",
       "resource://addon/content/model-manager.js",
       "resource://addon/content/remote-llm.js",
@@ -72,7 +79,7 @@ describe("bootstrap", () => {
     const context = loadScript("bootstrap.js", {
       Zotero: { debug: vi.fn(), getMainWindows: vi.fn() },
       PathUtils: { join: vi.fn(() => "/x"), parent: vi.fn(() => "/x"), profileDir: "/x" },
-      IOUtils: { makeDirectory: vi.fn(async () => {}), exists: vi.fn(async () => true), read: vi.fn(async () => new TextEncoder().encode("[t]\ndescription=\"T\"\nprototypes=[\"P\"]")), writeUTF8: vi.fn(async () => {}) },
+      IOUtils: { makeDirectory: vi.fn(async () => {}), exists: vi.fn(async () => true), read: vi.fn(async () => new TextEncoder().encode("[t]\ndescription=\"T\"")), writeUTF8: vi.fn(async () => {}) },
       TextEncoder,
       TextDecoder,
       Services: { scriptloader: { loadSubScript: vi.fn() }, prefs: { getDefaultBranch: vi.fn(() => ({ setIntPref: vi.fn(), setBoolPref: vi.fn(), setStringPref: vi.fn() })) } }

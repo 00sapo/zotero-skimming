@@ -1,4 +1,4 @@
-/* global Zotero, FastKeySentenceModels, FastKeySentenceRemote, FastKeySentenceZeroShot */
+/* global Zotero, FastKeySentenceModels, FastKeySentenceRemote, FastKeySentenceSummaryLabels */
 
 var FastKeySentenceNLP = (() => {
   "use strict";
@@ -361,7 +361,7 @@ var FastKeySentenceNLP = (() => {
     const filtered = sentences.filter(sentence => !isNoise(sentence));
     if (!filtered.length) return [];
 
-    const labelsEnabled = options.zeroShotLabels === true;
+    const labelsEnabled = options.summaryLabels === true;
     const useLocalSummary = options.summarySource === "local";
     const useLocalRelevance = options.localRelevance === true;
     const useLocalModels = useLocalSummary || useLocalRelevance || labelsEnabled;
@@ -378,7 +378,7 @@ var FastKeySentenceNLP = (() => {
       });
     }
 
-    const labels = labelsEnabled ? FastKeySentenceZeroShot.parseConfig(options.zeroShotConfig || FastKeySentenceZeroShot.DEFAULT_CONFIG) : [];
+    const labels = labelsEnabled ? FastKeySentenceSummaryLabels.parseConfig(options.summaryLabelConfigV2 || FastKeySentenceSummaryLabels.DEFAULT_CONFIG) : [];
 
     // 1. Summarize via the selected source
     options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
