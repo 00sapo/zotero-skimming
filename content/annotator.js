@@ -21,88 +21,46 @@ FastOfflineKeySentenceAnnotator = {
 
   addToWindow(window) {
     if (!window?.document || this.windowState.has(window)) return;
-
     const doc = window.document;
-    const popup = doc.getElementById("zotero-itemmenu");
-    if (!popup) {
-      this.log("Item context menu not found in this window");
+    const paneManager = Zotero?.ItemPaneManager;
+    if (!paneManager?.registerSection) {
+      this.log("ItemPaneManager.registerSection not available in this window");
       return;
     }
-
-    const menuitem = doc.createXULElement("menuitem");
-    menuitem.id = "zotero-skimming-menuitem";
-    menuitem.setAttribute("class", "menuitem-iconic");
-    menuitem.setAttribute("image", this.iconURI);
-    menuitem.setAttribute("label", "Skim paper");
-
-    const deleteMenuitem = doc.createXULElement("menuitem");
-    deleteMenuitem.id = "zotero-skimming-delete-menuitem";
-    deleteMenuitem.setAttribute("class", "menuitem-iconic");
-    deleteMenuitem.setAttribute("image", this.iconURI);
-    deleteMenuitem.setAttribute("label", "Delete skim annotations");
-
-    // Delay opening the modal until the context menu has closed. Opening a
-    // child window directly from a XUL menu command is unreliable on some
-    // Zotero/Gecko builds.
-    const onCommand = () => {
-      window.setTimeout(() => {
-        this.openAnnotationDialog(window).catch(error => {
-          this.log(error.stack || String(error));
-          Services.prompt.alert(
-            window,
-            "Zotero Skimming",
-            error.message || String(error)
-          );
-        });
-      }, 75);
-    };
-
-    const onDeleteCommand = () => {
-      this.deleteSkimAnnotationsForSelection(window).catch(error => {
-        this.log(error.stack || String(error));
-        Services.prompt.alert(window, "Paper skim", error.message || String(error));
-      });
-    };
-
-    const onPopupShowing = () => {
-      try {
-        const selected = window.ZoteroPane?.getSelectedItems?.() || [];
-        const applicable = selected.some(item =>
-          item?.isPDFAttachment?.() || item?.isRegularItem?.()
-        );
-        menuitem.hidden = !applicable;
-        deleteMenuitem.hidden = !applicable;
+    const sectionKey = paneManager.registerSection({
+      paneID: "zotero-skimming-panel",
+      pluginID: this.id,
+      header: {
+        l10nID: "zotero-skimming-panel-header",
+        icon: this.iconURI
+      },
+      sidenav: {
+        l10nID: "zotero-skimming-panel-sidebar",
+        icon: this.iconURI
+      },
+      onItemChange: ({ setEnabled, tabType }) => {
+        setEnabled(this.isPanelEnabled(window, tabType));
+        return true;
+      },
+      onRender: ({ body, item, tabType }) => {
+        this.renderSidebar(body, window, item, tabType);
+      },
+      onAsyncRender: async ({ body, item, tabType }) => {
+        await this.refreshSidebar(body, window, item, tabType);
       }
-      catch (error) {
-        this.log(error.stack || String(error));
-        menuitem.hidden = true;
-        deleteMenuitem.hidden = true;
-      }
-    };
-
-    menuitem.addEventListener("command", onCommand);
-    deleteMenuitem.addEventListener("command", onDeleteCommand);
-    popup.addEventListener("popupshowing", onPopupShowing);
-    popup.appendChild(menuitem);
-    popup.appendChild(deleteMenuitem);
-    this.windowState.set(window, {
-      popup,
-      menuitem,
-      deleteMenuitem,
-      onCommand,
-      onDeleteCommand,
-      onPopupShowing
     });
+    this.windowState.set(window, { sectionKey, paneManager });
   },
 
   removeFromWindow(window) {
     const state = this.windowState.get(window);
     if (!state) return;
-    state.menuitem.removeEventListener("command", state.onCommand);
-    state.deleteMenuitem.removeEventListener("command", state.onDeleteCommand);
-    state.popup.removeEventListener("popupshowing", state.onPopupShowing);
-    state.menuitem.remove();
-    state.deleteMenuitem.remove();
+    try {
+      state.paneManager.unregisterSection?.(state.sectionKey);
+    }
+    catch (error) {
+      this.log(error.stack || String(error));
+    }
     this.windowState.delete(window);
   },
 
@@ -193,7 +151,41 @@ FastOfflineKeySentenceAnnotator = {
     return Math.max(1, Math.round(Math.max(0, pageCount) / settings.compressionRatio));
   },
 
-  showSettingsOverlay(window, initialSettings) {
+  isPanelEnabled(window, tabType) {
+    if (!window?.ZoteroPane) return false;
+    if (tabType === "reader") return true;
+    if (tabType !== "library") return false;
+    const selected = window.ZoteroPane.getSelectedItems?.() || [];
+    return selected.some(item => item?.isPDFAttachment?.() || item?.isRegularItem?.());
+  },
+
+  renderSidebar(body, window, item, tabType) {
+    if (!this.isPanelEnabled(window, tabType)) {
+      body.textContent = "Select a PDF attachment or item.";
+      return;
+    }
+    this.showSettingsOverlay(window, this.getConfiguredSettings(), body).then(async result => {
+      if (!result) return;
+      if (!this.isValidSettings(result)) throw new Error("Invalid annotation settings.");
+      this.saveSettings(result);
+      if (result.action === "summarize") await this.summarizeForSelection(window, result);
+      else if (result.action === "delete") await this.deleteSkimAnnotationsForSelection(window);
+      else await this.runForSelection(window, result);
+      this.renderSidebar(body, window, item, tabType);
+    }).catch(error => {
+      this.log(error.stack || String(error));
+      Services.prompt.alert(window, "Zotero Skimming", error.message || String(error));
+    });
+  },
+
+  async refreshSidebar(body, window, item, tabType) {
+    const enabled = this.isPanelEnabled(window, tabType);
+    body.dataset.enabled = String(enabled);
+    const buttons = body.querySelectorAll("button");
+    for (const button of buttons) button.disabled = !enabled;
+  },
+
+  showSettingsOverlay(window, initialSettings, container = null) {
     const doc = window.document;
     const HTML_NS = "http://www.w3.org/1999/xhtml";
     const existing = doc.getElementById("zotero-skimming-settings-overlay");
@@ -224,7 +216,8 @@ FastOfflineKeySentenceAnnotator = {
       return element;
     };
 
-    const overlay = create("div", {
+    const sidebar = Boolean(container);
+    const overlay = sidebar ? container : create("div", {
       id: "zotero-skimming-settings-overlay",
       role: "presentation",
       style: [
@@ -241,20 +234,20 @@ FastOfflineKeySentenceAnnotator = {
     });
 
     const panel = create("section", {
-      role: "dialog",
-      "aria-modal": "true",
+      role: sidebar ? "region" : "dialog",
+      "aria-modal": sidebar ? null : "true",
       "aria-labelledby": "zotero-skimming-dialog-title",
       style: [
-        "width: min(680px, calc(100vw - 48px))",
-        "max-height: calc(100vh - 48px)",
-        "overflow: auto",
-        "padding: 22px",
-        "border: 1px solid color-mix(in srgb, CanvasText 25%, transparent)",
-        "border-radius: 10px",
-        "box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35)",
+        sidebar ? "width: 100%" : "width: min(680px, calc(100vw - 48px))",
+        sidebar ? "box-sizing: border-box" : "max-height: calc(100vh - 48px)",
+        sidebar ? "padding: 6px 0" : "overflow: auto",
+        sidebar ? "" : "padding: 22px",
+        sidebar ? "" : "border: 1px solid color-mix(in srgb, CanvasText 25%, transparent)",
+        sidebar ? "" : "border-radius: 10px",
+        sidebar ? "" : "box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35)",
         "background: Canvas",
         "color: CanvasText"
-      ].join(";")
+      ].filter(Boolean).join(";")
     });
 
     const title = create("h1", {
@@ -317,7 +310,7 @@ FastOfflineKeySentenceAnnotator = {
     nlpSection.append(
       create("label", { htmlFor: "zero-shot-config", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Zero-shot label definitions (TOML)"),
       zeroShotConfigInput,
-      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Edit label descriptions, prototypes, and anti-descriptions for zero-shot rhetorical classification.")
+      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Edit label descriptions and colors used in the labeled summary.")
     );
     const relevanceRow = create("div", {
       style: "display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; margin-top: 12px; align-items: start"
@@ -495,21 +488,29 @@ FastOfflineKeySentenceAnnotator = {
       type: "button",
       style: buttonStyle
     }, "Test summary");
-    const cancelButton = create("button", {
+    const deleteButton = create("button", {
       type: "button",
       style: buttonStyle
+    }, "Delete annotations");
+    const cancelButton = create("button", {
+      type: "button",
+      style: buttonStyle,
+      hidden: sidebar
     }, "Cancel");
     const annotateButton = create("button", {
       type: "submit",
       style: buttonStyle + "; background: AccentColor; color: AccentColorText; border-color: AccentColor"
     }, "Annotate");
-    footerLeft.append(testOllamaButton, summarizeButton);
+    footerLeft.append(testOllamaButton, summarizeButton, deleteButton);
     footerRight.append(cancelButton, annotateButton);
     footer.append(footerLeft, footerRight);
     form.appendChild(footer);
     panel.appendChild(form);
-    overlay.appendChild(panel);
-    doc.documentElement.appendChild(overlay);
+    if (sidebar) overlay.replaceChildren(panel);
+    else {
+      overlay.appendChild(panel);
+      doc.documentElement.appendChild(overlay);
+    }
 
     const syncSummarySource = () => {
       const local = summarySource.value === "local";
@@ -548,6 +549,7 @@ FastOfflineKeySentenceAnnotator = {
     const setBusy = busy => {
       testOllamaButton.disabled = busy;
       summarizeButton.disabled = busy;
+      deleteButton.disabled = busy;
       annotateButton.disabled = busy;
       cancelButton.disabled = busy;
       for (const input of Object.values(inputs)) input.disabled = busy;
@@ -594,7 +596,8 @@ FastOfflineKeySentenceAnnotator = {
         if (settled) return;
         settled = true;
         window.removeEventListener("keydown", onKeyDown, true);
-        overlay.remove();
+        if (sidebar) panel.remove();
+        else overlay.remove();
         resolve(result);
       };
 
@@ -648,6 +651,7 @@ FastOfflineKeySentenceAnnotator = {
       };
 
       cancelButton.addEventListener("click", () => finish(null));
+      deleteButton.addEventListener("click", () => finish({ ...readSettings(), action: "delete" }));
 
       summarizeButton.addEventListener("click", async () => {
         error.textContent = "";
@@ -702,17 +706,6 @@ FastOfflineKeySentenceAnnotator = {
     });
   },
 
-  async openAnnotationDialog(window) {
-    const result = await this.showSettingsOverlay(window, this.getConfiguredSettings());
-    if (!result) return;
-    if (!this.isValidSettings(result)) throw new Error("Invalid annotation settings.");
-    this.saveSettings(result);
-    if (result.action === "summarize") {
-      await this.summarizeForSelection(window, result);
-      return;
-    }
-    await this.runForSelection(window, result);
-  },
 
   async runForSelection(window, settings = null) {
     try {

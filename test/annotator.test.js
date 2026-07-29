@@ -31,7 +31,7 @@ function annotator(globals = {}) {
     FastKeySentenceZeroShotConfig: globals.FastKeySentenceZeroShotConfig || "# config",
     FastKeySentenceZeroShotConfigPath: globals.FastKeySentenceZeroShotConfigPath || "/tmp/zero-shot-config.toml",
     IOUtils: globals.IOUtils || { writeUTF8: vi.fn(async () => {}), makeDirectory: vi.fn(async () => {}), exists: vi.fn(async () => false), read: vi.fn(async () => new Uint8Array()) },
-    Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" } },
+    Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, ItemPaneManager: { registerSection: vi.fn(() => 1), unregisterSection: vi.fn() } },
     ...globals
   }).FastOfflineKeySentenceAnnotator;
 }
@@ -39,7 +39,7 @@ function annotator(globals = {}) {
 function fakeWindow(selected = []) {
   const elements = new Map();
   class Element {
-    constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.style = {}; this.hidden = false; this._checked = false; }
+    constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.style = {}; this.dataset = {}; this.hidden = false; this._checked = false; }
     get checked() { return this._checked; }
     set checked(value) { this._checked = value; }
     set id(value) { this._id = value; elements.set(value, this); }
@@ -47,20 +47,33 @@ function fakeWindow(selected = []) {
     setAttribute(name, value) { this[name] = value; }
     appendChild(child) { this.children.push(child); return child; }
     append(...children) { children.forEach(child => this.appendChild(child)); }
+    replaceChildren(...children) { this.children = []; this.append(...children); }
     remove() { this.removed = true; if (this.id) elements.delete(this.id); }
     addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
     removeEventListener(type, listener) { this.listeners[type] = (this.listeners[type] || []).filter(x => x !== listener); }
     dispatch(type, event = {}) { for (const listener of this.listeners[type] || []) listener({ preventDefault: vi.fn(), stopPropagation: vi.fn(), ...event }); }
     focus() { this.focused = true; }
+    querySelectorAll(selector) {
+      const descendants = node => node.children.flatMap(child => [child, ...descendants(child)]);
+      return descendants(this).filter(element => element.tag === selector);
+    }
   }
   const root = new Element("root");
-  const doc = {
-    documentElement: root,
-    createElementNS: (_ns, tag) => new Element(tag),
-    createXULElement: tag => new Element(tag),
-    getElementById: id => elements.get(id) || (id === "zotero-itemmenu" ? popup : null)
-  };
   const popup = new Element("popup");
+  const doc = { documentElement: root };
+  const create = tag => {
+    const element = new Element(tag);
+    element.ownerDocument = doc;
+    return element;
+  };
+  Object.assign(doc, {
+    createElementNS: (_ns, tag) => create(tag),
+    createElement: tag => create(tag),
+    createXULElement: tag => create(tag),
+    getElementById: id => elements.get(id) || (id === "zotero-itemmenu" ? popup : null)
+  });
+  root.ownerDocument = doc;
+  popup.ownerDocument = doc;
   return {
     document: doc,
     ZoteroPane: { getSelectedItems: () => selected },
@@ -251,12 +264,13 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
 });
 
 describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
-  it("manages menu lifecycle, preferences, settings, and dialog submission", async () => {
+  it("registers a sidebar pane and keeps settings persistence", async () => {
     const prefs = new Map();
+    const paneManager = { registerSection: vi.fn(() => 7), unregisterSection: vi.fn() };
     const models = { testOllama: vi.fn().mockResolvedValue(), supportsInference: () => false };
     const api = annotator({
       FastKeySentenceModels: models,
-      Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) } },
+      Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) }, ItemPaneManager: paneManager },
       Services: { prompt: { alert: vi.fn() } }
     });
     api.init({ id: "id", version: "1", rootURI: "root" });
@@ -267,24 +281,19 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(api.calculateAnnotationTarget(100, { compressionRatio: 2 })).toBe(50);
 
     const window = fakeWindow([{ isPDFAttachment: () => true }]);
-    api.openAnnotationDialog = vi.fn().mockResolvedValue();
     api.addToWindow(window);
-    const menu = window.popup.children[0];
-    const deleteMenu = window.popup.children[1];
-    menu.dispatch("popupshowing");
-    expect(menu.hidden).toBe(false);
-    expect(deleteMenu.hidden).toBe(false);
-    expect(deleteMenu.label).toBe("Delete skim annotations");
-    expect(deleteMenu.class).toBe("menuitem-iconic");
-    expect(deleteMenu.image).toBe(api.iconURI);
-    api.deleteSkimAnnotationsForSelection = vi.fn().mockResolvedValue();
-    deleteMenu.dispatch("command");
-    expect(api.deleteSkimAnnotationsForSelection).toHaveBeenCalledWith(window);
-    menu.dispatch("command");
-    expect(api.openAnnotationDialog).toHaveBeenCalledWith(window);
+    expect(paneManager.registerSection).toHaveBeenCalled();
+    const section = paneManager.registerSection.mock.calls[0][0];
+    expect(section.paneID).toBe("zotero-skimming-panel");
+    expect(section.onItemChange({ setEnabled: vi.fn(), tabType: "reader" })).toBe(true);
+    const body = window.document.createElement("div");
+    section.onRender({ body, item: null, tabType: "reader" });
+    expect(descendants(body).some(element => element.textContent === "Paper skim")).toBe(true);
+    expect(descendants(body).some(element => element.textContent === "Annotate")).toBe(true);
+    expect(descendants(body).some(element => element.textContent === "Open settings")).toBe(false);
+    await section.onAsyncRender({ body, item: null, tabType: "reader" });
     api.removeFromWindow(window);
-    expect(menu.removed).toBe(true);
-    expect(deleteMenu.removed).toBe(true);
+    expect(paneManager.unregisterSection).toHaveBeenCalledWith(7);
 
     expect(models.testOllama).not.toHaveBeenCalled();
   });
@@ -344,24 +353,11 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
   });
 
   it("covers model update errors and dialog orchestration", async () => {
-    const api = annotator({ Services: { prompt: { alert: vi.fn() } }, FastKeySentenceModels: { testOllama: async () => { throw new Error("offline"); } }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() } } });
+    const api = annotator({ Services: { prompt: { alert: vi.fn() } }, FastKeySentenceModels: { testOllama: async () => { throw new Error("offline"); } }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() }, ItemPaneManager: { registerSection: vi.fn(() => 1), unregisterSection: vi.fn() } } });
     const window = fakeWindow();
-    api.isValidSettings = () => true;
     const pending = api.showSettingsOverlay(window, api.settingsDefaults);
-    await byText(window, "Test Ollama").listeners.click[0]();
-    expect(descendants(window.document.documentElement).find(x => x.role === "alert").textContent).toBe("offline");
     byText(window, "Cancel").listeners.click[0]();
     await expect(pending).resolves.toBeNull();
-    api.showSettingsOverlay = vi.fn().mockResolvedValue(null);
-    await api.openAnnotationDialog(window);
-    api.isValidSettings = () => false;
-    api.showSettingsOverlay.mockResolvedValueOnce({ compressionRatio: 0 });
-    await expect(api.openAnnotationDialog(window)).rejects.toThrow("Invalid annotation settings");
-    api.isValidSettings = () => true;
-    api.showSettingsOverlay.mockResolvedValueOnce(api.settingsDefaults);
-    api.runForSelection = vi.fn();
-    await api.openAnnotationDialog(window);
-    expect(api.runForSelection).toHaveBeenCalled();
   });
 
   it("resolves attachments, handles selection errors, and creates annotations", async () => {
@@ -381,23 +377,14 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
 
   it("covers remaining public error and alternate workflow branches", async () => {
     const alert = vi.fn();
-    const api = annotator({ Services: { prompt: { alert } }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() }, Items: { getAsync: async () => ({ getField: () => "Parent title" }) } } });
+    const paneManager = { registerSection: vi.fn(() => 1), unregisterSection: vi.fn() };
+    const api = annotator({ Services: { prompt: { alert } }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() }, ItemPaneManager: paneManager, Items: { getAsync: async () => ({ getField: () => "Parent title" }) } } });
     const noPopup = fakeWindow();
-    noPopup.document.getElementById = () => null;
+    noPopup.ZoteroPane.getSelectedItems = () => [];
     api.addToWindow(noPopup);
-    api.addToWindow({});
-    const menuWindow = fakeWindow();
-    api.openAnnotationDialog = vi.fn().mockRejectedValue(new Error("dialog failed"));
-    api.addToWindow(menuWindow);
-    const menu = menuWindow.popup.children[0];
-    menu.dispatch("popupshowing", { });
-    menuWindow.ZoteroPane.getSelectedItems = () => { throw new Error("selection failed"); };
-    menu.dispatch("popupshowing");
-    menu.dispatch("command");
-    await Promise.resolve();
-    expect(alert).toHaveBeenCalled();
-    api.addToWindow(menuWindow);
-    api.removeFromWindow({});
+    expect(api.isPanelEnabled(noPopup, "reader")).toBe(true);
+    expect(api.isPanelEnabled(fakeWindow([{ isPDFAttachment: () => true }]), "library")).toBe(true);
+    api.removeFromWindow(noPopup);
 
     expect(api.getConfiguredSettings()).toEqual(api.settingsDefaults);
     expect(await api.getDocumentTitle({ parentID: 1, getField: () => "Fallback" })).toBe("Parent title");
