@@ -333,7 +333,7 @@ var FastKeySentenceNLP = (() => {
   function parseLabeledSummary(summaryText, labels = []) {
     const validLabels = new Set(labels.map(label => label.name));
     const entries = [];
-    const pattern = /(?:^|\s)\d+\.\s*\[([a-z][a-z0-9-]*)\]\s*(.*?)(?=\s+\d+\.\s*\[[a-z][a-z0-9-]*\]|$)/gis;
+    const pattern = /(?:^|\s)(?:\d+[.)]?\s*)?\[([a-z][a-z0-9-]*)\]\s*(.*?)(?=\s+(?:\d+[.)]?\s*)?\[[a-z][a-z0-9-]*\]|$)/gsi;
     for (const match of String(summaryText || "").matchAll(pattern)) {
       const label = `[${match[1]}]`;
       const sentence = cleanSummarySentence(match[2]);
@@ -420,7 +420,9 @@ var FastKeySentenceNLP = (() => {
     }
 
     const summaryEntries = labelsEnabled ? parseLabeledSummary(summary, labels) : [];
-    const summaryLabelMap = new Map(summaryEntries.map(entry => [entry.sentence, labels.find(label => label.name === entry.label)]));
+    const classificationEntries = summaryEntries.length
+      ? summaryEntries.map(entry => ({ text: entry.sentence, label: labels.find(label => label.name === entry.label) }))
+      : labels.map(label => ({ text: label.description, label }));
     if (summaryEntries.length) summary = summaryEntries.map(entry => entry.sentence).join("\n");
 
     // 2. Score sparse baseline, then apply dense summary relevance if embeddings are available.
@@ -491,12 +493,12 @@ var FastKeySentenceNLP = (() => {
     if (labelsEnabled && selected.length) {
       try {
         options.onModelProgress?.({ stage: "preparing", operation: "tag-classification" });
-        if (!summaryEntries.length) throw new Error("No labeled summary sentences were returned.");
+        if (!classificationEntries.length) throw new Error("No summary labels are configured.");
         const remoteAvailable = typeof FastKeySentenceRemote?.embeddings === "function";
         const useRemoteClassify = options.summarySource === "remote" && remoteAvailable;
         const primaryEmbed = useRemoteClassify ? FastKeySentenceRemote.embeddings : FastKeySentenceModels.embeddings;
         const fallbackEmbed = useRemoteClassify ? FastKeySentenceModels.embeddings : (remoteAvailable ? FastKeySentenceRemote.embeddings : null);
-        const texts = [...summaryLabelMap.keys(), ...selected.map(sentence => sentence.text)];
+        const texts = [...classificationEntries.map(entry => entry.text), ...selected.map(sentence => sentence.text)];
         let vectors;
         try {
           vectors = await primaryEmbed(texts, event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
@@ -510,25 +512,24 @@ var FastKeySentenceNLP = (() => {
           });
           vectors = await fallbackEmbed(texts, event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
         }
-        const summaryVectors = vectors.slice(0, summaryEntries.length);
-        const sourceVectors = vectors.slice(summaryEntries.length);
+        const summaryVectors = vectors.slice(0, classificationEntries.length);
+        const sourceVectors = vectors.slice(classificationEntries.length);
         const summaryNorms = summaryVectors.map(denseNorm);
         const sourceNorms = sourceVectors.map(denseNorm);
         for (let i = 0; i < selected.length; i++) {
           let bestIndex = 0;
           let bestScore = -1;
-          for (let j = 0; j < summaryEntries.length; j++) {
+          for (let j = 0; j < classificationEntries.length; j++) {
             const score = vectorCosine(sourceVectors[i], summaryVectors[j], sourceNorms[i], summaryNorms[j]);
             if (score > bestScore) {
               bestScore = score;
               bestIndex = j;
             }
           }
-          const match = summaryEntries[bestIndex];
-          const label = summaryLabelMap.get(match.sentence);
-          selected[i].tag = match.label.replace(/^\[|\]$/g, "");
-          selected[i].tagDescription = label?.description || "";
-          selected[i].tagColor = label?.color || null;
+          const label = classificationEntries[bestIndex].label;
+          selected[i].tag = label.name.replace(/^\[|\]$/g, "");
+          selected[i].tagDescription = label.description || "";
+          selected[i].tagColor = label.color || null;
           selected[i].tagIndex = labels.indexOf(label);
           selected[i].tagScore = bestScore;
         }

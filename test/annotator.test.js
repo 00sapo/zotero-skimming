@@ -264,6 +264,38 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
     expect(line.setProgress).toHaveBeenCalled();
     expect(line.setText).toHaveBeenLastCalledWith(expect.stringContaining("analysing"));
   });
+
+});
+
+describe("FastKeySentenceNLP labels", () => {
+  it("parses labeled summaries and assigns labels", async () => {
+    const summaryLabelsCtx = {
+      FastKeySentenceSummaryLabels: {
+        DEFAULT_CONFIG: "# config",
+        parseConfig() {
+          return [
+            { name: "[result]", description: "result description", color: "#a5a5a5" },
+            { name: "[conclusion]", description: "conclusion description", color: "#70ad47" }
+          ];
+        }
+      }
+    };
+    const nlp = loadScript("content/nlp.js", {
+      ...summaryLabelsCtx,
+      FastKeySentenceModels: { supportsInference: () => true, summarize: async () => "1. [result] Evidence sentence.\n2. [conclusion] Interpretation sentence.", embeddings: async texts => texts.map(() => [1, 0]) },
+      FastKeySentenceRemote: { summarize: async () => "1. [result] Evidence sentence.\n2. [conclusion] Interpretation sentence.", embeddings: async texts => texts.map(() => [0, 1]) }
+    }).FastKeySentenceNLP;
+    const result = await nlp.analyzeAsync([
+      { text: "Evidence sentence with enough detail for testing.", section: "results", importance: 1 },
+      { text: "Interpretation sentence with enough detail for testing.", section: "discussion", importance: 1 }
+    ], 2, {
+      summaryLabels: true,
+      summarySource: "local",
+      documentTitle: "Paper"
+    });
+    expect(result.some(item => item.tag === "result" || item.tag === "conclusion")).toBe(true);
+    expect(result.some(item => item.tagColor)).toBe(true);
+  });
 });
 
 describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {

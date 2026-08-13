@@ -46,6 +46,7 @@ describe("bootstrap", () => {
     await context.startup({ id: "addon@example.com", version: "1.2.3", rootURI: "resource://addon/" });
 
     expect(Services.scriptloader.loadSubScript.mock.calls.map(([url]) => url)).toEqual([
+      "resource://addon/content/build-info.js",
       "resource://addon/content/summary-label-config.js",
       "resource://addon/content/nlp.js",
       "resource://addon/content/model-manager.js",

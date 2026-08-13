@@ -3,6 +3,7 @@ var FastKeySentenceModels;
 var FastKeySentenceScoringConfig;
 var FastKeySentenceSummaryLabelConfigV2;
 var FastKeySentenceSummaryLabelConfigV2Path;
+var FastKeySentenceBuildCommit;
 
 function log(message) {
   Zotero.debug("Zotero Skimming: " + message);
@@ -16,6 +17,7 @@ async function startup({ id, version, rootURI }) {
   const scoringResponse = await fetch(rootURI + "scoring-config.json");
   if (!scoringResponse.ok) throw new Error(`Could not load scoring configuration (${scoringResponse.status})`);
   FastKeySentenceScoringConfig = Object.freeze(await scoringResponse.json());
+  Services.scriptloader.loadSubScript(rootURI + "content/build-info.js");
   Services.scriptloader.loadSubScript(rootURI + "content/summary-label-config.js");
 
   FastKeySentenceSummaryLabelConfigV2Path = PathUtils.join(PathUtils.profileDir, "zotero-skimming", "summary-label-config-v2.toml");

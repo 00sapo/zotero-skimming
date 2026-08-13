@@ -157,6 +157,21 @@ describe("FastKeySentenceNLP", () => {
     expect(selected.every(item => ["#112233", "#445566"].includes(item.tagColor))).toBe(true);
   });
 
+  it("classifies from label descriptions when the summary omits labels", async () => {
+    const embeddings = vi.fn(async texts => texts.map(text => String(text).includes("carried out") ? [10, 0] : [9, 1]));
+    const selected = await nlp({
+      supportsInference: () => true,
+      summarize: async () => "1. A plain summary sentence without a label.",
+      embeddings
+    }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, {
+      summarySource: "local",
+      summaryLabels: true,
+      summaryLabelConfigV2: `[method]\ndescription = "Explains how the current study was carried out."`
+    });
+    expect(selected.every(item => item.tag === "method")).toBe(true);
+    expect(selected.every(item => item.tagColor === "#112233")).toBe(true);
+  });
+
   it("parses line-delimited and collapsed labeled summaries", () => {
     const api = nlp();
     const labels = [{ name: "[method]" }, { name: "[result]" }];
@@ -195,7 +210,7 @@ describe("FastKeySentenceNLP", () => {
     });
     expect(selected.length).toBeGreaterThanOrEqual(1);
     expect(models.remote.summarize).toHaveBeenCalledWith(expect.any(String), "A study", 3, expect.any(Function), expect.any(Array));
-    expect(embeddings).toHaveBeenCalledTimes(1);
+    expect(embeddings).toHaveBeenCalledTimes(2);
     expect(progress).toHaveBeenCalled();
   });
 

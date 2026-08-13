@@ -159,11 +159,10 @@ var FastKeySentenceModels = (() => {
       options: { temperature: 0 }
     });
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 100 });
-    const raw = String(result.response || "");
-    const collapsed = raw.replace(/\s+/g, " ").trim();
+    const raw = String(result.response || "").trim();
     const responseSentences = raw.split(/\n/).filter(line => line.trim()).length;
-    Services.console.logStringMessage(`Zotero Skimming local: summarizeChunk requested=${sentenceCount} responseSentences=${responseSentences} responseChars=${collapsed.length}`);
-    return collapsed;
+    Services.console.logStringMessage(`Zotero Skimming local: summarizeChunk requested=${sentenceCount} responseSentences=${responseSentences} responseChars=${raw.length}`);
+    return raw;
   }
 
   async function summarize(text, callback, { mapReduce = false, mapReduceSentences = 10, sentenceCount = 10, labels = [] } = {}) {

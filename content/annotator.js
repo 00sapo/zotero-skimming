@@ -1,4 +1,4 @@
-/* global Zotero, Services, FastKeySentenceNLP, FastKeySentenceModels */
+/* global Zotero, Services, FastKeySentenceNLP, FastKeySentenceModels, FastKeySentenceBuildCommit */
 
 FastOfflineKeySentenceAnnotator = {
   id: null,
@@ -254,6 +254,9 @@ FastOfflineKeySentenceAnnotator = {
       ].filter(Boolean).join(";")
     });
 
+    panel.appendChild(create("div", {
+      style: "margin: 0 0 4px; opacity: 0.65; font-size: 0.75rem; line-height: 1"
+    }, `Build ${typeof FastKeySentenceBuildCommit === "string" ? FastKeySentenceBuildCommit : "unknown"}`));
     const title = create("h1", {
       id: "zotero-skimming-dialog-title",
       style: "margin: 0 0 18px; font-size: 1.35rem; font-weight: 600"

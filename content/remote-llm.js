@@ -137,7 +137,7 @@ var FastKeySentenceRemote = (() => {
         }
         const content = (await response.json())?.choices?.[0]?.message?.content || "";
         if (!content) throw new Error("Remote LLM returned an empty response.");
-        return content.replace(/[ \t]+/g, " ").trim();
+        return content.trim();
       }
       catch (error) {
         lastError = error;
