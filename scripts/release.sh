@@ -73,7 +73,7 @@ if ! $ONLY_BUILD; then
   cat > updates.json <<EOF
 {
   "addons": {
-    "zotero-skimming@example.org": {
+    "zotero-skimming@00sapo.org": {
       "updates": [
         {
           "version": "$NEW_VERSION",

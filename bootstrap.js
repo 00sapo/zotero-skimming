@@ -62,15 +62,11 @@ async function startup({ id, version, rootURI }) {
   // Zotero 9 calls startup after core initialization, but existing main windows
   // still need explicit registration. Future windows are handled by the hooks.
   for (const window of Zotero.getMainWindows()) {
-    if (window?.ZoteroPane) {
-      window?.MozXULElement?.insertFTLIfNeeded?.("zotero-skimming-mainWindow.ftl");
-      FastOfflineKeySentenceAnnotator.addToWindow(window);
-    }
+    if (window?.ZoteroPane) FastOfflineKeySentenceAnnotator.addToWindow(window);
   }
 }
 
 function onMainWindowLoad({ window }) {
-  window?.MozXULElement?.insertFTLIfNeeded?.("zotero-skimming-mainWindow.ftl");
   FastOfflineKeySentenceAnnotator?.addToWindow(window);
 }
 
