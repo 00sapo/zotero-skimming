@@ -599,7 +599,7 @@ FastOfflineKeySentenceAnnotator = {
       const finish = result => {
         if (settled) return;
         settled = true;
-        window.removeEventListener("keydown", onKeyDown, true);
+        if (!sidebar) window.removeEventListener("keydown", onKeyDown, true);
         if (sidebar) panel.remove();
         else overlay.remove();
         resolve(result);
@@ -612,7 +612,7 @@ FastOfflineKeySentenceAnnotator = {
           finish(null);
         }
       };
-      window.addEventListener("keydown", onKeyDown, true);
+      if (!sidebar) window.addEventListener("keydown", onKeyDown, true);
 
       testOllamaButton.addEventListener("click", async () => {
         error.textContent = "";
