@@ -79,9 +79,7 @@ function onMainWindowUnload({ window }) {
 function shutdown() {
   FastKeySentenceModels?.shutdown?.();
   if (!FastOfflineKeySentenceAnnotator) return;
-  for (const window of Zotero.getMainWindows()) {
-    FastOfflineKeySentenceAnnotator.removeFromWindow(window);
-  }
+  FastOfflineKeySentenceAnnotator.shutdown();
   FastOfflineKeySentenceAnnotator = undefined;
 }
 

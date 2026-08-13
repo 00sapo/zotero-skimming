@@ -3,7 +3,7 @@ import { loadScript } from "./helpers.js";
 
 function bootstrap({ windows = [], configExists = true } = {}) {
   const models = { init: vi.fn(), shutdown: vi.fn() };
-  const annotator = { init: vi.fn(), addToWindow: vi.fn(), removeFromWindow: vi.fn() };
+  const annotator = { init: vi.fn(), addToWindow: vi.fn(), removeFromWindow: vi.fn(), shutdown: vi.fn() };
   const Zotero = { debug: vi.fn(), getMainWindows: vi.fn(() => windows), Prefs: { get: vi.fn(() => "") } };
   const defaults = { setIntPref: vi.fn(), setBoolPref: vi.fn(), setStringPref: vi.fn() };
   const Services = { scriptloader: { loadSubScript: vi.fn() }, prefs: { getDefaultBranch: vi.fn(() => defaults) } };
@@ -70,7 +70,7 @@ describe("bootstrap", () => {
 
     expect(annotator.addToWindow).toHaveBeenCalledWith(windows[0]);
     expect(annotator.removeFromWindow).toHaveBeenCalledWith(windows[0]);
-    expect(annotator.removeFromWindow).toHaveBeenCalledWith(windows[1]);
+    expect(annotator.shutdown).toHaveBeenCalledOnce();
     expect(models.shutdown).toHaveBeenCalledOnce();
     expect(context.FastOfflineKeySentenceAnnotator).toBeUndefined();
   });

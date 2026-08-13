@@ -4,7 +4,8 @@ FastOfflineKeySentenceAnnotator = {
   id: null,
   version: null,
   rootURI: null,
-  windowState: new WeakMap(),
+  sectionKey: null,
+  paneManager: null,
   prefBranch: "extensions.zotero-skimming.",
 
   init({ id, version, rootURI }) {
@@ -20,8 +21,7 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   addToWindow(window) {
-    if (!window?.document || this.windowState.has(window)) return;
-    const doc = window.document;
+    if (!window?.document || this.sectionKey) return;
     const paneManager = Zotero?.ItemPaneManager;
     if (!paneManager?.registerSection) {
       this.log("ItemPaneManager.registerSection not available in this window");
@@ -39,29 +39,33 @@ FastOfflineKeySentenceAnnotator = {
         icon: this.iconURI
       },
       onItemChange: ({ setEnabled, tabType }) => {
-        setEnabled(this.isPanelEnabled(window, tabType));
+        setEnabled(tabType === "reader");
         return true;
       },
       onRender: ({ body, item, tabType }) => {
-        this.renderSidebar(body, window, item, tabType);
+        this.renderSidebar(body, body.ownerDocument.defaultView, item, tabType);
       },
       onAsyncRender: async ({ body, item, tabType }) => {
-        await this.refreshSidebar(body, window, item, tabType);
+        await this.refreshSidebar(body, body.ownerDocument.defaultView, item, tabType);
       }
     });
-    this.windowState.set(window, { sectionKey, paneManager });
+    if (!sectionKey) return;
+    this.sectionKey = sectionKey;
+    this.paneManager = paneManager;
   },
 
-  removeFromWindow(window) {
-    const state = this.windowState.get(window);
-    if (!state) return;
+  removeFromWindow() {},
+
+  shutdown() {
+    if (!this.sectionKey) return;
     try {
-      state.paneManager.unregisterSection?.(state.sectionKey);
+      this.paneManager?.unregisterSection?.(this.sectionKey);
     }
     catch (error) {
       this.log(error.stack || String(error));
     }
-    this.windowState.delete(window);
+    this.sectionKey = null;
+    this.paneManager = null;
   },
 
   settingsDefaults: Object.freeze({
@@ -702,7 +706,7 @@ FastOfflineKeySentenceAnnotator = {
         }
       });
 
-      window.requestAnimationFrame(() => inputs["compression-ratio"].focus());
+      if (!sidebar) window.requestAnimationFrame(() => inputs["compression-ratio"].focus());
     });
   },
 
@@ -1959,7 +1963,7 @@ FastOfflineKeySentenceAnnotator = {
       position: { pageIndex: sentence.pageIndex, rects },
       text,
       comment: `${tag ? sentence.tagDescription + ". " : ""}Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
-      tags: [{ tag: "autoskim-key-sentence" }, ...(tag ? [{ tag }] : [])]
+      tags: [{ name: "autoskim-key-sentence" }, ...(tag ? [{ name: tag }] : [])]
     };
   },
 

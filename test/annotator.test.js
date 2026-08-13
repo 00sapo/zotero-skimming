@@ -74,13 +74,15 @@ function fakeWindow(selected = []) {
   });
   root.ownerDocument = doc;
   popup.ownerDocument = doc;
-  return {
+  const window = {
     document: doc,
     ZoteroPane: { getSelectedItems: () => selected },
-    setTimeout: fn => fn(), requestAnimationFrame: fn => fn(),
+    setTimeout: fn => fn(), requestAnimationFrame: vi.fn(fn => fn()),
     addEventListener: vi.fn(), removeEventListener: vi.fn(),
     elements, popup
   };
+  doc.defaultView = window;
+  return window;
 }
 
 const word = (text, x, y) => ({ text, rect: [x, y, x + 20, y + 10], top: y + 10 });
@@ -249,10 +251,10 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
     const annotation = api.makeAnnotation({ text: "A result.", tag: "result", tagColor: "#a5a5a5", tagIndex: 1, tagDescription: "A key result.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
     expect(annotation.color).toBe("#a5a5a5");
     expect(annotation.sortIndex).toMatch(/^00002\|\d{6}\|\d{5}$/);
-    expect(annotation.tags).toContainEqual({ tag: "autoskim-key-sentence" });
-    expect(annotation.tags).toContainEqual({ tag: "result" });
+    expect(annotation.tags).toContainEqual({ name: "autoskim-key-sentence" });
+    expect(annotation.tags).toContainEqual({ name: "result" });
     const unclassified = api.makeAnnotation({ text: "A sentence.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
-    expect(unclassified.tags).toEqual([{ tag: "autoskim-key-sentence" }]);
+    expect(unclassified.tags).toEqual([{ name: "autoskim-key-sentence" }]);
     expect(unclassified.comment).toBe("Section: results. Score: 0.812.");
     expect(unclassified.color).toBe("#aaaaaa");
     const line = { setProgress: vi.fn(), setText: vi.fn() };
@@ -288,12 +290,15 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     expect(section.paneID).toBe("zotero-skimming-panel");
     expect(section.onItemChange({ setEnabled: vi.fn(), tabType: "reader" })).toBe(true);
     const body = window.document.createElement("div");
+    window.requestAnimationFrame.mockClear();
     section.onRender({ body, item: null, tabType: "reader" });
+    expect(window.requestAnimationFrame).not.toHaveBeenCalled();
     expect(descendants(body).some(element => element.textContent === "Paper skim")).toBe(true);
     expect(descendants(body).some(element => element.textContent === "Annotate")).toBe(true);
     expect(descendants(body).some(element => element.textContent === "Open settings")).toBe(false);
     await section.onAsyncRender({ body, item: null, tabType: "reader" });
     api.removeFromWindow(window);
+    api.shutdown();
     expect(paneManager.unregisterSection).toHaveBeenCalledWith(7);
 
     expect(models.testOllama).not.toHaveBeenCalled();
