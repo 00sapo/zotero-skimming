@@ -528,6 +528,7 @@ var FastKeySentenceNLP = (() => {
           const label = summaryLabelMap.get(match.sentence);
           selected[i].tag = match.label.replace(/^\[|\]$/g, "");
           selected[i].tagDescription = label?.description || "";
+          selected[i].tagColor = label?.color || null;
           selected[i].tagIndex = labels.indexOf(label);
           selected[i].tagScore = bestScore;
         }

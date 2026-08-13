@@ -1939,10 +1939,10 @@ FastOfflineKeySentenceAnnotator = {
   makeAnnotation(sentence) {
     const text = sentence.text;
     const rects = sentence.rects || [];
-    const colors = ["#e57373", "#64b5f6", "#81c784", "#ffd54f", "#ba68c8", "#4db6ac", "#ff8a65"];
     const tag = typeof sentence.tag === "string" && sentence.tag.trim() ? sentence.tag.trim() : null;
+    const tagColor = typeof sentence.tagColor === "string" && /^#[0-9a-f]{6}$/i.test(sentence.tagColor) ? sentence.tagColor : null;
     const tagIndex = Number.isInteger(sentence.tagIndex) ? sentence.tagIndex : -1;
-    if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: makeAnnotation — tag="${tag || "(none)"}" tagIndex=${tagIndex} tagDescription="${(sentence.tagDescription || "").slice(0, 60)}" tagScore=${sentence.tagScore}`);
+    if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: makeAnnotation — tag="${tag || "(none)"}" tagColor="${tagColor || "(none)"}" tagIndex=${tagIndex} tagDescription="${(sentence.tagDescription || "").slice(0, 60)}" tagScore=${sentence.tagScore}`);
     const top = Math.max(...rects.map(r => r[3]));
     const left = Math.min(...rects.map(r => r[0]));
     // Zotero 9 validates PDF annotation sort indexes as page|vertical|horizontal:
@@ -1954,7 +1954,7 @@ FastOfflineKeySentenceAnnotator = {
     return {
       key: Zotero.DataObjectUtilities.generateKey(),
       type: "highlight",
-      color: tagIndex >= 0 ? colors[tagIndex % colors.length] : "#aaaaaa",
+      color: tagColor || "#aaaaaa",
       pageLabel: String(sentence.pageIndex + 1),
       sortIndex,
       position: { pageIndex: sentence.pageIndex, rects },

@@ -25,7 +25,7 @@ function nlp(models) {
       const m = labelRe.exec(text);
       if (m) {
         const desc = descRe.exec(text);
-        labels.push({ name: `[${m[1]}]`, description: desc ? desc[1] : "", color: null });
+        labels.push({ name: `[${m[1]}]`, description: desc ? desc[1] : "", color: m[1] === "method" ? "#112233" : "#445566" });
       }
       if (!labels.length) {
         // fallback: produce dummy labels so tag classification runs
@@ -154,6 +154,7 @@ describe("FastKeySentenceNLP", () => {
     expect(selected.every(item => item.tag === "method" || item.tag === "result")).toBe(true);
     expect(selected.every(item => !item._paperSummary.includes("[") && !item._paperSummary.match(/\d+\./))).toBe(true);
     expect(selected.every(item => [0, 1].includes(item.tagIndex))).toBe(true);
+    expect(selected.every(item => ["#112233", "#445566"].includes(item.tagColor))).toBe(true);
   });
 
   it("parses line-delimited and collapsed labeled summaries", () => {

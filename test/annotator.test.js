@@ -246,7 +246,8 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
 
   it("creates Zotero-valid annotations and reports model progress", () => {
     const api = annotator();
-    const annotation = api.makeAnnotation({ text: "A result.", tag: "result", tagIndex: 1, tagDescription: "A key result.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
+    const annotation = api.makeAnnotation({ text: "A result.", tag: "result", tagColor: "#a5a5a5", tagIndex: 1, tagDescription: "A key result.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
+    expect(annotation.color).toBe("#a5a5a5");
     expect(annotation.sortIndex).toMatch(/^00002\|\d{6}\|\d{5}$/);
     expect(annotation.tags).toContainEqual({ name: "autoskim-key-sentence" });
     expect(annotation.tags).toContainEqual({ name: "result" });
