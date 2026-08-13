@@ -249,10 +249,10 @@ describe("FastOfflineKeySentenceAnnotator geometry", () => {
     const annotation = api.makeAnnotation({ text: "A result.", tag: "result", tagColor: "#a5a5a5", tagIndex: 1, tagDescription: "A key result.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
     expect(annotation.color).toBe("#a5a5a5");
     expect(annotation.sortIndex).toMatch(/^00002\|\d{6}\|\d{5}$/);
-    expect(annotation.tags).toContainEqual({ name: "autoskim-key-sentence" });
-    expect(annotation.tags).toContainEqual({ name: "result" });
+    expect(annotation.tags).toContainEqual({ tag: "autoskim-key-sentence" });
+    expect(annotation.tags).toContainEqual({ tag: "result" });
     const unclassified = api.makeAnnotation({ text: "A sentence.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
-    expect(unclassified.tags).toEqual([{ name: "autoskim-key-sentence" }]);
+    expect(unclassified.tags).toEqual([{ tag: "autoskim-key-sentence" }]);
     expect(unclassified.comment).toBe("Section: results. Score: 0.812.");
     expect(unclassified.color).toBe("#aaaaaa");
     const line = { setProgress: vi.fn(), setText: vi.fn() };
@@ -384,7 +384,7 @@ describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
     noPopup.ZoteroPane.getSelectedItems = () => [];
     api.addToWindow(noPopup);
     expect(api.isPanelEnabled(noPopup, "reader")).toBe(true);
-    expect(api.isPanelEnabled(fakeWindow([{ isPDFAttachment: () => true }]), "library")).toBe(true);
+    expect(api.isPanelEnabled(fakeWindow([{ isPDFAttachment: () => true }]), "library")).toBe(false);
     api.removeFromWindow(noPopup);
 
     expect(api.getConfiguredSettings()).toEqual(api.settingsDefaults);

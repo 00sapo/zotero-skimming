@@ -152,11 +152,7 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   isPanelEnabled(window, tabType) {
-    if (!window?.ZoteroPane) return false;
-    if (tabType === "reader") return true;
-    if (tabType !== "library") return false;
-    const selected = window.ZoteroPane.getSelectedItems?.() || [];
-    return selected.some(item => item?.isPDFAttachment?.() || item?.isRegularItem?.());
+    return Boolean(window?.ZoteroPane && tabType === "reader");
   },
 
   renderSidebar(body, window, item, tabType) {
@@ -1940,7 +1936,10 @@ FastOfflineKeySentenceAnnotator = {
     const text = sentence.text;
     const rects = sentence.rects || [];
     const tag = typeof sentence.tag === "string" && sentence.tag.trim() ? sentence.tag.trim() : null;
-    const tagColor = typeof sentence.tagColor === "string" && /^#[0-9a-f]{6}$/i.test(sentence.tagColor) ? sentence.tagColor : null;
+    const configuredLabel = tag ? FastKeySentenceSummaryLabels.parseConfig(FastKeySentenceSummaryLabelConfigV2 || this.settingsDefaults.summaryLabelConfigV2)
+      .find(label => label.name === `[${tag}]`) : null;
+    const tagColor = typeof sentence.tagColor === "string" && /^#[0-9a-f]{6}$/i.test(sentence.tagColor)
+      ? sentence.tagColor : configuredLabel?.color || null;
     const tagIndex = Number.isInteger(sentence.tagIndex) ? sentence.tagIndex : -1;
     if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: makeAnnotation — tag="${tag || "(none)"}" tagColor="${tagColor || "(none)"}" tagIndex=${tagIndex} tagDescription="${(sentence.tagDescription || "").slice(0, 60)}" tagScore=${sentence.tagScore}`);
     const top = Math.max(...rects.map(r => r[3]));
@@ -1960,7 +1959,7 @@ FastOfflineKeySentenceAnnotator = {
       position: { pageIndex: sentence.pageIndex, rects },
       text,
       comment: `${tag ? sentence.tagDescription + ". " : ""}Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
-      tags: [{ name: "autoskim-key-sentence" }, ...(tag ? [{ name: tag }] : [])]
+      tags: [{ tag: "autoskim-key-sentence" }, ...(tag ? [{ tag }] : [])]
     };
   },
 
