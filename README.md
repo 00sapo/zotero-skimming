@@ -29,7 +29,7 @@ The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native
 ## Usage
 
 1. Select a PDF attachment in the Zotero library.
-2. Right-click it and choose **Skim paper**. <img src="assets/context-menu.png" alt="Zotero PDF context menu with Skim paper selected" width="150" />
+2. Click on the right pane symbol of zotero-skimming.
 3. Choose **Remote API** or **Local Ollama** for summarization. Remote mode requires an OpenAI-compatible endpoint, API key, and model name. Local mode requires a user-installed [Ollama](https://ollama.com/download). <img src="assets/settings-dialog.png" alt="Paper skim settings dialog" width="400" />
 4. Set the average, minimum, and maximum annotations per PDF.
 5. Optionally enable local semantic relevance scoring and configure highlight tags.
