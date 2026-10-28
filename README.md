@@ -5,6 +5,8 @@
 
 Say bye-bye to confused AI-generated summaries, abstract sentences, and hallucinations. With this add-on, you can give a first pass to a paper by directly reading its real sentences, no AI invention, only guided AI selection.
 
+Highlights stay temporary until you save them. Generate a preview, adjust the threshold, then save only the sentences you want as native Zotero annotations. No popups interrupt the reader.
+
 First skim, then read. Skimming is also known as _"orientation reading"_.
 
 Requires Zotero 9 and one of:
@@ -19,22 +21,32 @@ Requires Zotero 9 and one of:
 2. In Zotero, open **Tools → Add-ons**.
 3. Open the gear menu and choose **Install Add-on From File…**.
 4. Select the downloaded `.xpi` and restart Zotero if prompted.
-5. **Optional**: Install Ollama from https://ollama.com/download
+5. Open **Settings → Zotero Skimming** and choose a summary source.
+6. **Optional**: Install Ollama from https://ollama.com/download
    Ollama is needed to efficiently run the LLM models locally. You can alternatively use a remote
    API endpoint (DeepSeek recommended). For Google and Anthropic, consider using a local LiteLLM gateway, which offers
    OpenAI-compatible API. 
 
-The add-on targets Zotero 9.x. It does not modify source PDFs; it creates native positioned highlight annotations.
+The add-on targets Zotero 9.x. It does not modify source PDFs. It paints temporary overlays first and writes native positioned highlight annotations only when you press **Save**.
 
 ## Usage
 
-1. Select a PDF attachment in the Zotero library.
-2. Click on the right pane symbol of zotero-skimming.
-3. Choose **Remote API** or **Local Ollama** for summarization. Remote mode requires an OpenAI-compatible endpoint, API key, and model name. Local mode requires a user-installed [Ollama](https://ollama.com/download). <img src="assets/settings-dialog.png" alt="Paper skim settings dialog" width="400" />
-4. Set the average, minimum, and maximum annotations per PDF.
-5. Optionally enable local semantic relevance scoring and configure highlight tags.
-6. Set **Ollama command** if Ollama is not on Zotero’s PATH (for mise: `mise exec -- ollama`), then click **Download Ollama models** once to download and import the required GGUF models.
-7. Click **Annotate** to extract, summarize, rank, and annotate. In remote mode, **Test API credentials** verifies the API and previews the paper synopsis.
+1. Open a PDF in the Zotero reader.
+2. Open the **Paper skim** section in the right sidebar.
+3. Press **Generate highlights**. The status line reports extraction, ranking, and model progress. No dialog opens.
+4. Move the **Highlight threshold** slider to hide selected sentences with a low importance score. The preview updates immediately and does not call the model again.
+5. Press **Save as Zotero annotations…** to keep the visible highlights in your library. Press **Clear** to remove the preview without saving anything.
+
+All other settings live in **Settings → Zotero Skimming**:
+
+- The summary source. Choose **Local Ollama** or **Remote API**.
+- The compression ratio, which sets how many sentences are selected before the threshold is applied.
+- The highlight threshold. The reader slider changes the same value.
+- Semantic relevance, summary labels, and the label definitions.
+- The endpoint, API key, and model names for remote use.
+- The Ollama command, map-reduce, and the number of sentences per chunk.
+
+The **Test Ollama** button in settings reports its result on the same page. Remote mode checks the endpoint and key fields without sending a paper.
 
 The baseline ranker works without downloaded models. When enabled, local semantic relevance falls back to the baseline ranker if Ollama is unavailable.
 
@@ -42,7 +54,7 @@ The baseline ranker works without downloaded models. When enabled, local semanti
 
 ### 1. Summarization
 
-Choose **Remote API** to send filtered paper body text (no authors, tables, figures, abstract, or references) to the configured remote LLM. Its summary length scales with the annotation target: approximately `N × 1.5` sentences for `N` requested annotations.
+Choose **Remote API** to send filtered paper body text (no authors, tables, figures, abstract, or references) to the configured remote LLM. Its summary length scales with the highlight target: approximately `N × 1.5` sentences for `N` requested highlights.
 
 Choose **Local Ollama** to summarize with imported `Qwen/Qwen3.5-2B` or with your preferred model. Ollama handles local GPU selection and execution; this add-on starts `ollama serve` when its executable is available. Remote credentials are hidden when local summarization is selected. Note that you can also use the remote endpoint to interact with Ollama. However, the Remote choice is designed to make the setup easier for non expert users.
 
@@ -70,15 +82,17 @@ wᵢ·imp(i) + wᵢ·cov(i) − wᵣ·red(i) − pₛ·sec(i)
 
 After picking sentence `i*`, penalize its best-matching summary column: `M[i][j*] = max(0, M[i][j*] − 0.1·σ)` for all remaining `i`. `σ` = stddev of all remaining matrix entries (recomputed each iteration). This pushes `cov(i)` down for candidates that would re-hit the same summary part, encouraging coverage of the whole synopsis.
 
-If tag definitions are supplied (TOML in the settings dialog), selected sentences are classified by cosine similarity to each tag's description vector. Each highlight receives the best-matching tag, its description, and a color from a fixed palette.
+If tag definitions are supplied (TOML in Zotero Settings), selected sentences are classified by cosine similarity to each tag's description vector. Each highlight receives the best-matching tag, its description, and a color from a fixed palette.
 
-### 3. Selected annotations
+### 3. Temporary preview and saving
 
-Selected annotations are restored to PDF reading order and mapped back to their original rectangles.
+Sentence extraction uses the reader's per-character geometry. It clusters characters into visual lines, detects repeated column gutters, removes running headers and footers, and detects the reference zone from citation signals. Division of the text into sentences uses the platform segmenter, so the highlight rectangles match the prose.
+
+The selected sentences are painted as temporary overlays. Nothing is written to the library until you press **Save as Zotero annotations…**. The threshold slider filters the preview by importance score without another model call. A second save skips sentences that already have an annotation, so repeated presses do not create duplicates.
 
 ## Models
 
-Install Ollama separately, then use **Download Ollama models** to upload these Hugging Face GGUF files into Ollama's local store through its blob API.
+Install Ollama separately. **Test Ollama** in settings starts the local server and pulls the required Hugging Face GGUF files into Ollama's local store.
 
 | Stage | Default Model |
 |-------|-------|
@@ -89,7 +103,7 @@ Install Ollama separately, then use **Download Ollama models** to upload these H
 
 ## Similar plugins
 
-- [SkimRead](https://github.com/adellife/zotero-skimread): Document-wide Zotero PDF skimming that uses AI to choose the sentences that best express a paper’s goal, method, results, and novelty; it has the same exact goal as zotero-skimming, but it demands all the work to the AI, which selects the best sentences, while my plugin provides a more guided enhancing accuracy with cheap models. Currently, `zotero-skimread` has a slightly more convenient UI.
+- [SkimRead](https://github.com/adellife/zotero-skimread): Document-wide Zotero PDF skimming that uses AI to choose the sentences that best express a paper’s goal, method, results, and novelty. It has the same goal as zotero-skimming, but it gives all the selection work to the AI, while this plugin provides more guided selection with cheap models. This plugin now copies its settings-pane, temporary-highlight, and explicit-save workflow.
 - [Nodus](https://github.com/Drakonis96/nodus): A broader Zotero research workspace that indexes attachments for local-first search, cited answers, and AI-assisted study across a vault; philosophically it is a research knowledge workspace, which also includes sentence highlighting, but it focus on "important sentences" more than on sentence skimming.
 
 ## Build and test
@@ -98,18 +112,18 @@ Requirements: Bash, Python 3, `zip`, `unzip`, Node.js, Yarn, and the project's J
 
 ```sh
 yarn install
-./build.sh
 yarn test
-yarn coverage
+./scripts/release.sh --only-build
 node --check bootstrap.js
 node --check content/annotator.js
+node --check content/extractor.js
 node --check content/nlp.js
 node --check content/model-manager.js
 node --check content/remote-llm.js
 git diff --check
 ```
 
-`build.sh` reads the version from `manifest.json`, creates `dist/zotero-skimming-VERSION.xpi`, includes both JSON configuration files, and validates the archive with `unzip -t`.
+`scripts/release.sh --only-build` reads the version from `manifest.json`, creates `zotero-skimming.xpi`, includes both JSON configuration files, and validates the archive with `unzip -t`.
 
 ## References
 

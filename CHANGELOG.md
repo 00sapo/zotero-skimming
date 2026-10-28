@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Moved all configuration into a native **Settings → Zotero Skimming** pane.
+- Removed the sidebar settings overlay, summary dialog, and every alert and progress popup. Status and progress now appear in the reader sidebar.
+- Highlights are temporary by default. Generate a preview, adjust the score threshold, then press **Save as Zotero annotations…** to write native highlights.
+- Replaced recognizer word geometry with per-character reader geometry for line clustering, repeated-gutter detection, header and footer removal, reference-zone detection, and segmenter-based sentence division.
+- Added threshold filtering that reuses the cached selection and does not call the model again.
 - Replaced the local Transformers.js/ONNX runtime with Ollama.
 - Added explicit **Download Ollama models** provisioning for Qwen2.5 summary and Qwen3 semantic-relevance GGUF models.
 - Replaced local embedding/classification stages with optional summary and keyword-section relevance through Qwen3 embeddings.

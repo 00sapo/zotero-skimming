@@ -13,6 +13,7 @@ export function loadScript(file, globals = {}) {
     TextEncoder,
     TextDecoder,
     Uint8Array,
+    Intl,
     FastKeySentenceScoringConfig: {
       initial: { summarySimilarity: 0.85, sentenceLength: 0.15 },
       selection: { importance: 0.65, redundancy: 0.35, sectionPenalty: 0.06 }

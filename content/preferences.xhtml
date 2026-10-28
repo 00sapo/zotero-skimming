@@ -1,0 +1,193 @@
+<groupbox
+  id="zotero-skimming-prefs"
+  onload="Zotero.__zoteroSkimming.onPrefsLoad(window)"
+>
+  <label><html:h2>Zotero Skimming</html:h2></label>
+  <description style="max-width: 560px">
+    Settings are saved as you change them. Highlight generation runs from the
+    Paper skim section in the reader sidebar.
+  </description>
+
+  <groupbox>
+    <label><html:h3>NLP analysis</html:h3></label>
+
+    <hbox align="center">
+      <html:label for="zotero-skimming-pref-compressionRatio"
+        >Compression ratio</html:label
+      >
+      <html:input
+        type="number"
+        id="zotero-skimming-pref-compressionRatio"
+        min="1.5"
+        max="20"
+        step="0.5"
+        style="width: 90px"
+      />
+    </hbox>
+    <description style="max-width: 560px; font-size: 12px; opacity: 0.8">
+      A ratio of 10 selects about one sentence per ten candidate sentences.
+    </description>
+
+    <hbox align="center">
+      <html:label for="zotero-skimming-pref-selectionThreshold"
+        >Highlight threshold</html:label
+      >
+      <html:input
+        type="number"
+        id="zotero-skimming-pref-selectionThreshold"
+        min="0"
+        max="100"
+        step="5"
+        style="width: 90px"
+      />
+      <html:span style="opacity: 0.7">%</html:span>
+    </hbox>
+    <description style="max-width: 560px; font-size: 12px; opacity: 0.8">
+      Hides highlights whose importance score is below this value. Zero shows
+      every selected sentence. The reader sidebar has the same control for
+      quick changes.
+    </description>
+
+    <checkbox
+      id="zotero-skimming-pref-localRelevance"
+      label="Semantic relevance from the paper summary"
+    />
+    <description style="max-width: 560px; font-size: 12px; opacity: 0.8">
+      Uses embeddings to compare sentences with the generated summary. When
+      this is off, the add-on uses the fast TF-IDF and TextRank baseline.
+    </description>
+
+    <checkbox
+      id="zotero-skimming-pref-summaryLabels"
+      label="Classify highlights from a labeled summary"
+    />
+    <html:label
+      for="zotero-skimming-pref-summaryLabelConfigV2"
+      style="margin-top: 8px"
+      >Summary label definitions (TOML)</html:label
+    >
+    <html:textarea
+      id="zotero-skimming-pref-summaryLabelConfigV2"
+      rows="12"
+      spellcheck="false"
+      style="width: 100%; max-width: 620px; min-height: 180px; font-family: monospace; font-size: 12px; white-space: pre"
+    ></html:textarea>
+    <description style="max-width: 560px; font-size: 12px; opacity: 0.8">
+      Each label needs a description and a color. Invalid text is not saved.
+    </description>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h3>Summary source</html:h3></label>
+
+    <hbox align="center">
+      <html:label for="zotero-skimming-pref-summarySource"
+        >Source</html:label
+      >
+      <html:select id="zotero-skimming-pref-summarySource" style="width: 200px">
+        <html:option value="local">Local Ollama</html:option>
+        <html:option value="remote">Remote API</html:option>
+      </html:select>
+    </hbox>
+
+    <vbox id="zotero-skimming-pref-remoteOptions">
+      <hbox align="center">
+        <html:label for="zotero-skimming-pref-remoteEndpoint"
+          >Endpoint</html:label
+        >
+        <html:input
+          type="text"
+          id="zotero-skimming-pref-remoteEndpoint"
+          style="width: 360px"
+          placeholder="https://api.openai.com/v1/chat/completions"
+        />
+      </hbox>
+      <hbox align="center">
+        <html:label for="zotero-skimming-pref-remoteApiKey"
+          >API key</html:label
+        >
+        <html:input
+          type="password"
+          id="zotero-skimming-pref-remoteApiKey"
+          style="width: 360px"
+        />
+      </hbox>
+    </vbox>
+
+    <hbox align="center">
+      <html:label for="zotero-skimming-pref-summaryModel"
+        >Summary model</html:label
+      >
+      <html:input
+        type="text"
+        id="zotero-skimming-pref-summaryModel"
+        style="width: 360px"
+      />
+    </hbox>
+    <hbox align="center">
+      <html:label for="zotero-skimming-pref-embeddingModel"
+        >Embedding model</html:label
+      >
+      <html:input
+        type="text"
+        id="zotero-skimming-pref-embeddingModel"
+        style="width: 360px"
+      />
+    </hbox>
+    <description style="max-width: 560px; font-size: 12px; opacity: 0.8">
+      Leave a model field blank to use the provider default. The embedding
+      model is used only when semantic relevance or summary labels are on.
+    </description>
+
+    <vbox id="zotero-skimming-pref-localOptions">
+      <hbox align="center">
+        <html:label for="zotero-skimming-pref-ollamaCommand"
+          >Ollama command</html:label
+        >
+        <html:input
+          type="text"
+          id="zotero-skimming-pref-ollamaCommand"
+          style="width: 360px"
+          placeholder="/usr/bin/ollama"
+        />
+      </hbox>
+      <hbox align="center">
+        <checkbox
+          id="zotero-skimming-pref-mapReduce"
+          label="Map-reduce long papers"
+        />
+        <html:label for="zotero-skimming-pref-mapReduceSentences"
+          >sentences per chunk</html:label
+        >
+        <html:input
+          type="number"
+          id="zotero-skimming-pref-mapReduceSentences"
+          min="2"
+          step="1"
+          style="width: 80px"
+        />
+      </hbox>
+      <description style="max-width: 560px; font-size: 12px; opacity: 0.8">
+        Use map-reduce only when the model context window is too small for the
+        paper. The default Ollama model handles most papers in one pass.
+      </description>
+    </vbox>
+
+    <hbox align="center" style="margin-top: 10px">
+      <button id="zotero-skimming-pref-testOllama" label="Test Ollama" />
+      <html:span
+        id="zotero-skimming-pref-status"
+        role="status"
+        aria-live="polite"
+        style="margin-left: 10px; font-size: 12px"
+      ></html:span>
+    </hbox>
+    <progress
+      id="zotero-skimming-pref-progress"
+      max="100"
+      value="0"
+      hidden="true"
+      style="width: 320px; height: 12px"
+    ></progress>
+  </groupbox>
+</groupbox>

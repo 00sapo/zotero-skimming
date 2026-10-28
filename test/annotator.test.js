@@ -1,65 +1,42 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadScript } from "./helpers.js";
 
-function annotator(globals = {}) {
-  const summaryLabelsCtx = {
-    FastKeySentenceSummaryLabels: {
-      DEFAULT_CONFIG: "# config",
-      parseConfig(text) {
-        if (!text || !text.trim()) return [];
-        const labels = [];
-        for (const line of text.split(/\r?\n/)) {
-          const m = line.match(/^\[([a-z][a-z0-9-]*)\]$/i);
-          if (m) labels.push({ name: `[${m[1]}]`, description: `${m[1]} description`, color: null });
-        }
-        if (!labels.length) {
-          ["literature","method","goal","result","conclusion","contribution","take-away"].forEach(n =>
-            labels.push({ name: `[${n}]`, description: `${n} description`, color: null })
-          );
-        }
-        return labels;
-      }
-    }
-  };
-  const nlpContext = loadScript("content/nlp.js", summaryLabelsCtx);
-  const defaultModels = { init: vi.fn(), shutdown: vi.fn(), summarize: async () => "A test summary.", embeddings: async () => [[1, 0], [0, 1]], testOllama: async () => {}, supportsInference: () => true, setModelOverrides: vi.fn(), appendToLog: vi.fn(), SUMMARY_MODEL: "test-summary", EMBEDDING_MODEL: "test-embed" };
-  return loadScript("content/annotator.js", {
-    FastKeySentenceNLP: nlpContext.FastKeySentenceNLP,
-    FastKeySentenceModels: defaultModels,
-    FastKeySentenceRemote: { DEFAULT_ENDPOINT: "https://api.example.com", DEFAULT_MODEL: "test-model", summarize: async () => "A test summary.", getConfig: () => ({ endpoint: "", apiKey: "", model: "" }) },
-    FastKeySentenceSummaryLabels: summaryLabelsCtx.FastKeySentenceSummaryLabels,
-    FastKeySentenceSummaryLabelConfigV2: globals.FastKeySentenceSummaryLabelConfigV2 || "# config",
-    FastKeySentenceSummaryLabelConfigV2Path: globals.FastKeySentenceSummaryLabelConfigV2Path || "/tmp/summary-label-config-v2.toml",
-    IOUtils: globals.IOUtils || { writeUTF8: vi.fn(async () => {}), makeDirectory: vi.fn(async () => {}), exists: vi.fn(async () => false), read: vi.fn(async () => new Uint8Array()) },
-    Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, ItemPaneManager: { registerSection: vi.fn(() => 1), unregisterSection: vi.fn() } },
-    ...globals
-  }).FastOfflineKeySentenceAnnotator;
-}
-
-function fakeWindow(selected = []) {
+function actualDocument() {
   const elements = new Map();
   class Element {
-    constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.style = {}; this.dataset = {}; this.hidden = false; this._checked = false; }
+    constructor(tag) {
+      this.tag = tag;
+      this.children = [];
+      this.listeners = {};
+      this.style = {};
+      this.dataset = {};
+      this.hidden = false;
+      this.disabled = false;
+      this.textContent = "";
+      this.value = "";
+      this._checked = false;
+      this.attributes = new Map();
+    }
     get checked() { return this._checked; }
     set checked(value) { this._checked = value; }
     set id(value) { this._id = value; elements.set(value, this); }
     get id() { return this._id; }
-    setAttribute(name, value) { this[name] = value; }
+    setAttribute(name, value) { this.attributes.set(name, String(value)); this[name] = String(value); }
+    getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
     appendChild(child) { this.children.push(child); return child; }
     append(...children) { children.forEach(child => this.appendChild(child)); }
     replaceChildren(...children) { this.children = []; this.append(...children); }
-    remove() { this.removed = true; if (this.id) elements.delete(this.id); }
+    remove() { this.removed = true; if (this._id) elements.delete(this._id); }
     addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
     removeEventListener(type, listener) { this.listeners[type] = (this.listeners[type] || []).filter(x => x !== listener); }
-    dispatch(type, event = {}) { for (const listener of this.listeners[type] || []) listener({ preventDefault: vi.fn(), stopPropagation: vi.fn(), ...event }); }
+    dispatch(type, event = {}) { for (const listener of this.listeners[type] || []) listener({ preventDefault: vi.fn(), stopPropagation: vi.fn(), target: this, ...event }); }
     focus() { this.focused = true; }
     querySelectorAll(selector) {
       const descendants = node => node.children.flatMap(child => [child, ...descendants(child)]);
-      return descendants(this).filter(element => element.tag === selector);
+      return descendants(this).filter(element => element.tag === selector || element.className === selector.replace(/^\./, ""));
     }
   }
   const root = new Element("root");
-  const popup = new Element("popup");
   const doc = { documentElement: root };
   const create = tag => {
     const element = new Element(tag);
@@ -70,459 +47,299 @@ function fakeWindow(selected = []) {
     createElementNS: (_ns, tag) => create(tag),
     createElement: tag => create(tag),
     createXULElement: tag => create(tag),
-    getElementById: id => elements.get(id) || (id === "zotero-itemmenu" ? popup : null)
+    getElementById: id => elements.get(id) || null
   });
   root.ownerDocument = doc;
-  popup.ownerDocument = doc;
   const window = {
     document: doc,
-    ZoteroPane: { getSelectedItems: () => selected },
-    setTimeout: fn => fn(), requestAnimationFrame: vi.fn(fn => fn()),
-    addEventListener: vi.fn(), removeEventListener: vi.fn(),
-    elements, popup
+    ZoteroPane: { getSelectedItems: () => [] },
+    setTimeout: fn => fn(),
+    requestAnimationFrame: vi.fn(fn => fn()),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    elements
   };
   doc.defaultView = window;
   return window;
 }
 
-const word = (text, x, y) => ({ text, rect: [x, y, x + 20, y + 10], top: y + 10 });
-
-function descendants(element) {
-  return [element, ...element.children.flatMap(descendants)];
+function annotator(globals = {}) {
+  const prefs = new Map();
+  const summaryLabels = {
+    DEFAULT_CONFIG: "# config\n[result]\ndescription = \"result\"",
+    parseConfig(text) {
+      if (!text || !text.trim()) return [];
+      const labels = [];
+      for (const line of text.split(/\r?\n/)) {
+        const match = line.match(/^\[([a-z][a-z0-9-]*)\]$/i);
+        if (match) labels.push({ name: `[${match[1]}]`, description: `${match[1]} description`, color: null });
+      }
+      return labels;
+    }
+  };
+  const nlp = loadScript("content/nlp.js", { FastKeySentenceSummaryLabels: summaryLabels }).FastKeySentenceNLP;
+  const models = {
+    init: vi.fn(),
+    shutdown: vi.fn(),
+    summarize: async () => "A test summary.",
+    embeddings: async () => [[1, 0], [0, 1]],
+    testOllama: vi.fn(async () => true),
+    supportsInference: () => true,
+    setModelOverrides: vi.fn(),
+    appendToLog: vi.fn(),
+    SUMMARY_MODEL: "test-summary",
+    EMBEDDING_MODEL: "test-embed"
+  };
+  const extractor = globals.FastKeySentenceExtractor || {
+    cleanText: text => String(text || "").replace(/\s+/g, " ").trim(),
+    extractDocument: vi.fn(async () => ({ sentences: [], pages: [], pageCount: 0 }))
+  };
+  const zotero = {
+    debug: vi.fn(),
+    DataObjectUtilities: { generateKey: () => "KEY" },
+    Prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
+    ItemPaneManager: { registerSection: vi.fn(() => 1), unregisterSection: vi.fn() },
+    PreferencePanes: { register: vi.fn(async () => "zotero-skimming-prefs") },
+    Items: { getAsync: async () => ({ getField: () => "Parent title" }) },
+    Notifier: { Queue: class {}, commit: async () => {} },
+    Annotations: { saveFromJSON: vi.fn(async () => ({})) },
+    Reader: { _readers: [] },
+    ...globals.Zotero
+  };
+  const api = loadScript("content/annotator.js", {
+    FastKeySentenceNLP: globals.FastKeySentenceNLP || nlp,
+    FastKeySentenceModels: globals.FastKeySentenceModels || models,
+    FastKeySentenceExtractor: extractor,
+    FastKeySentenceRemote: {
+      DEFAULT_ENDPOINT: "https://api.example.com",
+      DEFAULT_MODEL: "test-model",
+      validateConfig: vi.fn(async ({ apiKey, model }) => apiKey && model
+        ? { valid: true }
+        : { valid: false, error: "Missing credentials" })
+    },
+    FastKeySentenceSummaryLabels: summaryLabels,
+    FastKeySentenceSummaryLabelConfigV2: globals.FastKeySentenceSummaryLabelConfigV2 || "# config\n[result]\ndescription = \"result\"",
+    FastKeySentenceSummaryLabelConfigV2Path: globals.FastKeySentenceSummaryLabelConfigV2Path || "/tmp/config.toml",
+    IOUtils: globals.IOUtils || { writeUTF8: vi.fn(async () => {}) },
+    ...globals,
+    Zotero: zotero
+  }).FastOfflineKeySentenceAnnotator;
+  api.__prefs = prefs;
+  api.__models = models;
+  api.__extractor = extractor;
+  api.__zotero = zotero;
+  return api;
 }
 
-function byText(window, text) {
-  return descendants(window.document.documentElement).find(element => element.textContent === text);
+function attachment(overrides = {}) {
+  return {
+    id: 7,
+    libraryID: 1,
+    isAttachment: () => true,
+    isPDFAttachment: () => true,
+    getField: () => "Paper",
+    getAnnotations: () => [],
+    ...overrides
+  };
 }
 
-function byId(window, id) {
-  return window.elements.get(id);
-}
-
-describe("FastOfflineKeySentenceAnnotator geometry", () => {
-  it("splits, orders, joins, groups, and merges positioned prose", () => {
+describe("FastOfflineKeySentenceAnnotator settings", () => {
+  it("reads, validates, and saves settings including the threshold", () => {
     const api = annotator();
-    expect(api.splitFragment("one two", [0, 0, 30, 10])).toHaveLength(2);
-    expect(api.splitFragment("", [0, 0, 1, 1])).toEqual([]);
-    expect(api.joinTokens(["Hello", ",", "world", "!", "(", "test", ")"])).toBe("Hello, world! (test)");
-    const page = { pageIndex: 0, width: 600, height: 800, words: [word("world", 30, 700), word("Hello", 0, 700), word("Next", 0, 670)] };
-    expect(api.buildLines(page).map(line => line.text)).toEqual(["Hello world", "Next"]);
-    expect(api.mergeRects([[20, 10, 30, 20], [0, 10, 15, 20], [0, 0, 10, 5]])).toEqual([[0, 10, 30, 20], [0, 0, 10, 5]]);
+    api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
+    expect(api.getConfiguredSettings()).toEqual(api.settingsDefaults);
+
+    const settings = { ...api.settingsDefaults, compressionRatio: 3, selectionThreshold: 0.25, localRelevance: true };
+    expect(api.saveSettings(settings)).toBe(true);
+    expect(api.getConfiguredSettings()).toMatchObject({ compressionRatio: 3, selectionThreshold: 0.25, localRelevance: true });
+    expect(api.calculateAnnotationTarget(100, { compressionRatio: 2 })).toBe(50);
+    expect(api.getSelectionThreshold()).toBe(0.25);
+    expect(api.setSelectionThreshold(0.4)).toBe(0.4);
+
+    expect(api.isValidSettings({ ...api.settingsDefaults, compressionRatio: 1 })).toBe(false);
+    expect(api.isValidSettings({ ...api.settingsDefaults, selectionThreshold: 2 })).toBe(false);
+    expect(api.isValidSettings({ ...api.settingsDefaults, localRelevance: 1 })).toBe(false);
+    expect(api.isValidSettings({ ...api.settingsDefaults, ollamaCommand: "ollama" })).toBe(false);
   });
 
-  it("reads two-column prose down the left column before the right", () => {
+  it("registers the preferences pane once", async () => {
     const api = annotator();
-    const line = (text, x, y) => text.split(" ").map((part, index) => word(part, x + index * 26, y));
-    const page = {
-      pageIndex: 0,
-      width: 600,
-      height: 800,
-      words: [
-        ...line("Left column begins with a complete thought", 40, 700),
-        ...line("and ends only on this second line.", 40, 688),
-        ...line("Right column begins with a separate thought", 340, 700),
-        ...line("and ends only on this second line.", 340, 688)
-      ]
+    api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
+    await expect(api.registerPrefsPane()).resolves.toBe("zotero-skimming-prefs");
+    await api.registerPrefsPane();
+    expect(api.__prefs).toBeDefined();
+    expect(api.id).toBe("addon@example.com");
+  });
+
+  it("wires the preferences pane without dialogs", async () => {
+    const api = annotator();
+    api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
+    const window = actualDocument();
+    const doc = window.document;
+    const root = doc.createElement("vbox");
+    root.id = "zotero-skimming-prefs";
+    const ids = {
+      compressionRatio: "number",
+      selectionThreshold: "number",
+      localRelevance: "checkbox",
+      summaryLabels: "checkbox",
+      summaryLabelConfigV2: "textarea",
+      summarySource: "select",
+      remoteEndpoint: "text",
+      remoteApiKey: "password",
+      summaryModel: "text",
+      embeddingModel: "text",
+      ollamaCommand: "text",
+      mapReduce: "checkbox",
+      mapReduceSentences: "number",
+      remoteOptions: "vbox",
+      localOptions: "vbox",
+      status: "span",
+      progress: "progress",
+      testOllama: "button"
     };
+    for (const [name, tag] of Object.entries(ids)) {
+      const element = doc.createElement(tag);
+      element.id = `zotero-skimming-pref-${name}`;
+      window.elements.set(element.id, element);
+    }
+    api.onPrefsLoad(window);
+    const $ = name => doc.getElementById(`zotero-skimming-pref-${name}`);
+    expect($("compressionRatio").value).toBe("10");
+    expect($("selectionThreshold").value).toBe("0");
+    expect($("summarySource").value).toBe("local");
+    expect($("remoteOptions").hidden).toBe(true);
 
-    expect(api.buildLines(page).map(item => item.text)).toEqual([
-      "Left column begins with a complete thought",
-      "and ends only on this second line.",
-      "Right column begins with a separate thought",
-      "and ends only on this second line."
-    ]);
-    expect(api.buildSentences([page]).map(item => item.text)).toEqual([
-      "Left column begins with a complete thought and ends only on this second line.",
-      "Right column begins with a separate thought and ends only on this second line."
-    ]);
+    $("compressionRatio").value = "4";
+    $("summaryLabelConfigV2").value = "# config\n[result]\ndescription = \"result\"";
+    $("compressionRatio").dispatch("change");
+    expect(api.getConfiguredSettings().compressionRatio).toBe(4);
+    expect($("status").textContent).toBe("Saved.");
+
+    $("summaryLabelConfigV2").value = "";
+    $("summaryLabelConfigV2").dispatch("input");
+    expect($("status").textContent).toContain("invalid");
+    $("summaryLabelConfigV2").value = "# config\n[result]\ndescription = \"result\"";
+    $("summarySource").value = "remote";
+    $("summarySource").dispatch("change");
+    expect($("remoteOptions").hidden).toBe(false);
+
+    $("testOllama").listeners.click[0]();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(api.__models.testOllama).not.toHaveBeenCalled();
+  });
+});
+
+describe("FastOfflineKeySentenceAnnotator sidebar", () => {
+  it("renders temporary-highlight controls and no settings form", async () => {
+    const api = annotator();
+    api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
+    const paneManager = { registerSection: vi.fn(() => 7), unregisterSection: vi.fn() };
+    api.__zotero.ItemPaneManager = paneManager;
+    const window = actualDocument();
+    api.addToWindow(window);
+    const section = paneManager.registerSection.mock.calls[0][0];
+    const body = window.document.createElement("div");
+    section.onRender({ body, item: null, tabType: "reader" });
+    const text = body.children[0].children.flatMap(child => [child, ...child.children]).map(element => element.textContent);
+    expect(text).toContain("Generate highlights");
+    expect(text).toContain("Save as Zotero annotations…");
+    expect(text).toContain("Highlight threshold");
+    expect(text).not.toContain("Paper skim");
+    await section.onAsyncRender({ body, item: null, tabType: "reader" });
+    expect(body.children[0].children[0].textContent).toContain("Select a PDF");
   });
 
-  it("splits columns despite irregular word spacing", () => {
-    const api = annotator();
-    const row = (left, right, y) => [
-      ...left.map((text, index) => word(text, [40, 120, 210, 275][index], y)),
-      ...right.map((text, index) => word(text, [313, 343, 373, 403][index], y))
+  it("generates a preview, applies the threshold, and saves on request", async () => {
+    const sentences = [
+      { text: "High importance sentence with enough words.", pageIndex: 0, pageHeight: 800, rects: [[0, 700, 200, 710]], section: "results", importance: 0.9, order: 0 },
+      { text: "Low importance sentence with enough words.", pageIndex: 0, pageHeight: 800, rects: [[0, 680, 200, 690]], section: "results", importance: 0.2, order: 1 }
     ];
-    const page = {
-      pageIndex: 0,
-      width: 600,
-      height: 800,
-      words: [
-        ...row(["Left", "first", "wide", "gap."], ["Right", "first", "column", "text."], 700),
-        ...row(["Left", "second", "wide", "gap."], ["Right", "second", "column", "text."], 688),
-        word("Heading", 40, 676),
-        ...["Right", "after", "short", "heading."].map((text, index) => word(text, 313 + index * 30, 676))
-      ]
+    const extractor = { cleanText: text => text, extractDocument: vi.fn(async () => ({ sentences, pages: [], pageCount: 1 })) };
+    const nlp = loadScript("content/nlp.js").FastKeySentenceNLP;
+    nlp.analyzeAsync = vi.fn(async () => sentences.map(sentence => ({ ...sentence, _paperSummary: "Summary text." })));
+    const api = annotator({ FastKeySentenceExtractor: extractor, FastKeySentenceNLP: nlp });
+    api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
+    api.__prefs.set("extensions.zotero-skimming.compressionRatio", 2);
+    api.__zotero.Reader._readers = [{ itemID: 7 }];
+    const saved = [];
+    const attachmentItem = {
+      ...attachment(),
+      getAnnotations: () => saved.map(annotation => ({ annotationText: annotation.text, getTags: () => [{ tag: "autoskim-key-sentence" }] })),
+      libraryID: 1
     };
+    const window = actualDocument();
+    window.ZoteroPane = {};
+    const body = window.document.createElement("div");
+    api.renderSidebar(body, window, attachmentItem, "reader");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const refs = api.panelRefs.get(body);
+    expect(refs).toBeTruthy();
+    await api.generateForItem(attachmentItem, body);
+    expect(api.previews.get(attachmentItem.id).visible).toHaveLength(2);
+    expect(refs.status.textContent).toContain("Generated 2");
 
-    expect(api.buildLines(page).map(item => item.text)).toEqual([
-      "Left first wide gap.",
-      "Left second wide gap.",
-      "Heading",
-      "Right first column text.",
-      "Right second column text.",
-      "Right after short heading."
-    ]);
+    refs.threshold.value = "50";
+    refs.threshold.dispatch("input");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(api.previews.get(attachmentItem.id).visible).toHaveLength(1);
+    expect(refs.status.textContent).toContain("1 highlight");
+
+    api.__zotero.Annotations.saveFromJSON = vi.fn(async (_attachment, annotation) => {
+      saved.push(annotation);
+      return annotation;
+    });
+    await api.savePreviewForItem(attachmentItem, body);
+    expect(saved).toHaveLength(1);
+  });
+});
+
+describe("FastOfflineKeySentenceAnnotator attachments", () => {
+  it("resolves attachments and titles", async () => {
+    const api = annotator();
+    const child = attachment({ id: 2 });
+    api.__zotero.Items = { getAsync: async id => id === 2 ? child : null };
+    expect(await api.resolvePDFAttachment({ isAttachment: () => true, isPDFAttachment: () => true })).toBeTruthy();
+    expect(await api.resolvePDFAttachment({ isRegularItem: () => true, getAttachments: () => [3, 2] })).toBe(child);
+    expect(await api.resolvePDFAttachment({ isRegularItem: () => false })).toBeNull();
+    expect(await api.getDocumentTitle({ parentID: 9, getField: () => "file.pdf", attachmentFilename: "x" })).toBe("file.pdf");
   });
 
-  it("keeps column-local headings with their left-column prose", () => {
+  it("deletes only saved Skim annotations", async () => {
+    const first = { getTags: () => [{ tag: "autoskim-key-sentence" }], eraseTx: vi.fn(async () => {}) };
+    const second = { getTags: () => [{ tag: "important" }], eraseTx: vi.fn(async () => {}) };
     const api = annotator();
-    const line = (text, x, y) => text.split(" ").map((part, index) => word(part, x + index * 26, y));
-    const page = {
-      pageIndex: 0,
-      width: 600,
-      height: 800,
-      words: [
-        ...line("Abstract prose on the left.", 40, 730),
-        ...line("1 Introduction", 40, 700),
-        ...line("Introduction prose on the left.", 40, 688),
-        ...line("Continuation starts in the right column.", 340, 730),
-        ...line("More right-column prose follows.", 340, 688)
-      ]
-    };
-
-    expect(api.buildLines(page).map(item => item.text)).toEqual([
-      "Abstract prose on the left.",
-      "1 Introduction",
-      "Introduction prose on the left.",
-      "Continuation starts in the right column.",
-      "More right-column prose follows."
-    ]);
+    const count = await api.deleteSavedAnnotations({ getAnnotations: () => [first, second] });
+    expect(count).toBe(1);
+    expect(first.eraseTx).toHaveBeenCalledOnce();
+    expect(second.eraseTx).not.toHaveBeenCalled();
   });
 
-  it("extracts legacy and structured pages, filtering duplicate geometry", () => {
+  it("requires a second press before removing saved annotations", async () => {
+    const first = { getTags: () => [{ tag: "autoskim-key-sentence" }], eraseTx: vi.fn(async () => {}) };
     const api = annotator();
-    const legacy = api.extractPages({ pages: [[100, 200, [0, 10, 40, 20, "Hello world"]]] });
-    expect(legacy[0].words.map(item => item.text)).toEqual(["Hello", "world"]);
-    const structured = api.extractStructuredPages({ pageSizes: [[100, 200]], content: [{ text: "Hello world", position: { pageIndex: 0, rects: [[0, 10, 40, 20]] } }, { text: "Hello world", position: { pageIndex: 0, rects: [[0, 10, 40, 20]] } }] });
-    expect(structured).toHaveLength(1);
-    expect(structured[0].words).toHaveLength(2);
-    expect(api.extractStructuredPages("not json")).toEqual([]);
+    const window = actualDocument();
+    const body = window.document.createElement("div");
+    const attachmentItem = attachment({ getAnnotations: () => [first] });
+    api.renderSidebar(body, window, attachmentItem, "reader");
+    const refs = api.panelRefs.get(body);
+    await api.onRemoveSaved(attachmentItem, body);
+    expect(first.eraseTx).not.toHaveBeenCalled();
+    expect(refs.status.textContent).toContain("Confirm removal");
+    await api.onRemoveSaved(attachmentItem, body);
+    expect(first.eraseTx).toHaveBeenCalledOnce();
+    expect(refs.status.textContent).toContain("Removed 1");
   });
 
-  it("recognizes tables, references, margins, and builds usable sentences", () => {
+  it("creates valid annotations with tags and scores", () => {
     const api = annotator();
-    const rows = [["Table 1", 0], ["A 1 B 2 C 3", 0], ["D 4 E 5 F 6", 0]].map(([text], i) => ({ text, words: text.split(" ").map((part, j) => word(part, j * 80, 700 - i * 20)), height: 10 }));
-    expect(api.detectTableLineIndexes(rows, { width: 600 }).size).toBeGreaterThan(0);
-    const pages = [{ pageIndex: 0, width: 600, height: 800, words: [
-      ..."Abstract".split(" ").map((text, i) => word(text, i * 30, 730)),
-      ..."We propose a method that substantially improves results for difficult scientific tasks.".split(" ").map((text, i) => word(text, i * 30, 700)),
-      ..."The results demonstrate reliable accuracy across independent evaluation datasets.".split(" ").map((text, i) => word(text, i * 30, 670))
-    ] }];
-    const built = api.buildSentences(pages);
-    expect(built.length).toBeGreaterThan(0);
-    expect(built[0].section).toBe("abstract");
-    expect(Array.isArray(built[0].rects)).toBe(true);
-    const repeated = Array.from({ length: 4 }, (_, pageIndex) => ({ pageIndex, width: 100, height: 100, words: [word("Header", 0, 95), word(`Body${pageIndex}`, 0, 50)] }));
-    expect(api.cleanRepeatedMargins(repeated).every(page => page.words.every(item => item.text !== "Header"))).toBe(true);
-    expect(api.isFrontMatterLine({ text: "doi: 10.1/x" }, { pageIndex: 0 })).toBe(true);
-    expect(api.isFrontMatterLine({ text: "Abstract" }, { pageIndex: 0 })).toBe(false);
-    expect(api.isBackMatterLine("Funding:" )).toBe(true);
-    expect(api.isTableCaptionLine({ text: "Table IV Results" })).toBe(true);
-    expect(api.isLikelyReferencePage(Array.from({ length: 6 }, (_, i) => ({ text: `[${i + 1}] Smith 2020.` })))).toBe(true);
-    expect(api.cleanRepeatedMargins([{ pageIndex: 0, words: [] }])).toHaveLength(1);
-  });
-
-  it("handles structured variants, columns, tables, and sentence section transitions", () => {
-    const api = annotator();
-    const structured = api.extractStructuredPages({ metadata: { pageSizes: [{ pageNumber: 1, size: [200, 300] }] }, content: { anchor: { page: 0, rectangles: [[40, 20, 0, 10]] }, value: "A B", child: { str: "C", position: { pageIndex: 0, rect: [0, 20, 20, 30] } } } });
-    expect(structured[0].words.map(x => x.text)).toEqual(["C", "A", "B"]);
-    const columns = Array.from({ length: 8 }, (_, i) => word(String(i), i < 4 ? 0 : 400, (i < 4 ? 700 : 500) - (i % 4) * 30));
-    expect(api.sortWordsReadingOrder(columns, 600, 800).map(x => x.text)).toEqual(["0", "1", "2", "3", "4", "5", "6", "7"]);
-    expect(api.detectTableLineIndexes([], { width: 100 }).size).toBe(0);
-    expect(() => api.extractPages(null)).toThrow("no page structure");
-    const lines = ["Introduction", "A complete opening sentence with enough meaningful words for testing.", "Funding", "Ignored sentence after funding.", "References", "[1] Smith 2020."].map((text, i) => ({ pageIndex: 0, width: 600, height: 800, words: text.split(" ").map((x, j) => word(x, j * 30, 750 - i * 20)) }));
-    expect(api.buildSentences(lines).some(x => x.section === "introduction")).toBe(true);
-    const referencePage = {
-      pageIndex: 0,
-      width: 600,
-      height: 800,
-      words: ["Introduction", "A complete opening sentence with enough meaningful words for testing.", "References", "[1] Smith, J. 2020. A useful dataset.", "Datasets..", "A reference title following a misleading heading."].flatMap((text, i) =>
-        text.split(" ").map((part, j) => word(part, j * 30, 750 - i * 20))
-      )
-    };
-    expect(api.buildSentences([referencePage]).map(sentence => sentence.text)).toEqual([
-      "A complete opening sentence with enough meaningful words for testing."
-    ]);
-  });
-
-  it("creates Zotero-valid annotations and reports model progress", () => {
-    const api = annotator();
-    const annotation = api.makeAnnotation({ text: "A result.", tag: "result", tagColor: "#a5a5a5", tagIndex: 1, tagDescription: "A key result.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
+    api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
+    const annotation = api.makeAnnotation({ text: "A result.", tag: "result", tagColor: "#a5a5a5", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
     expect(annotation.color).toBe("#a5a5a5");
     expect(annotation.sortIndex).toMatch(/^00002\|\d{6}\|\d{5}$/);
     expect(annotation.tags).toContainEqual({ name: "autoskim-key-sentence" });
     expect(annotation.tags).toContainEqual({ name: "result" });
-    const unclassified = api.makeAnnotation({ text: "A sentence.", pageIndex: 2, pageHeight: 800, rects: [[10, 700, 30, 720]], section: "results", importance: 0.8123 });
-    expect(unclassified.tags).toEqual([{ name: "autoskim-key-sentence" }]);
-    expect(unclassified.comment).toBe("Section: results. Score: 0.812.");
-    expect(unclassified.color).toBe("#aaaaaa");
-    const line = { setProgress: vi.fn(), setText: vi.fn() };
-    const handler = api.modelProgressHandler(line, { llmEmbeddings: true, llmClassification: true });
-    handler({ operation: "embeddings", stage: "download", file: "a.bin", loaded: 1024, total: 2048, model: "model" });
-    handler({ operation: "classification", stage: "inference", progress: 50 });
-    expect(line.setProgress).toHaveBeenCalled();
-    expect(line.setText).toHaveBeenLastCalledWith(expect.stringContaining("analysing"));
-  });
-
-});
-
-describe("FastKeySentenceNLP labels", () => {
-  it("parses labeled summaries and assigns labels", async () => {
-    const summaryLabelsCtx = {
-      FastKeySentenceSummaryLabels: {
-        DEFAULT_CONFIG: "# config",
-        parseConfig() {
-          return [
-            { name: "[result]", description: "result description", color: "#a5a5a5" },
-            { name: "[conclusion]", description: "conclusion description", color: "#70ad47" }
-          ];
-        }
-      }
-    };
-    const nlp = loadScript("content/nlp.js", {
-      ...summaryLabelsCtx,
-      FastKeySentenceModels: { supportsInference: () => true, summarize: async () => "1. [result] Evidence sentence.\n2. [conclusion] Interpretation sentence.", embeddings: async texts => texts.map(() => [1, 0]) },
-      FastKeySentenceRemote: { summarize: async () => "1. [result] Evidence sentence.\n2. [conclusion] Interpretation sentence.", embeddings: async texts => texts.map(() => [0, 1]) }
-    }).FastKeySentenceNLP;
-    const result = await nlp.analyzeAsync([
-      { text: "Evidence sentence with enough detail for testing.", section: "results", importance: 1 },
-      { text: "Interpretation sentence with enough detail for testing.", section: "discussion", importance: 1 }
-    ], 2, {
-      summaryLabels: true,
-      summarySource: "local",
-      documentTitle: "Paper"
-    });
-    expect(result.some(item => item.tag === "result" || item.tag === "conclusion")).toBe(true);
-    expect(result.some(item => item.tagColor)).toBe(true);
-  });
-});
-
-describe("FastOfflineKeySentenceAnnotator Zotero workflows", () => {
-  it("registers a sidebar pane and keeps settings persistence", async () => {
-    const prefs = new Map();
-    const paneManager = { registerSection: vi.fn(() => 7), unregisterSection: vi.fn() };
-    const models = { testOllama: vi.fn().mockResolvedValue(), supportsInference: () => false };
-    const api = annotator({
-      FastKeySentenceModels: models,
-      Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) }, ItemPaneManager: paneManager },
-      Services: { prompt: { alert: vi.fn() } }
-    });
-    api.init({ id: "id", version: "1", rootURI: "root" });
-    expect(api.id).toBe("id");
-    expect(api.getConfiguredSettings()).toEqual({ ...api.settingsDefaults });
-    api.saveSettings({ compressionRatio: 3, localRelevance: true, remoteEndpoint: "https://api.example.com", remoteApiKey: "sk-test", remoteModel: "gpt-4o-mini", summarySource: "local", mapReduce: true });
-    expect(api.getConfiguredSettings()).toMatchObject({ compressionRatio: 3, localRelevance: true, remoteEndpoint: "https://api.example.com", summarySource: "local", mapReduce: true });
-    expect(api.calculateAnnotationTarget(100, { compressionRatio: 2 })).toBe(50);
-
-    const window = fakeWindow([{ isPDFAttachment: () => true }]);
-    api.addToWindow(window);
-    expect(paneManager.registerSection).toHaveBeenCalled();
-    const section = paneManager.registerSection.mock.calls[0][0];
-    expect(section.paneID).toBe("zotero-skimming-panel");
-    expect(section.onItemChange({ setEnabled: vi.fn(), tabType: "reader" })).toBe(true);
-    const body = window.document.createElement("div");
-    window.requestAnimationFrame.mockClear();
-    section.onRender({ body, item: null, tabType: "reader" });
-    expect(window.requestAnimationFrame).not.toHaveBeenCalled();
-    expect(descendants(body).some(element => element.textContent === "Paper skim")).toBe(true);
-    expect(descendants(body).some(element => element.textContent === "Annotate")).toBe(true);
-    expect(descendants(body).some(element => element.textContent === "Open settings")).toBe(false);
-    await section.onAsyncRender({ body, item: null, tabType: "reader" });
-    api.removeFromWindow(window);
-    api.shutdown();
-    expect(paneManager.unregisterSection).toHaveBeenCalledWith(7);
-
-    expect(models.testOllama).not.toHaveBeenCalled();
-  });
-
-  it("deletes only autoskim annotations from selected PDFs", async () => {
-    const autoskim = { getTags: () => [{ tag: "autoskim-key-sentence" }], eraseTx: vi.fn().mockResolvedValue() };
-    const autoskimRole = { getTags: () => [{ tag: "autoskim-key-sentence" }, { tag: "result" }], eraseTx: vi.fn().mockResolvedValue() };
-    const manual = { getTags: () => [{ tag: "important" }], eraseTx: vi.fn().mockResolvedValue() };
-    const attachment = {
-      id: 1,
-      isAttachment: () => true,
-      isPDFAttachment: () => true,
-      getAnnotations: () => [autoskim, autoskimRole, manual]
-    };
-    const api = annotator();
-    await api.deleteSkimAnnotationsForSelection(fakeWindow([attachment]));
-    expect(autoskim.eraseTx).toHaveBeenCalledOnce();
-    expect(autoskimRole.eraseTx).toHaveBeenCalledOnce();
-    expect(manual.eraseTx).not.toHaveBeenCalled();
-  });
-
-  it("renders, validates, updates, cancels, and submits the settings overlay", async () => {
-    const testOllama = vi.fn().mockResolvedValue();
-    const api = annotator({ FastKeySentenceModels: { testOllama, supportsInference: () => true }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() } } });
-    const window = fakeWindow();
-    const result = api.showSettingsOverlay(window, api.settingsDefaults);
-    expect(window.document.documentElement.children[0].tag).toBe("div");
-    expect(byId(window, "compression-ratio").value).toBe("10");
-    expect(byId(window, "local-relevance")).toBeDefined();
-    expect(byId(window, "remote-endpoint")).toBeDefined();
-    expect(byId(window, "summary-source").value).toBe("local");
-    expect(byId(window, "remote-endpoint").disabled).toBe(true);
-    expect(byId(window, "map-reduce").checked).toBe(false);
-    expect(api.isValidSettings({ ...api.settingsDefaults })).toBe(true);
-    expect(api.isValidSettings({ ...api.settingsDefaults, compressionRatio: 1 })).toBe(false);
-    byId(window, "summary-source").value = "local";
-    byId(window, "summary-source").dispatch("change");
-    expect(byId(window, "remote-endpoint").disabled).toBe(true);
-    await byText(window, "Test Ollama").listeners.click[0]();
-    expect(testOllama).toHaveBeenCalled();
-    byId(window, "local-relevance").checked = true;
-    byId(window, "compression-ratio").value = "3";
-    byId(window, "remote-api-key").value = "sk-test";
-    byId(window, "summary-source").value = "local";
-    byId(window, "map-reduce").checked = true;
-    const submit = () => descendants(window.document.documentElement).find(x => x.tag === "form").listeners.submit[0]({ preventDefault: vi.fn() });
-    submit();
-    await expect(result).resolves.toMatchObject({ compressionRatio: 3, localRelevance: true, remoteApiKey: "sk-test", summarySource: "local", mapReduce: true });
-
-    const cancelled = api.showSettingsOverlay(window, api.settingsDefaults);
-    window.document.documentElement.children.at(-1).listeners.keydown?.[0]?.({ key: "Escape", preventDefault: vi.fn(), stopPropagation: vi.fn() });
-    window.dispatch = undefined;
-    window.removeEventListener.mockClear();
-    window.document.documentElement.children.at(-1);
-    window.addEventListener.mock.calls.at(-1)[1]({ key: "Escape", preventDefault: vi.fn(), stopPropagation: vi.fn() });
-    await expect(cancelled).resolves.toBeNull();
-  });
-
-  it("covers model update errors and dialog orchestration", async () => {
-    const api = annotator({ Services: { prompt: { alert: vi.fn() } }, FastKeySentenceModels: { testOllama: async () => { throw new Error("offline"); } }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() }, ItemPaneManager: { registerSection: vi.fn(() => 1), unregisterSection: vi.fn() } } });
-    const window = fakeWindow();
-    const pending = api.showSettingsOverlay(window, api.settingsDefaults);
-    byText(window, "Cancel").listeners.click[0]();
-    await expect(pending).resolves.toBeNull();
-  });
-
-  it("resolves attachments, handles selection errors, and creates annotations", async () => {
-    const alert = vi.fn();
-    const children = new Map([[2, { isPDFAttachment: () => true }], [3, { isPDFAttachment: () => false }]]);
-    const api = annotator({ Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Items: { getAsync: async id => children.get(id) } }, Services: { prompt: { alert } } });
-    expect(await api.resolvePDFAttachment({ isAttachment: () => true, isPDFAttachment: () => true })).toBeTruthy();
-    expect(await api.resolvePDFAttachment({ isRegularItem: () => true, getAttachments: () => [3, 2] })).toBe(children.get(2));
-    expect(await api.resolvePDFAttachment({ isRegularItem: () => false })).toBeNull();
-    api.annotateAttachment = vi.fn();
-    await api.runForSelection(fakeWindow([{ id: 1, isAttachment: () => true, isPDFAttachment: () => true }, { id: 1, isAttachment: () => true, isPDFAttachment: () => true }]));
-    expect(api.annotateAttachment).toHaveBeenCalledTimes(1);
-    await api.runForSelection(fakeWindow());
-    expect(alert).toHaveBeenCalled();
-    expect(await api.getDocumentTitle({ parentID: 9, getField: () => "file.pdf", attachmentFilename: "x" })).toBe("file.pdf");
-  });
-
-  it("covers remaining public error and alternate workflow branches", async () => {
-    const alert = vi.fn();
-    const paneManager = { registerSection: vi.fn(() => 1), unregisterSection: vi.fn() };
-    const api = annotator({ Services: { prompt: { alert } }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() }, ItemPaneManager: paneManager, Items: { getAsync: async () => ({ getField: () => "Parent title" }) } } });
-    const noPopup = fakeWindow();
-    noPopup.ZoteroPane.getSelectedItems = () => [];
-    api.addToWindow(noPopup);
-    expect(api.isPanelEnabled(noPopup, "reader")).toBe(true);
-    expect(api.isPanelEnabled(fakeWindow([{ isPDFAttachment: () => true }]), "library")).toBe(false);
-    api.removeFromWindow(noPopup);
-
-    expect(api.getConfiguredSettings()).toEqual(api.settingsDefaults);
-    expect(await api.getDocumentTitle({ parentID: 1, getField: () => "Fallback" })).toBe("Parent title");
-    api.getDocumentTitle({ parentID: 1, getField: () => "Fallback" });
-    const titleApi = annotator({ Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Items: { getAsync: async () => { throw new Error("gone"); } } } });
-    expect(await titleApi.getDocumentTitle({ parentID: 1, getField: () => "", attachmentFilename: "file.pdf" })).toBe("file.pdf");
-
-    const line = { setProgress: vi.fn(), setText: vi.fn() };
-    const progress = api.modelProgressHandler(line, { llmEmbeddings: true, llmClassification: false });
-    progress({ operation: "unknown", stage: "loading", loaded: 1, total: 0 });
-    progress({ operation: "embeddings", stage: "progress", file: "a", loaded: 2000000, total: 2000000 });
-    progress({ operation: "embeddings", stage: "inference", loaded: 1, total: 2 });
-    expect(line.setText).toHaveBeenCalledWith(expect.stringContaining("analysing"));
-
-    expect(api.extractStructuredPages({ pageSizes: [{ pageIndex: 2, width: 50, height: 60 }], content: [{ text: "discard", position: { pageIndex: 2, rect: [0, 100, 1, 101] } }, { text: "A B C D", position: { pageIndex: 2, rects: [[20, 20, 0, 10], [0, 30, 20, 40]] } }] })[0].words).toHaveLength(5);
-    expect(api.extractStructuredPages({ content: ["orphan", null, 7] })).toEqual([]);
-    expect(api.splitFragment("One", [0, 0, 1, 1])).toHaveLength(1);
-    expect(api.splitFragment("", null)).toEqual([]);
-    expect(api.sortWordsReadingOrder([], 1, 1)).toEqual([]);
-    expect(api.isFrontMatterLine({ text: "author@example.org" }, { pageIndex: 0 })).toBe(true);
-    expect(api.isFrontMatterLine({ text: "Article" }, { pageIndex: 0 })).toBe(true);
-
-    const sentenceLines = ["Introduction: A sufficiently long inline sentence has useful findings for testing.", "References", "[1] Smith 2020.", "Appendix", "A subsequent sufficiently long appendix sentence restores prose processing."].map((text, i) => ({ pageIndex: 0, width: 600, height: 800, words: text.split(" ").map((x, j) => word(x, j * 25, 750 - i * 25)) }));
-    expect(api.buildSentences(sentenceLines).some(x => x.section === "introduction")).toBe(true);
-
-    const modelApi = annotator({ FastKeySentenceModels: { testOllama: vi.fn().mockResolvedValue(), supportsInference: () => true }, Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, Prefs: { get: () => null, set: vi.fn() } } });
-    const settingsWindow = fakeWindow();
-    modelApi.isValidSettings = () => true;
-    const pending = modelApi.showSettingsOverlay(settingsWindow, modelApi.settingsDefaults);
-    byId(settingsWindow, "local-relevance").checked = true;
-    await byText(settingsWindow, "Test Ollama").listeners.click[0]();
-    expect(byText(settingsWindow, "Test Ollama").focused).toBe(true);
-    byText(settingsWindow, "Cancel").listeners.click[0]();
-    await pending;
-  });
-
-  it("exercises parser and prose filtering alternatives", () => {
-    const api = annotator();
-    const page = { width: 600, height: 800 };
-    const line = (text, xs = [0]) => ({ text, height: 10, words: text.split(" ").map((text, i) => word(text, xs[i] ?? i * 25, 700)) });
-    expect(api.tableLineProfile(line("A 1 B 2", [0, 100, 200, 300]), page).tableLike).toBe(true);
-    expect(api.detectTableLineIndexes([line("Table 1"), line("A 1 B 2", [0, 100, 200, 300]), line("C 3 D 4", [0, 100, 200, 300]), line("tail", [0, 100])], page).size).toBeGreaterThan(0);
-    expect(api.detectTableLineIndexes([line("A B", [0, 100]), line("C D", [0, 100]), line("E F", [0, 100])], page).size).toBeGreaterThanOrEqual(0);
-    expect(api.isLikelyReferencePage(Array.from({ length: 6 }, (_, i) => ({ text: `Smith, J. (${2000 + i}). Journal.` })))).toBe(true);
-    expect(api.cleanRepeatedMargins(Array.from({ length: 4 }, (_, pageIndex) => ({ pageIndex, height: 100, words: [word("Footer", 0, 0), word("Body", 0, 50)] })))[0].words).toHaveLength(1);
-    expect(api.extractPages({ pages: [[10, 20, [0, 1, 3, 4, ""], [0, 1, 3, 4, "Ok"]]] })[0].words).toHaveLength(1);
-    const prose = ["doi: x", "Abstract", "A complete sentence has enough useful words to be considered here.", "A second paragraph starts with useful detail and continues clearly"].map((text, i) => ({ pageIndex: 0, width: 600, height: 800, words: text.split(" ").map((x, j) => word(x, j * 22 + (i === 3 ? 100 : 0), 750 - i * 45)) }));
-    expect(api.buildSentences(prose).length).toBeGreaterThan(0);
-    expect(api.isValidSettings({ ...api.settingsDefaults, localRelevance: 1 })).toBe(false);
-    expect(api.calculateAnnotationTarget(100, { compressionRatio: 2 })).toBe(50);
-    expect(api.calculateAnnotationTarget(0, { compressionRatio: 2 })).toBe(1);
-    expect(api.makeAnnotation({ text: "x", pageIndex: -1, pageHeight: 1, rects: [[-1, 2, 3, 4]], section: "", importance: 0 })).toMatchObject({ color: "#aaaaaa", pageLabel: "0" });
-  });
-
-  it("reports extraction and annotation API failures", async () => {
-    const progressLines = [];
-    class Progress { changeHeadline() {} show() {} startCloseTimer() {} }
-    Progress.prototype.ItemProgress = class { setProgress() {} setText() {} setError() { progressLines.push(this); } };
-    const attachment = { id: 1, getField: () => "PDF", getAnnotations: () => [], getFilePathAsync: async () => "" };
-    const base = { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, ProgressWindow: Progress, Prefs: { get: () => null }, Annotations: { saveFromJSON: async () => {} }, Notifier: { Queue: class {}, commit: async () => {} } };
-    let api = annotator({ Zotero: base });
-    await expect(api.annotateAttachment(attachment)).rejects.toThrow("text-extraction");
-    api = annotator({ Zotero: { ...base, Annotations: undefined, PDFWorker: { getRecognizerData: async () => ({ pages: [] }) } } });
-    await expect(api.annotateAttachment(attachment)).rejects.toThrow("annotation API");
-    api = annotator({ Zotero: { ...base, PDFWorker: { getRecognizerData: async () => ({ totalPages: 0, pages: [] }) } } });
-    await expect(api.extractAllPages(attachment)).rejects.toThrow("zero pages");
-    api = annotator({ Zotero: { ...base, PDFWorker: { getRecognizerData: async () => ({ totalPages: 6, pages: [[1, 1]] }) } } });
-    await expect(api.extractAllPages(attachment)).rejects.toThrow("internal PDF-worker");
-    api = annotator({ IOUtils: { read: async () => new Uint8Array() }, Zotero: { ...base, PDFWorker: { getRecognizerData: async () => ({ totalPages: 6, pages: [[1, 1]] }), _query: async () => ({}), _enqueue: async () => ({}) } } });
-    await expect(api.extractAllPages(attachment)).rejects.toThrow("missing locally");
-    expect(progressLines.length).toBeGreaterThan(0);
-  });
-
-  it("extracts all chunks and annotates through progress, ranking, saving, and failures", async () => {
-    const saved = []; const commits = [];
-    const progressLines = [];
-    class Progress { changeHeadline() {} show() {} startCloseTimer() {} }
-    Progress.prototype.ItemProgress = class { constructor() { progressLines.push(this); } setProgress() {} setText() {} setError() { this.error = true; } };
-    const worker = {
-      getRecognizerData: vi.fn().mockResolvedValueOnce({ totalPages: 6, pages: [[100, 100, [0, 10, 50, 20, "First page sentence."]]] }).mockResolvedValueOnce({ pages: [[100, 100, [0, 10, 50, 20, "Sixth page sentence."]]] }),
-      _enqueue: async fn => fn(), _query: vi.fn().mockResolvedValueOnce({ buf: new ArrayBuffer(1) }).mockResolvedValueOnce({ pages: [[100, 100, [0, 10, 50, 20, "Sixth page sentence."]]] })
-    };
-    const nlp = loadScript("content/nlp.js").FastKeySentenceNLP;
-    nlp.analyzeAsync = async sentences => [{ ...sentences[0], role: "result", importance: 1 }];
-    const api = annotator({
-      FastKeySentenceNLP: nlp,
-      IOUtils: { read: async () => new Uint8Array([1]) },
-      Zotero: { debug: vi.fn(), DataObjectUtilities: { generateKey: () => "KEY" }, PDFWorker: worker, Promise: { delay: async () => {} }, ProgressWindow: Progress,
-        Annotations: { saveFromJSON: async (_attachment, value) => saved.push(value) }, Notifier: { Queue: class {}, commit: async queue => commits.push(queue) }, Prefs: { get: () => null } }
-    });
-    const attachment = { id: 8, getFilePathAsync: async () => "/tmp/a.pdf", getField: () => "Paper", getAnnotations: () => [] };
-    const percentages = [];
-    expect((await api.extractAllPages(attachment, value => percentages.push(value))).map(page => page.pageIndex)).toEqual([0, 5]);
-    expect(percentages).toEqual([5 / 6, 1]);
-    api.extractAllPages = async () => [{ pageIndex: 0, width: 100, height: 100, words: "Abstract A sufficiently long result sentence demonstrates reliable findings across datasets.".split(" ").map((text, i) => word(text, i * 5, 70)) }];
-    await api.annotateAttachment(attachment, null, { compressionRatio: 2, llmEmbeddings: false, llmClassification: false, multilingual: false });
-    expect(saved).toHaveLength(1);
-    expect(commits).toHaveLength(1);
-    attachment.getAnnotations = () => [{ getTags: () => [{ tag: "autoskim-key-sentence" }] }];
-    await expect(api.annotateAttachment(attachment)).rejects.toThrow("already contains");
-    expect(progressLines.at(-1).error).toBe(true);
+    expect(annotation.comment).toBe("Section: results. Score: 0.812.");
   });
 });

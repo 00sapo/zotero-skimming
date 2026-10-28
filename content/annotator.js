@@ -1,18 +1,26 @@
-/* global Zotero, Services, FastKeySentenceNLP, FastKeySentenceModels, FastKeySentenceBuildCommit */
+/* global Zotero, Services, IOUtils, FastKeySentenceNLP, FastKeySentenceModels, FastKeySentenceRemote, FastKeySentenceExtractor, FastKeySentenceSummaryLabels, FastKeySentenceSummaryLabelConfigV2, FastKeySentenceSummaryLabelConfigV2Path, FastKeySentenceBuildCommit */
 
 FastOfflineKeySentenceAnnotator = {
   id: null,
   version: null,
   rootURI: null,
+  iconURI: null,
   sectionKey: null,
   paneManager: null,
+  prefsPaneID: null,
   prefBranch: "extensions.zotero-skimming.",
+  previews: new Map(),
+  panelRefs: new WeakMap(),
+  generateLocks: new Set(),
 
   init({ id, version, rootURI }) {
     this.id = id;
     this.version = version;
     this.rootURI = rootURI;
     this.iconURI = encodeURI(rootURI + "assets/book reader.svg");
+    this.previews = new Map();
+    this.panelRefs = new WeakMap();
+    this.generateLocks = new Set();
     if (typeof FastKeySentenceModels?.init === "function") FastKeySentenceModels.init(rootURI);
   },
 
@@ -57,6 +65,12 @@ FastOfflineKeySentenceAnnotator = {
   removeFromWindow() {},
 
   shutdown() {
+    for (const preview of this.previews.values()) {
+      try { preview.overlays?.clear(); } catch (_) {}
+    }
+    this.previews.clear();
+    this.generateLocks.clear();
+    this.panelRefs = new WeakMap();
     if (!this.sectionKey) return;
     try {
       this.paneManager?.unregisterSection?.(this.sectionKey);
@@ -68,8 +82,26 @@ FastOfflineKeySentenceAnnotator = {
     this.paneManager = null;
   },
 
+  async registerPrefsPane() {
+    if (this.prefsPaneID || !Zotero.PreferencePanes?.register) return this.prefsPaneID;
+    try {
+      this.prefsPaneID = await Zotero.PreferencePanes.register({
+        pluginID: this.id,
+        id: "zotero-skimming-prefs",
+        src: this.rootURI + "content/preferences.xhtml",
+        label: "Zotero Skimming",
+        image: this.iconURI
+      });
+    }
+    catch (error) {
+      this.log(`Could not register preferences pane: ${error.message || error}`);
+    }
+    return this.prefsPaneID;
+  },
+
   settingsDefaults: Object.freeze({
     compressionRatio: 10,
+    selectionThreshold: 0,
     localRelevance: false,
     summaryLabels: false,
     ollamaCommand: "/usr/bin/ollama",
@@ -86,8 +118,12 @@ FastOfflineKeySentenceAnnotator = {
   getConfiguredSettings() {
     const defaults = this.settingsDefaults;
     const compressionRatio = Number(Zotero.Prefs.get(this.prefBranch + "compressionRatio", true));
+    const thresholdPercent = Number(Zotero.Prefs.get(this.prefBranch + "selectionThreshold", true));
     const settings = {
       compressionRatio: Number.isFinite(compressionRatio) && compressionRatio >= 1.5 ? compressionRatio : defaults.compressionRatio,
+      selectionThreshold: Number.isFinite(thresholdPercent)
+        ? Math.min(1, Math.max(0, thresholdPercent / 100))
+        : defaults.selectionThreshold,
       localRelevance: Zotero.Prefs.get(this.prefBranch + "localRelevance", true) ?? defaults.localRelevance,
       summaryLabels: Zotero.Prefs.get(this.prefBranch + "zeroShotLabels", true) ?? defaults.summaryLabels,
       ollamaCommand: Zotero.Prefs.get(this.prefBranch + "ollamaCommand", true) || defaults.ollamaCommand,
@@ -110,6 +146,9 @@ FastOfflineKeySentenceAnnotator = {
   isValidSettings(settings) {
     return Number.isFinite(settings.compressionRatio)
         && settings.compressionRatio >= 1.5
+        && Number.isFinite(settings.selectionThreshold)
+        && settings.selectionThreshold >= 0
+        && settings.selectionThreshold <= 1
         && (!settings.mapReduce || (Number.isInteger(settings.mapReduceSentences) && settings.mapReduceSentences >= 2))
         && ["localRelevance", "mapReduce", "summaryLabels"]
           .every(key => typeof settings[key] === "boolean")
@@ -126,18 +165,19 @@ FastOfflineKeySentenceAnnotator = {
 
   saveSettings(settings) {
     Zotero.Prefs.set(this.prefBranch + "compressionRatio", settings.compressionRatio, true);
+    Zotero.Prefs.set(this.prefBranch + "selectionThreshold", Math.round(settings.selectionThreshold * 100), true);
     Zotero.Prefs.set(this.prefBranch + "localRelevance", settings.localRelevance, true);
     Zotero.Prefs.set(this.prefBranch + "zeroShotLabels", settings.summaryLabels, true);
     Zotero.Prefs.set(this.prefBranch + "ollamaCommand", (settings.ollamaCommand || this.settingsDefaults.ollamaCommand).trim(), true);
     Zotero.Prefs.set(this.prefBranch + "summaryLabelConfigV2", "", true);
     if (FastKeySentenceSummaryLabelConfigV2Path) {
       const content = (settings.summaryLabelConfigV2 || this.settingsDefaults.summaryLabelConfigV2).trim();
-      // Validate before persisting
       try {
         FastKeySentenceSummaryLabels.parseConfig(content);
-      } catch (e) {
-        this.log(`Refusing to save invalid summary label config: ${e.message || e}`);
-        return;
+      }
+      catch (error) {
+        this.log(`Refusing to save invalid summary label config: ${error.message || error}`);
+        return false;
       }
       FastKeySentenceSummaryLabelConfigV2 = content;
       IOUtils.writeUTF8(FastKeySentenceSummaryLabelConfigV2Path, content).catch(() => {});
@@ -149,6 +189,18 @@ FastOfflineKeySentenceAnnotator = {
     Zotero.Prefs.set(this.prefBranch + "mapReduceSentences", settings.mapReduceSentences, true);
     Zotero.Prefs.set(this.prefBranch + "summaryModel", settings.summaryModel || "", true);
     Zotero.Prefs.set(this.prefBranch + "embeddingModel", settings.embeddingModel || "", true);
+    return true;
+  },
+
+  getSelectionThreshold() {
+    const percent = Number(Zotero.Prefs.get(this.prefBranch + "selectionThreshold", true));
+    return Number.isFinite(percent) ? Math.min(1, Math.max(0, percent / 100)) : 0;
+  },
+
+  setSelectionThreshold(value) {
+    const percent = Math.round(Math.min(1, Math.max(0, Number(value) || 0)) * 100);
+    Zotero.Prefs.set(this.prefBranch + "selectionThreshold", percent, true);
+    return percent / 100;
   },
 
   calculateAnnotationTarget(pageCount, settings) {
@@ -159,830 +211,739 @@ FastOfflineKeySentenceAnnotator = {
     return Boolean(window?.ZoteroPane && tabType === "reader");
   },
 
+  // ---------- preferences pane ----------
+
+  onPrefsLoad(window) {
+    const doc = window?.document;
+    if (!doc) return;
+    const root = doc.getElementById("zotero-skimming-prefs");
+    if (!root || root.getAttribute("data-bound") === "true") return;
+    root.setAttribute("data-bound", "true");
+
+    const $ = name => doc.getElementById("zotero-skimming-pref-" + name);
+    const fields = {
+      compressionRatio: $("compressionRatio"),
+      selectionThreshold: $("selectionThreshold"),
+      localRelevance: $("localRelevance"),
+      summaryLabels: $("summaryLabels"),
+      summaryLabelConfigV2: $("summaryLabelConfigV2"),
+      summarySource: $("summarySource"),
+      remoteEndpoint: $("remoteEndpoint"),
+      remoteApiKey: $("remoteApiKey"),
+      summaryModel: $("summaryModel"),
+      embeddingModel: $("embeddingModel"),
+      ollamaCommand: $("ollamaCommand"),
+      mapReduce: $("mapReduce"),
+      mapReduceSentences: $("mapReduceSentences")
+    };
+    const remoteOptions = $("remoteOptions");
+    const localOptions = $("localOptions");
+    const status = $("status");
+    const progress = $("progress");
+    const testButton = $("testOllama");
+
+    const settings = this.getConfiguredSettings();
+    fields.compressionRatio.value = String(settings.compressionRatio);
+    fields.selectionThreshold.value = String(Math.round(settings.selectionThreshold * 100));
+    fields.localRelevance.checked = settings.localRelevance;
+    fields.summaryLabels.checked = settings.summaryLabels;
+    fields.summaryLabelConfigV2.value = settings.summaryLabelConfigV2;
+    fields.summarySource.value = settings.summarySource;
+    fields.remoteEndpoint.value = settings.remoteEndpoint;
+    fields.remoteApiKey.value = settings.remoteApiKey;
+    fields.summaryModel.value = settings.summaryModel;
+    fields.embeddingModel.value = settings.embeddingModel;
+    fields.ollamaCommand.value = settings.ollamaCommand;
+    fields.mapReduce.checked = settings.mapReduce;
+    fields.mapReduceSentences.value = String(settings.mapReduceSentences);
+
+    const setStatus = message => {
+      if (status) status.textContent = message;
+    };
+    const syncVisibility = () => {
+      const local = fields.summarySource.value === "local";
+      if (localOptions) localOptions.hidden = !local;
+      if (remoteOptions) remoteOptions.hidden = local;
+    };
+
+    const readForm = () => ({
+      compressionRatio: Number(fields.compressionRatio.value),
+      selectionThreshold: Math.min(1, Math.max(0, Number(fields.selectionThreshold.value) / 100)),
+      localRelevance: fields.localRelevance.checked === true,
+      summaryLabels: fields.summaryLabels.checked === true,
+      summaryLabelConfigV2: fields.summaryLabelConfigV2.value,
+      summarySource: fields.summarySource.value === "remote" ? "remote" : "local",
+      remoteEndpoint: fields.remoteEndpoint.value.trim(),
+      remoteApiKey: fields.remoteApiKey.value.trim(),
+      summaryModel: fields.summaryModel.value.trim(),
+      embeddingModel: fields.embeddingModel.value.trim(),
+      ollamaCommand: fields.ollamaCommand.value.trim(),
+      mapReduce: fields.mapReduce.checked === true,
+      mapReduceSentences: Number(fields.mapReduceSentences.value)
+    });
+
+    const save = () => {
+      const next = readForm();
+      if (!this.isValidSettings(next)) {
+        setStatus("Check the settings. The compression ratio must be at least 1.5 and the Ollama command must be an absolute path.");
+        return false;
+      }
+      if (!this.saveSettings(next)) {
+        setStatus("The summary label configuration is invalid, so it was not saved.");
+        return false;
+      }
+      setStatus("Saved.");
+      return true;
+    };
+
+    const validateLabels = () => {
+      const text = fields.summaryLabelConfigV2.value;
+      if (!text?.trim()) {
+        fields.summaryLabelConfigV2.style.borderColor = "#c62828";
+        return "Label configuration must not be empty.";
+      }
+      try {
+        FastKeySentenceSummaryLabels.parseConfig(text);
+        fields.summaryLabelConfigV2.style.borderColor = "";
+        return "";
+      }
+      catch (error) {
+        fields.summaryLabelConfigV2.style.borderColor = "#c62828";
+        return error.message || String(error);
+      }
+    };
+
+    for (const element of Object.values(fields)) {
+      if (!element) continue;
+      const handler = () => {
+        if (element === fields.summarySource) syncVisibility();
+        if (element === fields.summaryLabelConfigV2) {
+          const error = validateLabels();
+          if (error) {
+            setStatus(`Label configuration is invalid: ${error}`);
+            return;
+          }
+        }
+        save();
+      };
+      element.addEventListener("change", handler);
+      element.addEventListener("command", handler);
+    }
+    fields.summaryLabelConfigV2?.addEventListener("input", () => {
+      const error = validateLabels();
+      if (error) setStatus(`Label configuration is invalid: ${error}`);
+    });
+
+    const testSettings = async () => {
+      const next = readForm();
+      if (next.summarySource === "remote") {
+        setStatus("Checking the remote configuration…");
+        try {
+          const result = await FastKeySentenceRemote.validateConfig({
+            endpoint: next.remoteEndpoint || FastKeySentenceRemote.DEFAULT_ENDPOINT,
+            apiKey: next.remoteApiKey,
+            model: next.summaryModel || FastKeySentenceRemote.DEFAULT_MODEL
+          });
+          setStatus(result.valid ? "The remote configuration looks valid." : `Remote configuration error: ${result.error}`);
+        }
+        catch (error) {
+          setStatus(`Remote configuration error: ${error.message || error}`);
+        }
+        return;
+      }
+      if (!next.ollamaCommand.startsWith("/")) {
+        setStatus("Ollama command must be an absolute path, for example /usr/bin/ollama.");
+        return;
+      }
+      testButton.disabled = true;
+      if (progress) {
+        progress.hidden = false;
+        progress.value = 0;
+      }
+      setStatus("Starting Ollama and checking models…");
+      try {
+        FastKeySentenceModels.setModelOverrides(next);
+        await FastKeySentenceModels.testOllama(next, event => {
+          if (progress && Number.isFinite(Number(event.progress))) progress.value = Number(event.progress);
+          if (event.stage === "initiate") setStatus("Starting Ollama…");
+          else if (event.operation === "model-pull") setStatus(`Downloading ${event.model || "model"}…`);
+          else if (event.stage === "done") setStatus("Ollama is ready.");
+        });
+        setStatus("Ollama is ready.");
+      }
+      catch (error) {
+        setStatus(`Ollama error: ${error.message || error}`);
+      }
+      finally {
+        testButton.disabled = false;
+        if (progress) progress.hidden = true;
+      }
+    };
+    testButton?.addEventListener("click", testSettings);
+    testButton?.addEventListener("command", testSettings);
+
+    syncVisibility();
+    setStatus("");
+  },
+
+  // ---------- reader sidebar ----------
+
   renderSidebar(body, window, item, tabType) {
     if (!this.isPanelEnabled(window, tabType)) {
       body.textContent = "Select a PDF attachment or item.";
       return;
     }
-    this.showSettingsOverlay(window, this.getConfiguredSettings(), body).then(async result => {
-      try {
-        if (!result) return;
-        if (!this.isValidSettings(result)) throw new Error("Invalid annotation settings.");
-        this.saveSettings(result);
-        if (result.action === "summarize") await this.summarizeForSelection(window, result);
-        else if (result.action === "delete") await this.deleteSkimAnnotationsForSelection(window);
-        else await this.runForSelection(window, result);
+    const doc = body.ownerDocument;
+    const HTML_NS = "http://www.w3.org/1999/xhtml";
+    const create = (tag, attrs = {}, text = null) => {
+      const element = doc.createElementNS(HTML_NS, tag);
+      for (const [name, value] of Object.entries(attrs)) {
+        if (name === "style") element.style.cssText = value;
+        else if (name === "className") element.className = value;
+        else if (name in element && !name.startsWith("aria-")) {
+          try { element[name] = value; }
+          catch (_) { element.setAttribute(name, String(value)); }
+        }
+        else element.setAttribute(name, String(value));
       }
-      finally {
-        this.renderSidebar(body, window, item, tabType);
-      }
-    }).catch(error => {
-      this.log(error.stack || String(error));
-      Services.prompt.alert(window, "Zotero Skimming", error.message || String(error));
+      if (text !== null) element.textContent = text;
+      return element;
+    };
+
+    body.replaceChildren();
+    const wrap = create("div", { style: "display:flex;flex-direction:column;gap:8px;padding:4px 0;font-size:12px;line-height:1.35" });
+
+    const status = create("div", {
+      id: "zotero-skimming-status",
+      role: "status",
+      "aria-live": "polite",
+      style: "min-height:2.6em;opacity:0.9;white-space:pre-wrap"
+    }, "Ready. Settings live in Zotero Settings → Zotero Skimming.");
+    wrap.appendChild(status);
+
+    const progress = create("progress", { max: "100", value: "0", hidden: true, style: "width:100%;height:8px" });
+    wrap.appendChild(progress);
+
+    const buttonStyle = "min-height:28px;padding:3px 10px;border:1px solid color-mix(in srgb, CanvasText 28%, transparent);border-radius:5px;background:ButtonFace;color:ButtonText;font:inherit";
+    const actionRow = create("div", { style: "display:flex;gap:6px;flex-wrap:wrap" });
+    const generate = create("button", { type: "button", style: buttonStyle + ";background:AccentColor;color:AccentColorText;border-color:AccentColor" }, "Generate highlights");
+    const clear = create("button", { type: "button", style: buttonStyle }, "Clear");
+    clear.disabled = true;
+    actionRow.append(generate, clear);
+    wrap.appendChild(actionRow);
+
+    const saveRow = create("div", { style: "display:flex;gap:6px;flex-wrap:wrap" });
+    const save = create("button", { type: "button", style: buttonStyle }, "Save as Zotero annotations…");
+    const remove = create("button", { type: "button", style: buttonStyle }, "Remove saved annotations");
+    save.disabled = true;
+    remove.disabled = true;
+    saveRow.append(save, remove);
+    wrap.appendChild(saveRow);
+
+    const thresholdRow = create("div", { style: "display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center" });
+    const thresholdLabel = create("label", { htmlFor: "zotero-skimming-threshold" }, "Highlight threshold");
+    const threshold = create("input", {
+      id: "zotero-skimming-threshold",
+      type: "range",
+      min: "0",
+      max: "100",
+      step: "5",
+      value: String(Math.round(this.getSelectionThreshold() * 100)),
+      style: "width:100%"
     });
+    const thresholdValue = create("output", {}, `${Math.round(this.getSelectionThreshold() * 100)}%`);
+    thresholdRow.append(thresholdLabel, threshold, thresholdValue);
+    wrap.appendChild(thresholdRow);
+
+    wrap.appendChild(create("div", { style: "opacity:0.68;font-size:11px" },
+      "Highlights are temporary. Save them only when you want them in your library."));
+
+    const summaryBox = create("details", { style: "margin-top:4px" });
+    summaryBox.appendChild(create("summary", {}, "Paper summary"));
+    const summaryText = create("div", { style: "white-space:pre-wrap;opacity:0.9;padding:4px 0" }, "");
+    summaryBox.appendChild(summaryText);
+    summaryBox.hidden = true;
+    wrap.appendChild(summaryBox);
+
+    body.appendChild(wrap);
+
+    const refs = { status, progress, generate, clear, save, remove, threshold, thresholdValue, summaryBox, summaryText, count: null };
+    this.panelRefs.set(body, refs);
+
+    generate.addEventListener("click", () => void this.generateForItem(item, body));
+    clear.addEventListener("click", () => {
+      this.clearPreviewForItem(item, body);
+    });
+    save.addEventListener("click", () => void this.savePreviewForItem(item, body));
+    remove.addEventListener("click", () => void this.onRemoveSaved(item, body));
+    threshold.addEventListener("input", () => {
+      const value = this.setSelectionThreshold(Number(threshold.value) / 100);
+      thresholdValue.textContent = `${Math.round(value * 100)}%`;
+      void this.applyThresholdToItem(item, body);
+    });
+
+    void this.restorePreviewState(body, item);
   },
 
   async refreshSidebar(body, window, item, tabType) {
-    const enabled = this.isPanelEnabled(window, tabType);
-    body.dataset.enabled = String(enabled);
-    const buttons = body.querySelectorAll("button");
-    for (const button of buttons) button.disabled = !enabled;
+    if (!this.isPanelEnabled(window, tabType)) return;
+    await this.restorePreviewState(body, item);
   },
 
-  showSettingsOverlay(window, initialSettings, container = null) {
-    const doc = window.document;
-    const HTML_NS = "http://www.w3.org/1999/xhtml";
-    const existing = doc.getElementById("zotero-skimming-settings-overlay");
-    existing?.remove();
-
-    const create = (tag, attrs = {}, text = null) => {
-      const element = doc.createElementNS(HTML_NS, tag);
-      for (const [name, value] of Object.entries(attrs)) {
-        if (name === "style") {
-          element.style.cssText = value;
-        }
-        else if (name === "className") {
-          element.className = value;
-        }
-        else if (name in element && !name.startsWith("aria-")) {
-          try {
-            element[name] = value;
-          }
-          catch (_) {
-            element.setAttribute(name, String(value));
-          }
-        }
-        else {
-          element.setAttribute(name, String(value));
-        }
-      }
-      if (text !== null) element.textContent = text;
-      return element;
-    };
-
-    const sidebar = Boolean(container);
-    const overlay = sidebar ? container : create("div", {
-      id: "zotero-skimming-settings-overlay",
-      role: "presentation",
-      style: [
-        "position: fixed",
-        "inset: 0",
-        "z-index: 2147483647",
-        "display: flex",
-        "align-items: center",
-        "justify-content: center",
-        "padding: 24px",
-        "background: rgba(0, 0, 0, 0.42)",
-        "font: message-box"
-      ].join(";")
-    });
-
-    const panel = create("section", {
-      role: sidebar ? "region" : "dialog",
-      "aria-modal": sidebar ? null : "true",
-      "aria-labelledby": "zotero-skimming-dialog-title",
-      style: [
-        sidebar ? "width: 100%" : "width: min(680px, calc(100vw - 48px))",
-        sidebar ? "box-sizing: border-box" : "max-height: calc(100vh - 48px)",
-        sidebar ? "padding: 6px 0" : "overflow: auto",
-        sidebar ? "" : "padding: 22px",
-        sidebar ? "" : "border: 1px solid color-mix(in srgb, CanvasText 25%, transparent)",
-        sidebar ? "" : "border-radius: 10px",
-        sidebar ? "" : "box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35)",
-        "background: Canvas",
-        "color: CanvasText"
-      ].filter(Boolean).join(";")
-    });
-
-    panel.appendChild(create("div", {
-      style: "margin: 0 0 4px; opacity: 0.65; font-size: 0.75rem; line-height: 1"
-    }, `Build ${typeof FastKeySentenceBuildCommit === "string" ? FastKeySentenceBuildCommit : "unknown"}`));
-    const title = create("h1", {
-      id: "zotero-skimming-dialog-title",
-      style: "margin: 0 0 18px; font-size: 1.35rem; font-weight: 600"
-    }, "Paper skim");
-    panel.appendChild(title);
-    panel.appendChild(create("p", {
-      style: "margin: -10px 0 16px; padding: 10px 12px; border: 1px solid color-mix(in srgb, #d4a017 40%, transparent); border-radius: 6px; background: color-mix(in srgb, #fff6d8 70%, Canvas 30%); color: CanvasText; line-height: 1.4"
-    }, "Please, be aware of the bias risk induced by automated sentence selection methods. Do not use this add-on for in-depth study of academic articles."));
-
-    const form = create("form", { novalidate: true });
-
-    const makeFieldset = legendText => {
-      const fieldset = create("fieldset", {
-        style: "margin: 0 0 16px; padding: 14px 16px 16px; border: 1px solid color-mix(in srgb, CanvasText 22%, transparent); border-radius: 7px"
-      });
-      fieldset.appendChild(create("legend", {
-        style: "padding: 0 6px; font-weight: 600"
-      }, legendText));
-      return fieldset;
-    };
-
-    const nlpSection = makeFieldset("NLP analysis");
-    const inputs = {};
-    const crLabel = create("label", { htmlFor: "compression-ratio", style: "font-weight: 500; line-height: 1.35" }, "Compression ratio (e.g. 2 → half the sentences)");
-    const crInput = create("input", {
-      id: "compression-ratio",
-      type: "number",
-      value: String(initialSettings.compressionRatio),
-      min: "1.5", max: "20", step: "0.5",
-      style: "width: 96px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
-    });
-    inputs["compression-ratio"] = crInput;
-    nlpSection.append(crLabel, crInput);
-
-    const checks = {};
-
-    const summaryLabelsCheck = create("input", {
-      id: "summary-labels",
-      type: "checkbox",
-      checked: initialSettings.summaryLabels === true,
-      style: "margin: 12px 3px 0 0"
-    });
-    checks["summary-labels"] = summaryLabelsCheck;
-    const summaryLabelsRow = create("div", { style: "margin-top: 12px" });
-    summaryLabelsRow.append(
-      summaryLabelsCheck,
-      create("label", { htmlFor: "summary-labels", style: "font-weight: 500; line-height: 1.35" }, "Classify highlights from labeled summary [experimental]")
-    );
-    nlpSection.append(summaryLabelsRow);
-
-    const summaryLabelConfigV2Input = create("textarea", {
-      id: "summary-label-config-v2",
-      value: initialSettings.summaryLabelConfigV2,
-      rows: "14",
-      style: "width: 100%; box-sizing: border-box; resize: vertical; min-height: 200px; padding: 6px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit; font-family: monospace; font-size: 0.85rem; line-height: 1.35; white-space: pre; tab-size: 2"
-    });
-    inputs["summary-label-config-v2"] = summaryLabelConfigV2Input;
-    nlpSection.append(
-      create("label", { htmlFor: "summary-label-config-v2", style: "display: block; margin: 12px 0 4px; font-weight: 500" }, "Summary label definitions (TOML)"),
-      summaryLabelConfigV2Input,
-      create("p", { style: "margin: 5px 0 0; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Edit label descriptions and colors used in the labeled summary.")
-    );
-    const relevanceRow = create("div", {
-      style: "display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; margin-top: 12px; align-items: start"
-    });
-    const relevanceCheck = create("input", {
-      id: "local-relevance",
-      type: "checkbox",
-      checked: initialSettings.localRelevance === true,
-      style: "margin: 3px 0 0"
-    });
-    checks["local-relevance"] = relevanceCheck;
-    relevanceRow.append(
-      relevanceCheck,
-      create("label", { htmlFor: "local-relevance", style: "font-weight: 500; line-height: 1.35" }, "Semantic relevance"),
-      create("div", { style: "grid-column: 2; opacity: 0.78; font-size: 0.92rem; line-height: 1.38" }, "Compare sentences with the paper summary and configured scholarly keyword sections using LLM embeddings. If unchecked, uses traditional TF-IDF features.")
-    );
-    nlpSection.appendChild(relevanceRow);
-
-    form.appendChild(nlpSection);
-
-    const apiSection = makeFieldset("API");
-    const sourceGrid = create("div", {
-      style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center; margin-bottom: 12px"
-    });
-    const summarySource = create("select", {
-      id: "summary-source",
-      style: "min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
-    });
-    summarySource.append(
-      create("option", { value: "local" }, "Local Ollama"),
-      create("option", { value: "remote" }, "Remote API")
-    );
-    summarySource.value = initialSettings.summarySource;
-    inputs["summary-source"] = summarySource;
-    sourceGrid.append(create("label", { htmlFor: "summary-source", style: "font-weight: 500" }, "Source"), summarySource);
-    const sourceHelp = create("p", {
-      style: "margin: 6px 0 10px; opacity: 0.78; font-size: 0.9rem; line-height: 1.35"
-    }, "");
-    apiSection.append(sourceGrid, sourceHelp);
-
-    const remoteOptions = create("div");
-    const remoteGrid = create("div", {
-      style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center"
-    });
-    const remoteFields = [
-      ["remote-endpoint", "Endpoint", initialSettings.remoteEndpoint || FastKeySentenceRemote.DEFAULT_ENDPOINT, "https://api.openai.com/v1/chat/completions"],
-      ["remote-api-key", "API key", initialSettings.remoteApiKey, "sk-..."]
-    ];
-    let remoteEndpointInput, remoteApiKeyInput;
-    for (const [id, labelText, value, placeholder] of remoteFields) {
-      remoteGrid.appendChild(create("label", { htmlFor: id, style: "font-weight: 500" }, labelText));
-      const input = create("input", {
-        id,
-        type: id === "remote-api-key" ? "password" : "text",
-        value: String(value || ""),
-        placeholder,
-        style: "min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
-      });
-      inputs[id] = input;
-      remoteGrid.appendChild(input);
-      if (id === "remote-endpoint") remoteEndpointInput = input;
-      if (id === "remote-api-key") remoteApiKeyInput = input;
+  async restorePreviewState(body, item) {
+    const refs = this.panelRefs.get(body);
+    if (!refs) return;
+    const attachment = await this.resolvePDFAttachment(item);
+    if (!attachment) {
+      this.setPanelStatus(body, "Select a PDF attachment.");
+      refs.save.disabled = true;
+      refs.clear.disabled = true;
+      return;
     }
-    remoteOptions.appendChild(remoteGrid);
-    apiSection.appendChild(remoteOptions);
-
-    const modelGrid = create("div", {
-      style: "display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 14px; align-items: center; margin-bottom: 12px"
-    });
-    const MODEL_PLACEHOLDERS = {
-      local: { summary: "hf.co/unsloth/Qwen3.5-2B-GGUF:Q8_0", embedding: "hf.co/PeterAM4/Qwen3-Embedding-0.6B-GGUF:Q8_0" },
-      remote: { summary: "gpt-4o-mini", embedding: "text-embedding-3-small" }
-    };
-    const currentPlaceholders = MODEL_PLACEHOLDERS[initialSettings.summarySource] || MODEL_PLACEHOLDERS.local;
-    const modelFields = [
-      ["summary-model", "Summary model", initialSettings.summaryModel, currentPlaceholders.summary],
-      ["embedding-model", "Embedding model", initialSettings.embeddingModel, currentPlaceholders.embedding]
-    ];
-    let summaryModelInput, embeddingModelInput;
-    for (const [id, labelText, value, placeholder] of modelFields) {
-      modelGrid.appendChild(create("label", { htmlFor: id, style: "font-weight: 500" }, labelText));
-      const input = create("input", {
-        id,
-        type: "text",
-        value: String(value || ""),
-        placeholder,
-        style: "min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
-      });
-      inputs[id] = input;
-      modelGrid.appendChild(input);
-      if (id === "summary-model") summaryModelInput = input;
-      if (id === "embedding-model") embeddingModelInput = input;
+    const preview = this.previews.get(attachment.id);
+    if (!preview) {
+      this.setPanelStatus(body, "No highlights yet. Press Generate highlights.");
+      refs.save.disabled = true;
+      refs.clear.disabled = true;
+      refs.summaryBox.hidden = true;
+      refs.save.textContent = "Save as Zotero annotations…";
+      refs.remove.disabled = !this.hasSavedAnnotations(attachment);
+      return;
     }
-    apiSection.appendChild(modelGrid);
+    const threshold = this.getSelectionThreshold();
+    refs.threshold.value = String(Math.round(threshold * 100));
+    refs.thresholdValue.textContent = `${Math.round(threshold * 100)}%`;
+    this.applyThreshold(preview);
+    this.updatePanel(body, preview);
+    refs.remove.disabled = !this.hasSavedAnnotations(attachment);
+  },
 
-    const localOptions = create("div");
-    const ollamaCommandInput = create("input", {
-      id: "ollama-command",
-      type: "text",
-      value: initialSettings.ollamaCommand,
-      placeholder: "/usr/bin/ollama",
-      style: "width: 100%; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
-    });
-    inputs["ollama-command"] = ollamaCommandInput;
-    localOptions.append(
-      create("label", { htmlFor: "ollama-command", style: "display: block; margin-bottom: 4px; font-weight: 500" }, "Ollama command"),
-      ollamaCommandInput,
-      create("p", { style: "margin: 5px 0 12px; opacity: 0.78; font-size: 0.9rem; line-height: 1.35" }, "Absolute path to the Ollama binary.")
-    );
-    const mapReduceRow = create("div", {
-      style: "display: grid; grid-template-columns: auto minmax(0, 1fr) auto 80px; column-gap: 8px; row-gap: 2px; margin-top: 12px; align-items: center"
-    });
-    const mapReduceCheck = create("input", {
-      id: "map-reduce",
-      type: "checkbox",
-      checked: initialSettings.mapReduce === true,
-      style: "margin: 3px 0 0"
-    });
-    const mapReduceSentences = create("input", {
-      id: "map-reduce-sentences",
-      type: "number",
-      "aria-label": "Sentences per chunk",
-      value: String(initialSettings.mapReduceSentences || 40),
-      min: "2",
-      step: "1",
-      style: "width: 80px; min-height: 30px; padding: 4px 7px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 4px; background: Field; color: FieldText; font: inherit"
-    });
-    checks["map-reduce"] = mapReduceCheck;
-    inputs["map-reduce-sentences"] = mapReduceSentences;
-    mapReduceRow.append(
-      mapReduceCheck,
-      create("label", { htmlFor: "map-reduce", style: "font-weight: 500; line-height: 1.35" }, "Map-reduce: analyze N sentences per chunk"),
-      create("span", { style: "font-weight: 500" }, "N ="),
-      mapReduceSentences
-    );
-    localOptions.appendChild(mapReduceRow);
-    localOptions.appendChild(create("p", {
-      style: "margin: 8px 0 0; opacity: 0.78; font-size: 0.92rem; line-height: 1.38"
-    }, "Map-reduce is needed only when using smaller models with limited context windows. The default Qwen 3.5 has enough context for any paper."));
-    apiSection.appendChild(localOptions);
-    form.appendChild(apiSection);
-
-    const error = create("p", {
-      role: "alert",
-      "aria-live": "polite",
-      style: "min-height: 1.4em; margin: 0 0 12px; color: #c62828; font-weight: 500"
-    });
-    form.appendChild(error);
-
-    const modelStatus = create("div", {
-      style: "display: none; margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius: 6px; background: color-mix(in srgb, Canvas 94%, AccentColor 6%)"
-    });
-    const modelStatusText = create("div", {
-      style: "margin-bottom: 7px; line-height: 1.35"
-    }, "");
-    const modelProgress = create("progress", {
-      max: 100,
-      value: 0,
-      style: "width: 100%; height: 14px"
-    });
-    modelStatus.append(modelStatusText, modelProgress);
-    form.appendChild(modelStatus);
-
-    const footer = create("footer", {
-      style: "display: flex; justify-content: space-between; gap: 10px; align-items: center"
-    });
-    const footerLeft = create("div", { style: "display: flex; gap: 10px" });
-    const footerRight = create("div", { style: "display: flex; gap: 10px" });
-    const buttonStyle = "min-width: 92px; min-height: 32px; padding: 5px 14px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 5px; background: ButtonFace; color: ButtonText; font: inherit";
-    const testOllamaButton = create("button", {
-      type: "button",
-      style: buttonStyle
-    }, "Test Ollama");
-    const summarizeButton = create("button", {
-      type: "button",
-      style: buttonStyle
-    }, "Test summary");
-    const deleteButton = create("button", {
-      type: "button",
-      style: buttonStyle
-    }, "Delete annotations");
-    const cancelButton = create("button", {
-      type: "button",
-      style: buttonStyle,
-      hidden: sidebar
-    }, "Cancel");
-    const annotateButton = create("button", {
-      type: "submit",
-      style: buttonStyle + "; background: AccentColor; color: AccentColorText; border-color: AccentColor"
-    }, "Annotate");
-    footerLeft.append(testOllamaButton, summarizeButton, deleteButton);
-    footerRight.append(cancelButton, annotateButton);
-    footer.append(footerLeft, footerRight);
-    form.appendChild(footer);
-    panel.appendChild(form);
-    if (sidebar) overlay.replaceChildren(panel);
+  updatePanel(body, preview, message = null) {
+    const refs = this.panelRefs.get(body);
+    if (!refs) return;
+    const visible = preview?.visible || [];
+    const unsaved = visible.filter(sentence => !preview?.savedTexts?.has(sentence.text));
+    refs.save.disabled = !unsaved.length;
+    refs.clear.disabled = !preview;
+    refs.progress.hidden = true;
+    if (preview?.summary) {
+      refs.summaryText.textContent = preview.summary;
+      refs.summaryBox.hidden = false;
+    }
     else {
-      overlay.appendChild(panel);
-      doc.documentElement.appendChild(overlay);
+      refs.summaryText.textContent = "";
+      refs.summaryBox.hidden = true;
     }
-
-    const syncSummarySource = () => {
-      const local = summarySource.value === "local";
-      remoteOptions.hidden = local;
-      localOptions.hidden = !local;
-      remoteEndpointInput.disabled = local;
-      remoteApiKeyInput.disabled = local;
-      ollamaCommandInput.disabled = !local;
-      mapReduceCheck.disabled = !local;
-      mapReduceSentences.disabled = !local;
-      const p = MODEL_PLACEHOLDERS[local ? "local" : "remote"];
-      if (summaryModelInput) summaryModelInput.placeholder = p.summary;
-      if (embeddingModelInput) embeddingModelInput.placeholder = p.embedding;
-      sourceHelp.textContent = local
-        ? "Need Ollama installed, models will be downloaded automatically."
-        : "Any OpenAI-compatible endpoint such as LiteLLM, Deepseek, OpenRouter, OpenAI, etc.";
-    };
-    summarySource.addEventListener("change", syncSummarySource);
-    syncSummarySource();
-
-    const readSettings = () => ({
-      compressionRatio: Number(inputs["compression-ratio"].value),
-      localRelevance: checks["local-relevance"].checked,
-      summaryLabels: checks["summary-labels"].checked,
-      ollamaCommand: inputs["ollama-command"].value.trim(),
-      summaryLabelConfigV2: inputs["summary-label-config-v2"].value.trim(),
-      remoteEndpoint: inputs["remote-endpoint"].value.trim(),
-      remoteApiKey: inputs["remote-api-key"].value.trim(),
-      summarySource: inputs["summary-source"].value,
-      mapReduce: checks["map-reduce"].checked,
-      mapReduceSentences: Number(inputs["map-reduce-sentences"].value),
-      summaryModel: inputs["summary-model"] ? inputs["summary-model"].value.trim() : "",
-      embeddingModel: inputs["embedding-model"] ? inputs["embedding-model"].value.trim() : ""
-    });
-
-    const setBusy = busy => {
-      testOllamaButton.disabled = busy;
-      summarizeButton.disabled = busy;
-      deleteButton.disabled = busy;
-      annotateButton.disabled = busy;
-      cancelButton.disabled = busy;
-      for (const input of Object.values(inputs)) input.disabled = busy;
-      for (const check of Object.values(checks)) check.disabled = busy;
-      if (!busy) syncSummarySource();
-    };
-
-    const formatBytes = value => {
-      if (!Number.isFinite(value) || value <= 0) return "";
-      if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-      if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
-      return `${Math.round(value)} B`;
-    };
-
-    const updateModelProgress = event => {
-      modelStatus.style.display = "block";
-      let percentage = Number(event.progress);
-      if (!Number.isFinite(percentage) && Number(event.total) > 0) {
-        percentage = 100 * Number(event.loaded || 0) / Number(event.total);
-      }
-      percentage = Number.isFinite(percentage) ? Math.max(0, Math.min(100, percentage)) : 0;
-      modelProgress.value = percentage;
-      const file = event.file ? ` - ${String(event.file).split("/").pop()}` : "";
-      const bytes = Number(event.total) > 0
-        ? ` (${formatBytes(Number(event.loaded) || 0)} / ${formatBytes(Number(event.total))})`
-        : ` (${Math.round(percentage)}%)`;
-      if (["download", "progress", "initiate"].includes(event.stage)) {
-        modelStatusText.textContent = `Loading ${event.model || "model"}${file}${bytes}`;
-      }
-      else if (event.stage === "complete") {
-        modelStatusText.textContent = event.inferenceAvailable === false
-          ? "Model files downloaded. Safe baseline remains active; ONNX inference is disabled in-process to prevent Zotero crashes."
-          : "Selected models are ready for offline use.";
-        modelProgress.value = 100;
-      }
-      else {
-        modelStatusText.textContent = `Loading ${event.model || "model"}${file}${bytes}`;
-      }
-    };
-
-    return new Promise(resolve => {
-      let settled = false;
-      const finish = result => {
-        if (settled) return;
-        settled = true;
-        if (!sidebar) window.removeEventListener("keydown", onKeyDown, true);
-        if (sidebar) panel.remove();
-        else overlay.remove();
-        resolve(result);
-      };
-
-      const onKeyDown = event => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          finish(null);
-        }
-      };
-      if (!sidebar) window.addEventListener("keydown", onKeyDown, true);
-
-      testOllamaButton.addEventListener("click", async () => {
-        error.textContent = "";
-        const settings = readSettings();
-        if (!settings.ollamaCommand.startsWith("/")) {
-          error.textContent = "Ollama command must be an absolute path, e.g. /usr/bin/ollama.";
-          return;
-        }
-        this.saveSettings(settings);
-        setBusy(true);
-        modelStatus.style.display = "block";
-        modelStatusText.textContent = "Starting Ollama…";
-        modelProgress.value = 0;
-        try {
-          const x = FastKeySentenceModels.testOllama(settings, updateModelProgress);
-          modelStatusText.textContent = "Ollama is running.";
-          modelProgress.value = 100;
-          await x;
-        }
-        catch (modelError) {
-          modelStatusText.textContent = "Ollama failed to start.";
-          modelProgress.value = 0;
-          error.textContent = modelError?.message || String(modelError);
-          this.log(modelError?.stack || String(modelError));
-        }
-        finally {
-          setBusy(false);
-          testOllamaButton.focus();
-        }
-      });
-
-      const validateSummaryLabels = (text) => {
-        if (!text || !text.trim()) return "Config must not be empty.";
-        try {
-          FastKeySentenceSummaryLabels.parseConfig(text);
-          return null;
-        } catch (e) {
-          return e.message || String(e);
-        }
-      };
-
-      cancelButton.addEventListener("click", () => finish(null));
-      deleteButton.addEventListener("click", () => finish({ ...readSettings(), action: "delete" }));
-
-      summarizeButton.addEventListener("click", async () => {
-        error.textContent = "";
-        const settings = readSettings();
-        if (!settings.ollamaCommand.startsWith("/")) {
-          error.textContent = "Ollama command must be an absolute path, e.g. /usr/bin/ollama.";
-          return;
-        }
-        if (!this.isValidSettings(settings)) {
-          error.textContent = "Check the settings above.";
-          return;
-        }
-        finish({ ...settings, action: "summarize" });
-      });
-
-      form.addEventListener("submit", event => {
-        event.preventDefault();
-        const settings = readSettings();
-        if (!this.isValidSettings(settings)) {
-          error.textContent = "Check the settings above.";
-          inputs["compression-ratio"].focus();
-          return;
-        }
-        const zsError = validateSummaryLabels(settings.summaryLabelConfigV2);
-        if (zsError) {
-          error.textContent = `Summary label config invalid: ${zsError}`;
-          inputs["summary-label-config-v2"].focus();
-          return;
-        }
-        finish(settings);
-      });
-
-      for (const input of Object.values(inputs)) {
-        input.addEventListener("input", () => {
-          error.textContent = "";
-        });
-      }
-
-      // Live summary label config validation
-      summaryLabelConfigV2Input.addEventListener("input", () => {
-        const zsError = validateSummaryLabels(summaryLabelConfigV2Input.value);
-        if (zsError) {
-          summaryLabelConfigV2Input.style.borderColor = "#c62828";
-          summaryLabelConfigV2Input.title = zsError;
-        } else {
-          summaryLabelConfigV2Input.style.borderColor = "";
-          summaryLabelConfigV2Input.title = "";
-        }
-      });
-
-      if (!sidebar) window.requestAnimationFrame(() => inputs["compression-ratio"].focus());
-    });
+    if (message) this.setPanelStatus(body, message);
+    else if (preview) {
+      this.setPanelStatus(body, `${visible.length} highlight${visible.length === 1 ? "" : "s"} shown from ${preview.sentences.length} selected sentences.`);
+    }
   },
 
+  setPanelStatus(body, message) {
+    const refs = this.panelRefs.get(body);
+    if (refs?.status) refs.status.textContent = message;
+  },
 
-  async runForSelection(window, settings = null) {
+  setPanelProgress(body, value) {
+    const refs = this.panelRefs.get(body);
+    if (!refs?.progress) return;
+    refs.progress.hidden = false;
+    const number = Number(value);
+    refs.progress.value = Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : 0;
+  },
+
+  hasSavedAnnotations(attachment) {
     try {
-      const selected = window.ZoteroPane.getSelectedItems();
-      if (!selected.length) throw new Error("Select a Zotero item or PDF attachment first.");
-      const attachments = [];
-      for (const item of selected) {
-        const attachment = await this.resolvePDFAttachment(item);
-        if (attachment && !attachments.some(x => x.id === attachment.id)) attachments.push(attachment);
-      }
-      if (!attachments.length) throw new Error("No PDF attachment was found in the selection.");
-      for (const attachment of attachments) {
-        await this.annotateAttachment(attachment, window, settings);
-      }
-    }
-    catch (error) {
-      this.log(error.stack || String(error));
-      Services.prompt.alert(window, "Zotero Skimming", error.message || String(error));
-    }
-  },
-
-  async deleteSkimAnnotationsForSelection(window) {
-    const selected = window.ZoteroPane.getSelectedItems();
-    if (!selected.length) throw new Error("Select a Zotero item or PDF attachment first.");
-    const attachments = [];
-    for (const item of selected) {
-      const attachment = await this.resolvePDFAttachment(item);
-      if (attachment && !attachments.some(x => x.id === attachment.id)) attachments.push(attachment);
-    }
-    if (!attachments.length) throw new Error("No PDF attachment was found in the selection.");
-    const annotations = attachments.flatMap(attachment => attachment.getAnnotations())
-      .filter(annotation => annotation.getTags().some(tag => tag.tag.startsWith("autoskim-")));
-    for (const annotation of annotations) await annotation.eraseTx();
-  },
-
-  async summarizeForSelection(window, settings) {
-    try {
-      const selected = window.ZoteroPane.getSelectedItems();
-      if (!selected.length) throw new Error("Select a Zotero item or PDF attachment first.");
-      const attachments = [];
-      for (const item of selected) {
-        const attachment = await this.resolvePDFAttachment(item);
-        if (attachment && !attachments.some(x => x.id === attachment.id)) attachments.push(attachment);
-      }
-      if (!attachments.length) throw new Error("No PDF attachment was found in the selection.");
-      for (const attachment of attachments) {
-        await this.summarizeAttachment(attachment, window, settings);
-      }
-    }
-    catch (error) {
-      this.log(error.stack || String(error));
-      Services.prompt.alert(window, "Zotero Skimming", error.message || String(error));
-    }
-  },
-
-  async summarizeAttachment(attachment, window, settings) {
-    const progress = new Zotero.ProgressWindow();
-    progress.changeHeadline("Summarizing paper");
-    const title = await this.getDocumentTitle(attachment);
-    const line = new progress.ItemProgress(this.iconURI, title);
-    line.setProgress(5);
-    progress.show();
-
-    try {
-      if (typeof Zotero.PDFWorker?.getRecognizerData !== "function") {
-        throw new Error("This Zotero build does not expose a supported local PDF text-extraction API.");
-      }
-
-      line.setText("Extracting all PDF pages");
-      const pages = await this.extractAllPages(attachment, progressValue => {
-        const value = Number.isFinite(progressValue) ? progressValue : 0;
-        line.setProgress(Math.max(5, Math.min(40, 5 + Math.round(value * 35))));
-      });
-      line.setProgress(40);
-      line.setText(`Reconstructing sentences from ${pages.length} pages`);
-      const sentences = this.buildSentences(pages);
-      if (!sentences.length) throw new Error("No usable text was found. Run OCR first if this is a scanned PDF.");
-
-      const documentTitle = await this.getDocumentTitle(attachment);
-      // Filter out noise (authors, tables, figures, references) and abstract
-      const bodySentences = sentences.filter(
-        s => !FastKeySentenceNLP.isNoise(s) && s.section !== "abstract"
+      return (attachment.getAnnotations?.() || []).some(annotation =>
+        annotation.getTags?.().some(tag => tag.tag === "autoskim-key-sentence")
       );
-      const inputText = FastKeySentenceNLP.paperTextForSummary(bodySentences, documentTitle);
-
-      line.setProgress(45);
-      line.setText(settings.summarySource === "local" ? "Generating summary locally…" : "Generating summary via remote API…");
-      const onSummaryProgress = event => {
-        if (["sending", "retrying"].includes(event.stage)) {
-          line.setText(`Sending to remote API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
-        }
-        else if (["mapping", "reducing"].includes(event.stage)) {
-          const percentage = Number.isFinite(Number(event.progress)) ? Number(event.progress) : 0;
-          line.setProgress(Math.round(45 + percentage * 0.5));
-          line.setText(`${event.stage} summary ${event.completed || 0}/${event.total || 0}`);
-        }
-        else if (event.stage === "inference") {
-          const percentage = Number.isFinite(Number(event.progress)) ? Number(event.progress) : 100;
-          line.setProgress(Math.round(45 + percentage * 0.5));
-          line.setText("Generating summary locally…");
-        }
-        else if (event.stage === "done") {
-          line.setProgress(100);
-          line.setText("Summary ready");
-        }
-      };
-      const summarySentenceCount = Math.max(1, Math.round(bodySentences.length / settings.compressionRatio));
-      Services.console.logStringMessage(`Zotero Skimming: summarySentenceCount=${summarySentenceCount} bodySentences=${bodySentences.length} compressionRatio=${settings.compressionRatio} source=${settings.summarySource}`);
-      const summary = settings.summarySource === "local"
-        ? await FastKeySentenceModels.summarize(inputText, onSummaryProgress, {
-          mapReduce: settings.mapReduce,
-          mapReduceSentences: settings.mapReduceSentences || 10,
-          sentenceCount: summarySentenceCount
-        })
-        : await FastKeySentenceRemote.summarize(inputText, documentTitle, summarySentenceCount, onSummaryProgress);
-
-      if (!summary) throw new Error("The summarization model returned an empty result.");
-
-      line.setProgress(100);
-      line.setText("Summary ready");
-      progress.startCloseTimer(1500);
-
-      await this.showSummaryOverlay(window, summary, title);
     }
-    catch (error) {
-      const e = error || "";
-      const msg = typeof e === "object" && e !== null ? (e.message || String(e)) : String(e);
-      this.log(`Summarization failed: ${msg}`);
-      if (typeof FastKeySentenceModels !== "undefined" && FastKeySentenceModels.appendToLog) {
-        void FastKeySentenceModels.appendToLog(`summarization failed: ${msg}`);
-      }
-      line.setError();
-      line.setText("Summarization failed");
-      progress.startCloseTimer(8000);
-      throw error;
+    catch (_) {
+      return false;
     }
   },
 
-  showSummaryOverlay(window, summary, title) {
-    const doc = window.document;
-    const HTML_NS = "http://www.w3.org/1999/xhtml";
-    const existing = doc.getElementById("zotero-skimming-summary-overlay");
-    existing?.remove();
+  findReader(attachment) {
+    try {
+      const readers = Zotero.Reader?._readers || [];
+      return readers.find(reader => String(reader.itemID) === String(attachment.id)) || null;
+    }
+    catch (_) {
+      return null;
+    }
+  },
 
-    const create = (tag, attrs = {}, text = null) => {
-      const element = doc.createElementNS(HTML_NS, tag);
-      for (const [name, value] of Object.entries(attrs)) {
-        if (name === "style") {
-          element.style.cssText = value;
+  async generateForItem(item, body) {
+    const attachment = await this.resolvePDFAttachment(item);
+    if (!attachment) {
+      this.setPanelStatus(body, "Select a PDF attachment.");
+      return;
+    }
+    if (this.generateLocks.has(attachment.id)) {
+      this.setPanelStatus(body, "A run is already in progress for this PDF.");
+      return;
+    }
+    const settings = this.getConfiguredSettings();
+    if (!this.isValidSettings(settings)) {
+      this.setPanelStatus(body, "Settings are invalid. Open Zotero Settings → Zotero Skimming.");
+      return;
+    }
+    const reader = this.findReader(attachment);
+    if (!reader) {
+      this.setPanelStatus(body, "Open this PDF in the Zotero reader first.");
+      return;
+    }
+
+    this.generateLocks.add(attachment.id);
+    this.clearPreview(attachment.id);
+    const refs = this.panelRefs.get(body);
+    if (refs) {
+      refs.generate.disabled = true;
+      refs.save.disabled = true;
+      refs.clear.disabled = true;
+      refs.summaryBox.hidden = true;
+    }
+    this.setPanelProgress(body, 0);
+    const preview = {
+      attachment,
+      reader,
+      sentences: [],
+      visible: [],
+      summary: "",
+      overlays: null,
+      savedTexts: new Set()
+    };
+    this.previews.set(attachment.id, preview);
+
+    try {
+      this.setPanelStatus(body, "Reading PDF text…");
+      const extracted = await FastKeySentenceExtractor.extractDocument(reader, attachment, (progress, page, total) => {
+        this.setPanelProgress(body, progress * 40);
+        this.setPanelStatus(body, `Reading PDF text… page ${page}/${total}`);
+      });
+      const candidates = extracted.sentences.filter(sentence =>
+        !FastKeySentenceNLP.isNoise(sentence)
+        && sentence.section !== "abstract"
+        && sentence.section !== "references"
+        && sentence.section !== "front matter"
+      );
+      if (!candidates.length) throw new Error("No usable candidate sentences were found.");
+      const count = this.calculateAnnotationTarget(candidates.length, settings);
+      FastKeySentenceModels.setModelOverrides(settings);
+      this.setPanelStatus(body, `Selecting ${count} sentences from ${candidates.length} candidates…`);
+      this.setPanelProgress(body, 45);
+      const selected = await FastKeySentenceNLP.analyzeAsync(candidates, count, {
+        localRelevance: settings.localRelevance,
+        summaryLabels: settings.summaryLabels,
+        summaryLabelConfigV2: settings.summaryLabelConfigV2,
+        summarySource: settings.summarySource,
+        mapReduce: settings.mapReduce,
+        mapReduceSentences: settings.mapReduceSentences,
+        documentTitle: await this.getDocumentTitle(attachment),
+        onModelProgress: event => {
+          if (event.stage === "done") this.setPanelProgress(body, 90);
+          else if (event.stage === "inference" && Number.isFinite(Number(event.progress))) {
+            this.setPanelProgress(body, 50 + Number(event.progress) * 0.4);
+          }
+          if (event.message) this.setPanelStatus(body, event.message);
+          else if (event.stage === "mapping") this.setPanelStatus(body, `Summarising in parts… ${event.completed || 0}/${event.total || 0}`);
+          else if (event.stage === "reducing") this.setPanelStatus(body, "Reducing summary…");
+          else if (event.stage === "sending") this.setPanelStatus(body, "Sending text to the remote API…");
+          else if (event.stage === "retrying") this.setPanelStatus(body, "Retrying the remote request…");
         }
-        else if (name === "className") {
-          element.className = value;
-        }
-        else if (name in element && !name.startsWith("aria-")) {
+      });
+      if (!selected.length) throw new Error("No suitable highlight candidates were found.");
+
+      preview.sentences = selected;
+      preview.summary = selected.find(sentence => typeof sentence._paperSummary === "string")?._paperSummary || "";
+      this.applyThreshold(preview);
+      preview.overlays = this.installOverlays(reader, preview.visible);
+      this.setPanelProgress(body, 100);
+      this.updatePanel(body, preview, `Generated ${preview.visible.length} temporary highlight${preview.visible.length === 1 ? "" : "s"}. Press Save to keep them.`);
+    }
+    catch (error) {
+      this.log(error.stack || String(error));
+      this.setPanelStatus(body, `⚠ ${error.message || String(error)}`);
+      this.previews.delete(attachment.id);
+      if (refs) {
+        refs.progress.hidden = true;
+        refs.summaryBox.hidden = true;
+      }
+    }
+    finally {
+      this.generateLocks.delete(attachment.id);
+      if (refs) refs.generate.disabled = false;
+    }
+  },
+
+  applyThreshold(preview) {
+    const threshold = this.getSelectionThreshold();
+    preview.visible = (preview.sentences || []).filter(sentence =>
+      Number(sentence.importance) >= threshold
+    );
+    preview.overlays?.update?.(preview.visible);
+    return preview.visible;
+  },
+
+  async applyThresholdToItem(item, body) {
+    const attachment = await this.resolvePDFAttachment(item);
+    if (!attachment) return;
+    const preview = this.previews.get(attachment.id);
+    if (!preview) {
+      this.setPanelStatus(body, "Generate highlights before changing the threshold.");
+      return;
+    }
+    this.applyThreshold(preview);
+    this.updatePanel(body, preview);
+  },
+
+  installOverlays(reader, sentences) {
+    let handle = null;
+    try {
+      const iframeWin = reader?._internalReader?._primaryView?._iframeWindow;
+      const Cu = Components?.utils;
+      if (!iframeWin || !Cu) return null;
+      const win = Cu.waiveXrays(iframeWin);
+      const app = win.PDFViewerApplication;
+      if (!app?.pdfViewer || !app?.pdfDocument) return null;
+      handle = { win, app, Cu };
+    }
+    catch (_) {
+      return null;
+    }
+
+    const { win, app, Cu } = handle;
+    const doc = win.document;
+    const HL_CLASS = "zotero-skimming-hl";
+    if (!doc.getElementById("zotero-skimming-preview-style")) {
+      const style = doc.createElement("style");
+      style.id = "zotero-skimming-preview-style";
+      style.textContent = `.${HL_CLASS}{position:absolute;pointer-events:none;border-radius:2px;mix-blend-mode:multiply;z-index:3;}`;
+      (doc.head || doc.documentElement).appendChild(style);
+    }
+
+    let specs = Array.isArray(sentences) ? sentences.slice() : [];
+    let byPage = new Map();
+    const group = () => {
+      byPage = new Map();
+      for (const spec of specs) {
+        if (!byPage.has(spec.pageIndex)) byPage.set(spec.pageIndex, []);
+        byPage.get(spec.pageIndex).push(spec);
+      }
+    };
+    group();
+
+    const colorFor = spec => {
+      const color = typeof spec.tagColor === "string" ? spec.tagColor : "#ffd400";
+      const match = /^#([0-9a-f]{6})$/i.exec(color);
+      if (!match) return "rgba(255, 212, 0, 0.28)";
+      const value = parseInt(match[1], 16);
+      return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, 0.28)`;
+    };
+
+    const paintPage = pageIndex => {
+      const pageSpecs = byPage.get(pageIndex);
+      const pageView = app.pdfViewer._pages?.[pageIndex];
+      const pageDiv = pageView?.div;
+      const viewport = pageView?.viewport;
+      if (!pageSpecs || !pageDiv || !viewport) return;
+      for (const element of Array.from(pageDiv.querySelectorAll(`.${HL_CLASS}`))) element.remove();
+      if (!pageView.canvas && pageView.renderingState === 0) return;
+      for (const spec of pageSpecs) {
+        for (const rect of spec.rects || []) {
+          let viewportRect;
           try {
-            element[name] = value;
+            viewportRect = viewport.convertToViewportRectangle(Cu.cloneInto([...rect], win));
           }
           catch (_) {
-            element.setAttribute(name, String(value));
+            continue;
           }
-        }
-        else {
-          element.setAttribute(name, String(value));
+          const left = Math.min(viewportRect[0], viewportRect[2]);
+          const top = Math.min(viewportRect[1], viewportRect[3]);
+          const width = Math.abs(viewportRect[2] - viewportRect[0]);
+          const height = Math.abs(viewportRect[3] - viewportRect[1]);
+          if (!(width > 0 && height > 0)) continue;
+          const div = doc.createElement("div");
+          div.className = HL_CLASS;
+          div.style.left = `${left}px`;
+          div.style.top = `${top}px`;
+          div.style.width = `${width}px`;
+          div.style.height = `${height}px`;
+          div.style.backgroundColor = colorFor(spec);
+          pageDiv.appendChild(div);
         }
       }
-      if (text !== null) element.textContent = text;
-      return element;
     };
 
-    const overlay = create("div", {
-      id: "zotero-skimming-summary-overlay",
-      role: "presentation",
-      style: [
-        "position: fixed",
-        "inset: 0",
-        "z-index: 2147483647",
-        "display: flex",
-        "align-items: center",
-        "justify-content: center",
-        "padding: 24px",
-        "background: rgba(0, 0, 0, 0.42)",
-        "font: message-box"
-      ].join(";")
-    });
+    const repaint = () => {
+      for (const pageIndex of byPage.keys()) {
+        try { paintPage(pageIndex); } catch (_) {}
+      }
+    };
+    let listener = null;
+    try {
+      listener = Cu.exportFunction(event => {
+        const pageIndex = Number(event?.pageNumber) - 1;
+        if (byPage.has(pageIndex)) repaint();
+      }, win);
+      app.eventBus?.on?.("pagerendered", listener);
+    }
+    catch (_) {
+      listener = null;
+    }
 
-    const panel = create("section", {
-      role: "dialog",
-      "aria-modal": "true",
-      "aria-labelledby": "zotero-skimming-summary-title",
-      style: [
-        "width: min(800px, calc(100vw - 48px))",
-        "max-height: calc(100vh - 48px)",
-        "overflow: auto",
-        "padding: 22px",
-        "border: 1px solid color-mix(in srgb, CanvasText 25%, transparent)",
-        "border-radius: 10px",
-        "box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35)",
-        "background: Canvas",
-        "color: CanvasText"
-      ].join(";")
-    });
+    repaint();
 
-    const heading = create("h1", {
-      id: "zotero-skimming-summary-title",
-      style: "margin: 0 0 6px; font-size: 1.25rem; font-weight: 600"
-    }, "Paper summary");
-    panel.appendChild(heading);
-
-    const subtitle = create("div", {
-      style: "margin: 0 0 16px; opacity: 0.7; font-size: 0.92rem"
-    }, title);
-    panel.appendChild(subtitle);
-
-    const body = create("textarea", {
-      value: summary,
-      style: [
-        "width: 100%",
-        "box-sizing: border-box",
-        "margin: 0 0 18px",
-        "padding: 14px 16px",
-        "border: 1px solid color-mix(in srgb, CanvasText 18%, transparent)",
-        "border-radius: 7px",
-        "background: color-mix(in srgb, Canvas 96%, AccentColor 4%)",
-        "color: CanvasText",
-        "font: inherit",
-        "line-height: 1.6",
-        "resize: vertical",
-        "min-height: 160px",
-        "max-height: 76vh"
-      ].join(";")
-    });
-    panel.appendChild(body);
-
-    const footer = create("footer", {
-      style: "display: flex; justify-content: flex-end; gap: 10px"
-    });
-    const closeButton = create("button", {
-      type: "button",
-      style: "min-width: 92px; min-height: 32px; padding: 5px 14px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 5px; background: AccentColor; color: AccentColorText; border-color: AccentColor; font: inherit"
-    }, "Close");
-    footer.appendChild(closeButton);
-    panel.appendChild(footer);
-    overlay.appendChild(panel);
-    doc.documentElement.appendChild(overlay);
-
-    return new Promise(resolve => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        window.removeEventListener("keydown", onKeyDown, true);
-        overlay.remove();
-        resolve();
-      };
-
-      const onKeyDown = event => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          finish();
+    return {
+      update(next) {
+        specs = Array.isArray(next) ? next.slice() : [];
+        group();
+        repaint();
+      },
+      repaint,
+      clear() {
+        if (listener) {
+          try { app.eventBus?.off?.("pagerendered", listener); } catch (_) {}
         }
-      };
-      window.addEventListener("keydown", onKeyDown, true);
+        try {
+          for (const element of Array.from(doc.querySelectorAll(`.${HL_CLASS}`))) element.remove();
+        }
+        catch (_) {}
+      }
+    };
+  },
 
-      closeButton.addEventListener("click", () => finish());
-      closeButton.focus();
+  clearPreview(attachmentId) {
+    const preview = this.previews.get(attachmentId);
+    if (!preview) return;
+    try { preview.overlays?.clear(); } catch (_) {}
+    this.previews.delete(attachmentId);
+  },
+
+  clearPreviewForItem(item, body) {
+    void this.resolvePDFAttachment(item).then(attachment => {
+      if (!attachment) return;
+      this.clearPreview(attachment.id);
+      this.setPanelStatus(body, "Highlights cleared.");
+      const refs = this.panelRefs.get(body);
+      if (refs) {
+        refs.save.disabled = true;
+        refs.clear.disabled = true;
+        refs.summaryBox.hidden = true;
+        refs.progress.hidden = true;
+      }
     });
+  },
+
+  async savePreviewForItem(item, body) {
+    const attachment = await this.resolvePDFAttachment(item);
+    if (!attachment) {
+      this.setPanelStatus(body, "Select a PDF attachment.");
+      return;
+    }
+    const preview = this.previews.get(attachment.id);
+    if (!preview || !preview.visible.length) {
+      this.setPanelStatus(body, "Generate highlights first.");
+      return;
+    }
+    if (!attachment.libraryID) {
+      this.setPanelStatus(body, "The PDF must be saved in a Zotero library first.");
+      return;
+    }
+    const refs = this.panelRefs.get(body);
+    if (refs) refs.save.disabled = true;
+    this.setPanelProgress(body, 0);
+    this.setPanelStatus(body, "Saving Zotero annotations…");
+    let created = 0;
+    let skipped = 0;
+    try {
+      const existing = new Set();
+      for (const annotation of attachment.getAnnotations?.() || []) {
+        const text = annotation.annotationText || annotation.getNote?.() || "";
+        if (text) existing.add(text);
+      }
+      const notifierQueue = new Zotero.Notifier.Queue();
+      try {
+        for (let index = 0; index < preview.visible.length; index++) {
+          const sentence = preview.visible[index];
+          const annotationText = typeof FastKeySentenceExtractor?.cleanText === "function"
+            ? FastKeySentenceExtractor.cleanText(sentence.text)
+            : sentence.text;
+          if (existing.has(annotationText)) {
+            preview.savedTexts.add(sentence.text);
+            skipped++;
+            continue;
+          }
+          const annotation = this.makeAnnotation(sentence);
+          await Zotero.Annotations.saveFromJSON(attachment, annotation, { notifierQueue });
+          existing.add(annotationText);
+          preview.savedTexts.add(sentence.text);
+          created++;
+          this.setPanelProgress(body, Math.round(100 * (index + 1) / preview.visible.length));
+        }
+      }
+      finally {
+        await Zotero.Notifier.commit(notifierQueue);
+      }
+      this.setPanelStatus(body, skipped
+        ? `Saved ${created} new annotations. ${skipped} were already saved.`
+        : `Saved ${created} Zotero annotations.`);
+      if (refs) refs.remove.disabled = false;
+      this.updatePanel(body, preview, skipped
+        ? `Saved ${created} new annotations. ${skipped} were already saved.`
+        : `Saved ${created} Zotero annotations.`);
+    }
+    catch (error) {
+      this.log(error.stack || String(error));
+      this.setPanelStatus(body, `⚠ Could not save annotations: ${error.message || error}`);
+    }
+    finally {
+      if (refs) refs.progress.hidden = true;
+    }
+  },
+
+  async onRemoveSaved(item, body) {
+    const attachment = await this.resolvePDFAttachment(item);
+    if (!attachment) return;
+    const refs = this.panelRefs.get(body);
+    if (!refs) return;
+    if (refs.remove.dataset.confirm !== "true") {
+      refs.remove.dataset.confirm = "true";
+      refs.remove.textContent = "Confirm removal";
+      this.setPanelStatus(body, "Press Confirm removal to delete saved Skim annotations. This does not remove temporary highlights.");
+      return;
+    }
+    refs.remove.dataset.confirm = "";
+    refs.remove.textContent = "Remove saved annotations";
+    let removed = 0;
+    try {
+      removed = await this.deleteSavedAnnotations(attachment);
+      const preview = this.previews.get(attachment.id);
+      preview?.savedTexts?.clear();
+      if (preview) this.updatePanel(body, preview);
+    }
+    catch (error) {
+      this.log(error.stack || String(error));
+      this.setPanelStatus(body, `⚠ Could not remove annotations: ${error.message || error}`);
+      return;
+    }
+    refs.remove.disabled = true;
+    this.setPanelStatus(body, `Removed ${removed} saved annotation${removed === 1 ? "" : "s"}.`);
+  },
+
+  async deleteSavedAnnotations(attachment) {
+    let removed = 0;
+    for (const annotation of attachment.getAnnotations?.() || []) {
+      if (!annotation.getTags?.().some(tag => tag.tag === "autoskim-key-sentence")) continue;
+      await annotation.eraseTx();
+      removed++;
+    }
+    return removed;
   },
 
   async resolvePDFAttachment(item) {
+    if (!item) return null;
     if (item.isAttachment?.()) return item.isPDFAttachment?.() ? item : null;
     if (!item.isRegularItem?.()) return null;
     for (const id of item.getAttachments?.() || []) {
@@ -1007,940 +968,10 @@ FastOfflineKeySentenceAnnotator = {
     return attachment.getField("title") || attachment.attachmentFilename || "PDF";
   },
 
-  modelProgressHandler(line, settings, stageLines = null) {
-    const enabled = [settings.localRelevance && "summary-relevance", settings.localRelevance && "keyword-relevance", settings.summaryLabels && "tag-classification"].filter(Boolean);
-    const ranges = new Map();
-    const width = enabled.length ? 25 / enabled.length : 25;
-    enabled.forEach((operation, index) => {
-      ranges.set(operation, [45 + index * width, 45 + (index + 1) * width]);
-    });
-    const names = {
-      summarization: settings.summarySource === "local" ? "Local Ollama summarization" : "Remote summarization",
-      "summary-relevance": "Summary relevance",
-      "keyword-relevance": "Keyword relevance",
-      "tag-classification": "Tag classification"
-    };
-    const filesByOperation = new Map();
-
-    const formatBytes = value => {
-      if (!Number.isFinite(value) || value <= 0) return "";
-      if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-      if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
-      return `${Math.round(value)} B`;
-    };
-
-    return event => {
-      const operation = event.operation || enabled[0] || "embeddings";
-      const [start, end] = ranges.get(operation) || [45, 70];
-      let percentage = Number(event.progress);
-      let loaded = Number(event.loaded) || 0;
-      let total = Number(event.total) || 0;
-
-      if (event.file && total > 0) {
-        if (!filesByOperation.has(operation)) filesByOperation.set(operation, new Map());
-        const files = filesByOperation.get(operation);
-        files.set(event.file, { loaded: Math.min(loaded, total), total });
-        loaded = [...files.values()].reduce((sum, file) => sum + file.loaded, 0);
-        total = [...files.values()].reduce((sum, file) => sum + file.total, 0);
-        percentage = total ? 100 * loaded / total : percentage;
-      }
-      else if (!Number.isFinite(percentage) && total > 0) {
-        percentage = 100 * loaded / total;
-      }
-      if (!Number.isFinite(percentage)) percentage = 0;
-      percentage = Math.max(0, Math.min(100, percentage));
-      const target = stageLines?.[operation] || line;
-      if (stageLines) target.setProgress(Math.round(percentage));
-      else if (operation === "summarization") {
-        target.setProgress(Math.round(5 + (event.stage === "done" ? 25 : 15 + percentage * 0.1)));
-      }
-      else {
-        target.setProgress(Math.round(start + (end - start) * percentage / 100));
-      }
-
-      const label = names[operation] || "Transformer model";
-      if (["download", "progress", "initiate"].includes(event.stage)) {
-        const file = event.file ? ` - ${String(event.file).split("/").pop()}` : "";
-        const byteText = total > 0 ? ` (${formatBytes(loaded)} / ${formatBytes(total)})` : ` (${Math.round(percentage)}%)`;
-        target.setText(`${label}: loading ${event.model || "model"}${file}${byteText}`);
-      }
-      else if (event.stage === "sending" || event.stage === "retrying") {
-        target.setText(`${label}: sending request to API${event.attempt ? ` (retry ${event.attempt})` : ""}…`);
-      }
-      else if (event.stage === "done") {
-        // keep the existing in-progress text; no completion notification
-      }
-      else if (event.stage === "inference") {
-        target.setText(`${label}: analysing sentences (${Math.round(percentage)}%)`);
-      }
-      else if (["mapping", "reducing"].includes(event.stage)) {
-        target.setText(`${label}: ${event.stage} ${event.completed || 0}/${event.total || 0}`);
-      }
-      else {
-        target.setText(`${label}: loading ${event.model || "model"}`);
-      }
-    };
-  },
-
-  async annotateAttachment(attachment, window = null, settings = null) {
-    const progress = new Zotero.ProgressWindow();
-    progress.changeHeadline("Zotero-skimming");
-    const title = attachment.getField("title") || attachment.attachmentFilename || "PDF";
-    const line = new progress.ItemProgress(this.iconURI, title);
-    line.setProgress(5);
-    progress.show();
-
-    try {
-      if (typeof Zotero.PDFWorker?.getStructuredDocumentText !== "function"
-          && typeof Zotero.PDFWorker?.getRecognizerData !== "function") {
-        throw new Error("This Zotero build does not expose a supported local PDF text-extraction API.");
-      }
-      if (typeof Zotero.Annotations?.saveFromJSON !== "function") {
-        throw new Error("This Zotero build does not expose the required annotation API.");
-      }
-
-      const existingAutoAnnotations = attachment.getAnnotations()
-        .filter(item => item.getTags().some(tag => tag.tag === "autoskim-key-sentence"));
-      if (existingAutoAnnotations.length) {
-        throw new Error(`This PDF already contains ${existingAutoAnnotations.length} automatic key-sentence annotation(s). Remove them before running the annotator again.`);
-      }
-
-      line.setText("Extracting all PDF pages");
-      const pages = await this.extractAllPages(attachment, progressValue => {
-        const value = Number.isFinite(progressValue) ? progressValue : 0;
-        line.setProgress(Math.max(5, Math.min(30, 5 + Math.round(value * 25))));
-      });
-      line.setProgress(30);
-      line.setText(`Reconstructing sentences from ${pages.length} pages`);
-      const sentences = this.buildSentences(pages);
-      if (!sentences.length) throw new Error("No usable text was found. Run OCR first if this is a scanned PDF.");
-
-      const configuredSettings = settings && this.isValidSettings(settings)
-        ? settings
-        : this.getConfiguredSettings();
-      FastKeySentenceModels.setModelOverrides(configuredSettings);
-      const bodySentences = sentences.filter(s => !FastKeySentenceNLP.isNoise(s) && s.section !== "abstract");
-      const count = this.calculateAnnotationTarget(bodySentences.length, configuredSettings);
-      const enabledStages = [configuredSettings.localRelevance && "semantic relevance"].filter(Boolean);
-      line.setProgress(45);
-      line.setText(
-        `Ranking sentences (target: ${count}; compression ${configuredSettings.compressionRatio}:1`
-          + `${enabledStages.length ? `; LLM: ${enabledStages.join(", ")}` : "; fast mode"})`
-      );
-      const documentTitle = await this.getDocumentTitle(attachment);
-      const stageLines = {
-        summarization: new progress.ItemProgress(this.iconURI, "Summarization"),
-        ...(configuredSettings.localRelevance ? {
-          "summary-relevance": new progress.ItemProgress(this.iconURI, "Summary relevance"),
-          "keyword-relevance": new progress.ItemProgress(this.iconURI, "Keyword relevance"),
-        } : {}),
-        ...(configuredSettings.summaryLabels ? {
-          "tag-classification": new progress.ItemProgress(this.iconURI, "Tag classification")
-        } : {})
-      };
-      for (const stageLine of Object.values(stageLines)) stageLine.setProgress(0);
-      const selected = await FastKeySentenceNLP.analyzeAsync(sentences, count, {
-        localRelevance: configuredSettings.localRelevance,
-        summaryLabels: configuredSettings.summaryLabels,
-        summaryLabelConfigV2: configuredSettings.summaryLabelConfigV2,
-        summarySource: configuredSettings.summarySource,
-        mapReduce: configuredSettings.mapReduce,
-        mapReduceSentences: configuredSettings.mapReduceSentences,
-        documentTitle,
-        onModelProgress: this.modelProgressHandler(line, configuredSettings, stageLines)
-      });
-      if (!selected.length) throw new Error("No suitable annotation candidates were found.");
-
-      const taggedCount = selected.filter(s => typeof s.tag === "string" && s.tag.trim()).length;
-      if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: annotateAttachment — ${selected.length} selected, ${taggedCount} have tags. Tags: ${selected.map(s => s.tag || "(none)").join(", ")}`);
-
-      line.setProgress(70);
-      line.setText("Creating Zotero highlights");
-      let created = 0;
-      const notifierQueue = new Zotero.Notifier.Queue();
-      try {
-        for (const sentence of selected) {
-          const annotation = this.makeAnnotation(sentence);
-          await Zotero.Annotations.saveFromJSON(attachment, annotation, { notifierQueue });
-          created++;
-        }
-      }
-      finally {
-        await Zotero.Notifier.commit(notifierQueue);
-      }
-      line.setProgress(100);
-      line.setText(`Created ${created} native highlights`);
-      progress.startCloseTimer(3000);
-    }
-    catch (error) {
-      const e = error || "";
-      const msg = typeof e === "object" && e !== null ? (e.message || String(e)) : String(e);
-      const stack = typeof e === "object" && e !== null ? e.stack : "";
-      const detail = `${msg} (type: ${typeof e})${stack ? `\n${stack}` : ""}`;
-      Zotero.debug(`FastOfflineKeySentenceAnnotator annotation failed: ${detail}`);
-      if (typeof FastKeySentenceModels !== "undefined" && FastKeySentenceModels.appendToLog) {
-        void FastKeySentenceModels.appendToLog(`annotation failed: ${detail}`);
-      }
-      line.setError();
-      line.setText("Annotation failed");
-      progress.startCloseTimer(8000);
-      throw error;
-    }
-  },
-
-  async extractAllPages(attachment, onProgress) {
-    // Zotero 9.0.6 exposes getRecognizerData(), but that method deliberately
-    // extracts only the first five pages. To obtain positioned text for every
-    // page, process the original PDF in five-page in-memory chunks. Each chunk
-    // is reduced to at most five pages with the bundled Zotero PDF worker and
-    // then passed to getRecognizerData(). No file on disk is modified.
-    const first = await Zotero.PDFWorker.getRecognizerData(attachment.id, true);
-    const totalPages = Math.max(0, Number(first?.totalPages) || first?.pages?.length || 0);
-    if (!totalPages) throw new Error("Zotero's PDF worker reported zero pages.");
-
-    const allPages = [];
-    const appendChunk = (data, originalStart) => {
-      const chunkPages = this.extractPages(data);
-      for (let i = 0; i < chunkPages.length; i++) {
-        chunkPages[i].pageIndex = originalStart + i;
-        allPages.push(chunkPages[i]);
-      }
-    };
-
-    appendChunk(first, 0);
-    onProgress?.(Math.min(1, Math.min(5, totalPages) / totalPages));
-    if (totalPages <= 5) return this.cleanRepeatedMargins(allPages);
-
-    if (typeof Zotero.PDFWorker?._query !== "function"
-        || typeof Zotero.PDFWorker?._enqueue !== "function") {
-      throw new Error("This Zotero build does not expose the internal PDF-worker calls required for all-page positioned extraction.");
-    }
-
-    const path = await attachment.getFilePathAsync();
-    if (!path) throw new Error("The PDF file is missing locally.");
-    const originalBytes = new Uint8Array(await IOUtils.read(path));
-
-    for (let startPage = 5; startPage < totalPages; startPage += 5) {
-      const endPage = Math.min(totalPages, startPage + 5);
-      const keep = new Set(Array.from({ length: endPage - startPage }, (_, i) => startPage + i));
-      const deleteIndexes = [];
-      for (let i = totalPages - 1; i >= 0; i--) {
-        if (!keep.has(i)) deleteIndexes.push(i);
-      }
-
-      // A transferred ArrayBuffer is detached, so allocate an independent copy
-      // for every chunk.
-      let chunkBuffer = originalBytes.slice().buffer;
-      const chunkData = await Zotero.PDFWorker._enqueue(async () => {
-        const deleted = await Zotero.PDFWorker._query(
-          "deletePages",
-          { buf: chunkBuffer, pageIndexes: deleteIndexes },
-          [chunkBuffer]
-        );
-        let reducedBuffer = deleted.buf;
-        return Zotero.PDFWorker._query(
-          "getRecognizerData",
-          { buf: reducedBuffer },
-          [reducedBuffer]
-        );
-      }, true);
-
-      appendChunk(chunkData, startPage);
-      onProgress?.(endPage / totalPages);
-      // Yield briefly so long documents do not monopolize Zotero's main thread.
-      await Zotero.Promise.delay(0);
-    }
-
-    allPages.sort((a, b) => a.pageIndex - b.pageIndex);
-    this.log(`Positioned extractor returned ${allPages.length}/${totalPages} page(s)`);
-    return this.cleanRepeatedMargins(allPages);
-  },
-
-  extractStructuredPages(data) {
-    if (!data) return [];
-    if (typeof data === "string") {
-      try { data = JSON.parse(data); }
-      catch (_) { return []; }
-    }
-
-    const pages = new Map();
-    const seen = new Set();
-    const ensurePage = (pageIndex, width = 612, height = 792) => {
-      pageIndex = Math.max(0, Number(pageIndex) || 0);
-      if (!pages.has(pageIndex)) pages.set(pageIndex, { pageIndex, width, height, words: [] });
-      const page = pages.get(pageIndex);
-      if (Number(width) > 0) page.width = Number(width);
-      if (Number(height) > 0) page.height = Number(height);
-      return page;
-    };
-
-    const pageSizes = data.pageSizes || data.pages || data.metadata?.pageSizes;
-    if (Array.isArray(pageSizes)) {
-      pageSizes.forEach((entry, index) => {
-        if (Array.isArray(entry)) ensurePage(index, entry[0], entry[1]);
-        else if (entry && typeof entry === "object") ensurePage(
-          entry.pageIndex ?? index,
-          entry.width ?? entry.size?.[0],
-          entry.height ?? entry.size?.[1]
-        );
-      });
-    }
-
-    const normalizeRect = (rect, pageHeight) => {
-      if (!Array.isArray(rect) || rect.length < 4 || !rect.slice(0, 4).every(Number.isFinite)) return null;
-      let [x1, y1, x2, y2] = rect.slice(0, 4).map(Number);
-      if (x2 < x1) [x1, x2] = [x2, x1];
-      if (y2 < y1) [y1, y2] = [y2, y1];
-      // Structured-document-text PDF anchors normally use Zotero coordinates.
-      // If coordinates clearly look top-origin, convert them conservatively.
-      if (pageHeight && y2 > pageHeight * 1.02) return null;
-      return [x1, y1, x2, y2];
-    };
-
-    const geometryFrom = (node, inherited = null) => {
-      if (!node || typeof node !== "object") return inherited;
-      const candidates = [node.position, node.anchor, node.pdfAnchor, node.region, node];
-      for (const c of candidates) {
-        if (!c || typeof c !== "object") continue;
-        const pageIndex = c.pageIndex ?? c.page ?? c.pageNumber;
-        let rects = c.rects || c.rectangles || c.boxes;
-        if (!rects && Array.isArray(c.rect)) rects = [c.rect];
-        if (pageIndex != null && Array.isArray(rects)) {
-          return { pageIndex: Number(pageIndex), rects, width: c.pageWidth, height: c.pageHeight };
-        }
-      }
-      return inherited;
-    };
-
-    const addText = (text, geometry) => {
-      text = FastKeySentenceNLP.normalizeText(text);
-      if (!text || !geometry || geometry.pageIndex == null) return;
-      const page = ensurePage(geometry.pageIndex, geometry.width, geometry.height);
-      const rects = geometry.rects.map(r => normalizeRect(r, page.height)).filter(Boolean);
-      if (!rects.length) return;
-      const key = `${page.pageIndex}|${text}|${rects.map(r => r.map(x => x.toFixed(2)).join(",")).join(";")}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-
-      // Keep text fragments with their source rectangles. For paragraph-level
-      // anchors, distribute tokens over rectangles so sentence mapping remains local.
-      const tokens = text.split(/\s+/).filter(Boolean);
-      if (tokens.length === 1 || rects.length === 1) {
-        page.words.push(...this.splitFragment(text, rects[0], rects[0][3]));
-        return;
-      }
-      let offset = 0;
-      const perRect = Math.max(1, Math.ceil(tokens.length / rects.length));
-      for (let i = 0; i < rects.length && offset < tokens.length; i++) {
-        const chunk = tokens.slice(offset, offset + perRect).join(" ");
-        offset += perRect;
-        if (chunk) page.words.push(...this.splitFragment(chunk, rects[i], rects[i][3]));
-      }
-    };
-
-    const walk = (node, inheritedGeometry = null) => {
-      if (node == null) return;
-      if (typeof node === "string") {
-        addText(node, inheritedGeometry);
-        return;
-      }
-      if (Array.isArray(node)) {
-        for (const child of node) walk(child, inheritedGeometry);
-        return;
-      }
-      if (typeof node !== "object") return;
-      const geometry = geometryFrom(node, inheritedGeometry);
-      const directText = typeof node.text === "string" ? node.text
-        : typeof node.value === "string" ? node.value
-        : typeof node.str === "string" ? node.str
-        : null;
-      if (directText) addText(directText, geometry);
-      for (const [key, value] of Object.entries(node)) {
-        if (["text", "value", "str", "position", "anchor", "pdfAnchor", "region", "rects", "rectangles", "boxes", "rect"].includes(key)) continue;
-        if (value && (typeof value === "object" || Array.isArray(value))) walk(value, geometry);
-      }
-    };
-    walk(data, null);
-
-    return [...pages.values()].sort((a, b) => a.pageIndex - b.pageIndex).map(page => {
-      page.words = this.sortWordsReadingOrder(page.words, page.width, page.height);
-      return page;
-    });
-  },
-
-  sortWordsReadingOrder(words, pageWidth, pageHeight) {
-    if (!words.length) return words;
-    // Cluster by lines, then infer one or two broad columns. This is more stable
-    // than trusting raw PDF object order, which PDF.js explicitly does not guarantee.
-    const lineTolerance = Math.max(2.5, pageHeight * 0.004);
-    const lines = [];
-    for (const word of words.slice().sort((a, b) => b.rect[3] - a.rect[3] || a.rect[0] - b.rect[0])) {
-      const cy = (word.rect[1] + word.rect[3]) / 2;
-      let line = lines.find(l => Math.abs(l.cy - cy) <= lineTolerance);
-      if (!line) { line = { cy, words: [] }; lines.push(line); }
-      line.words.push(word);
-    }
-    lines.forEach(line => line.words.sort((a, b) => a.rect[0] - b.rect[0]));
-    const mids = lines.map(l => Math.min(...l.words.map(w => w.rect[0])));
-    const leftCount = mids.filter(x => x < pageWidth * 0.42).length;
-    const rightCount = mids.filter(x => x > pageWidth * 0.50).length;
-    const twoColumns = leftCount >= 4 && rightCount >= 4;
-    if (!twoColumns) return lines.sort((a, b) => b.cy - a.cy).flatMap(l => l.words);
-    const left = lines.filter(l => Math.min(...l.words.map(w => w.rect[0])) < pageWidth * 0.48);
-    const right = lines.filter(l => Math.min(...l.words.map(w => w.rect[0])) >= pageWidth * 0.48);
-    return left.sort((a, b) => b.cy - a.cy).concat(right.sort((a, b) => b.cy - a.cy)).flatMap(l => l.words);
-  },
-
-  splitFragment(text, rect, top = null) {
-    text = FastKeySentenceNLP.normalizeText(text);
-    if (!text || !Array.isArray(rect) || rect.length < 4) return [];
-    const parts = text.match(/\S+/g) || [];
-    if (parts.length <= 1) return [{ text, rect, top: top ?? rect[3] }];
-
-    const totalUnits = parts.reduce((sum, part) => sum + Math.max(1, part.length), 0)
-      + Math.max(0, parts.length - 1) * 0.55;
-    const width = Math.max(0.1, rect[2] - rect[0]);
-    let cursor = rect[0];
-    const out = [];
-    for (let i = 0; i < parts.length; i++) {
-      const units = Math.max(1, parts[i].length);
-      const tokenWidth = width * units / totalUnits;
-      const right = i === parts.length - 1 ? rect[2] : Math.min(rect[2], cursor + tokenWidth);
-      out.push({ text: parts[i], rect: [cursor, rect[1], right, rect[3]], top: top ?? rect[3] });
-      cursor = right + width * 0.55 / totalUnits;
-    }
-    return out;
-  },
-
-  buildLines(page) {
-    const words = page.words.slice().sort((a, b) => b.rect[3] - a.rect[3] || a.rect[0] - b.rect[0]);
-    const lines = [];
-    for (const word of words) {
-      const cy = (word.rect[1] + word.rect[3]) / 2;
-      const h = Math.max(1, word.rect[3] - word.rect[1]);
-      let best = null;
-      let bestDistance = Infinity;
-      for (const line of lines) {
-        const tolerance = Math.max(2.2, Math.min(h, line.height) * 0.48);
-        const distance = Math.abs(line.cy - cy);
-        if (distance <= tolerance && distance < bestDistance) {
-          best = line;
-          bestDistance = distance;
-        }
-      }
-      if (!best) {
-        best = { cy, height: h, words: [] };
-        lines.push(best);
-      }
-      best.words.push(word);
-      best.cy = best.words.reduce((sum, w) => sum + (w.rect[1] + w.rect[3]) / 2, 0) / best.words.length;
-      best.height = best.words.reduce((sum, w) => sum + (w.rect[3] - w.rect[1]), 0) / best.words.length;
-    }
-    const describe = line => {
-      line.words.sort((a, b) => a.rect[0] - b.rect[0]);
-      line.left = Math.min(...line.words.map(w => w.rect[0]));
-      line.right = Math.max(...line.words.map(w => w.rect[2]));
-      line.top = Math.max(...line.words.map(w => w.rect[3]));
-      line.bottom = Math.min(...line.words.map(w => w.rect[1]));
-      line.text = this.joinTokens(line.words.map(w => w.text));
-      return line;
-    };
-    lines.forEach(describe);
-
-    const lineGaps = new Map();
-    const columnRows = lines.map(line => {
-      const gaps = line.words.slice(1).map((word, index) => {
-        const previous = line.words[index];
-        return {
-          index: index + 1,
-          left: previous.rect[2],
-          right: word.rect[0],
-          width: word.rect[0] - previous.rect[2],
-          center: (previous.rect[2] + word.rect[0]) / 2
-        };
-      });
-      lineGaps.set(line, gaps);
-      const split = gaps
-        .filter(gap => gap.width >= 12 && Math.abs(gap.center - page.width / 2) <= page.width * 0.1)
-        .sort((a, b) => Math.abs(a.center - page.width / 2) - Math.abs(b.center - page.width / 2)
-          || b.width - a.width)[0];
-      return split && split.index >= 4 && line.words.length - split.index >= 4 ? split : null;
-    }).filter(Boolean);
-    if (columnRows.length >= 2) {
-      const centers = columnRows.map(split => split.center).sort((a, b) => a - b);
-      const gutterCenter = centers[Math.floor(centers.length / 2)];
-      for (const line of lines) {
-        const split = lineGaps.get(line).find(gap => gap.width >= 12
-          && gap.left <= gutterCenter && gap.right >= gutterCenter);
-        if (split) line.columnSplit = split.index;
-      }
-    }
-    const readingLines = columnRows.length >= 2
-      ? lines.flatMap(line => line.columnSplit
-        ? [describe({ cy: line.cy, height: line.height, words: line.words.slice(0, line.columnSplit) }),
-          describe({ cy: line.cy, height: line.height, words: line.words.slice(line.columnSplit) })]
-        : [line])
-      : lines;
-    return this.sortLinesReadingOrder(readingLines, page.width);
-  },
-
-  sortLinesReadingOrder(lines, pageWidth) {
-    const visualOrder = lines.slice().sort((a, b) => b.cy - a.cy || a.left - b.left);
-    const left = visualOrder.filter(line => line.left < pageWidth * 0.48);
-    const right = visualOrder.filter(line => line.left >= pageWidth * 0.48);
-    if (left.length < 2 || right.length < 2) return visualOrder;
-
-    const ordered = [];
-    let band = [];
-    const flushBand = () => {
-      ordered.push(...band.filter(line => line.left < pageWidth * 0.48));
-      ordered.push(...band.filter(line => line.left >= pageWidth * 0.48));
-      band = [];
-    };
-    for (const line of visualOrder) {
-      const spansColumns = line.left < pageWidth * 0.42 && line.right > pageWidth * 0.58;
-      if (spansColumns) {
-        flushBand();
-        ordered.push(line);
-      }
-      else band.push(line);
-    }
-    flushBand();
-    return ordered;
-  },
-
-  joinTokens(tokens) {
-    let text = "";
-    for (const token of tokens) {
-      if (!token) continue;
-      const noSpaceBefore = /^[,.;:!?%\)\]\}]/.test(token);
-      const noSpaceAfterPrevious = /[\(\[\{\/$]$/.test(text);
-      if (text && !noSpaceBefore && !noSpaceAfterPrevious) text += " ";
-      text += token;
-    }
-    return text;
-  },
-
-  isFrontMatterLine(line, page) {
-    if (page.pageIndex !== 0) return false;
-    const text = FastKeySentenceNLP.normalizeText(line.text);
-    if (!text) return true;
-    if (/^(abstract|introduction)\b/i.test(text)) return false;
-    if (/\b(doi|https?:\/\/|www\.|received|accepted|published|publisher|copyright|creative commons|citation:)\b/i.test(text)) return true;
-    if (/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/.test(text)) return true;
-    if (/^(article|research article|original article|algorithms?)$/i.test(text)) return true;
-    if (/^\s*[©\u00a9]|all rights reserved/i.test(text)) return true;
-    return false;
-  },
-
-  isBackMatterLine(text) {
-    const s = FastKeySentenceNLP.normalizeText(text);
-    return /^(?:author contributions?|funding|institutional review board statement|informed consent statement|data availability statement|acknowledg(?:e)?ments?|conflicts? of interest|abbreviations?)\s*[:.]?/i.test(s);
-  },
-
-  isTableCaptionLine(line) {
-    const text = FastKeySentenceNLP.normalizeText(line?.text);
-    return /^(?:table|tab\.)\s+(?:[A-Z][.-]?\s*)?(?:\d+(?:\.\d+)*|[IVXLC]+)\b/i.test(text);
-  },
-
-  tableLineProfile(line, page) {
-    const words = line.words || [];
-    const threshold = Math.max(8, page.width * 0.018, line.height * 1.8);
-    const gaps = [];
-    const cellStarts = words.length ? [words[0].rect[0]] : [];
-    for (let i = 1; i < words.length; i++) {
-      const gap = words[i].rect[0] - words[i - 1].rect[2];
-      gaps.push(gap);
-      if (gap > threshold) cellStarts.push(words[i].rect[0]);
-    }
-
-    const tokens = words.map(word => FastKeySentenceNLP.normalizeText(word.text)).filter(Boolean);
-    const numeric = tokens.filter(token => /^(?:[<>~=+-]?\d[\d.,:%()*/-]*|n\/?a|nan|yes|no)$/i.test(token)).length;
-    const short = tokens.filter(token => token.length <= 5).length;
-    const numericRatio = numeric / Math.max(1, tokens.length);
-    const shortRatio = short / Math.max(1, tokens.length);
-    const cellCount = cellStarts.length;
-    const sentenceLike = /[.!?]["')\]}]?$/.test(line.text)
-      && /\b(?:is|are|was|were|has|have|shows?|indicates?|suggests?|we|this|the)\b/i.test(line.text);
-
-    const tableLike = !sentenceLike && (
-      cellCount >= 4
-      || (cellCount >= 3 && (numericRatio >= 0.10 || shortRatio >= 0.45))
-      || (cellCount >= 2 && numericRatio >= 0.38 && tokens.length >= 4)
-    );
-    return { threshold, gaps, cellStarts, cellCount, numericRatio, shortRatio, sentenceLike, tokenCount: tokens.length, tableLike };
-  },
-
-  detectTableLineIndexes(lines, page) {
-    const marked = new Set();
-    if (!lines.length) return marked;
-    const profiles = lines.map(line => this.tableLineProfile(line, page));
-    const captions = lines.map((line, index) => this.isTableCaptionLine(line) ? index : -1).filter(index => index >= 0);
-    for (const index of captions) marked.add(index);
-
-    const aligned = (a, b) => {
-      if (a.cellCount < 3 || b.cellCount < 3) return false;
-      const tolerance = Math.max(9, page.width * 0.016);
-      let matches = 0;
-      for (const x of a.cellStarts) {
-        if (b.cellStarts.some(y => Math.abs(x - y) <= tolerance)) matches++;
-      }
-      return matches >= Math.min(3, a.cellCount, b.cellCount);
-    };
-
-    // Require either consecutive table-like rows or repeated aligned columns.
-    for (let i = 0; i < lines.length; i++) {
-      const previous = i > 0 ? profiles[i - 1] : null;
-      const next = i + 1 < lines.length ? profiles[i + 1] : null;
-      if (profiles[i].tableLike && (
-        previous?.tableLike || next?.tableLike ||
-        (previous && aligned(profiles[i], previous)) ||
-        (next && aligned(profiles[i], next))
-      )) {
-        marked.add(i);
-        if (previous?.tableLike || (previous && aligned(profiles[i], previous))) marked.add(i - 1);
-        if (next?.tableLike || (next && aligned(profiles[i], next))) marked.add(i + 1);
-      }
-    }
-
-    // Compact two-column tables often lack numeric cells. Detect three or more
-    // consecutive rows with aligned cell starts while rejecting normal prose columns.
-    for (let i = 0; i + 2 < lines.length; i++) {
-      const block = profiles.slice(i, i + 3);
-      const tolerance = Math.max(9, page.width * 0.016);
-      const alignedPairs = block.every(profile => profile.cellCount >= 2)
-        && block.slice(1).every(profile =>
-          block[0].cellStarts.slice(0, 2).every(x => profile.cellStarts.some(y => Math.abs(x - y) <= tolerance))
-        );
-      const compact = block.every(profile => profile.tokenCount <= 20 && !profile.sentenceLike);
-      const cellLike = block.reduce((sum, profile) => sum + profile.shortRatio + profile.numericRatio, 0) / block.length >= 0.48;
-      if (alignedPairs && compact && cellLike) {
-        marked.add(i);
-        marked.add(i + 1);
-        marked.add(i + 2);
-      }
-    }
-
-    // A caption anchors a nearby table. Once geometric evidence is found, protect
-    // the complete vertical interval, including wrapped cell text and caption lines.
-    for (const caption of captions) {
-      const lowerBound = caption + 1;
-      const upperBound = Math.min(lines.length, caption + 32);
-      const belowEvidence = [];
-      for (let i = lowerBound; i < upperBound; i++) {
-        if (profiles[i].tableLike || marked.has(i)) belowEvidence.push(i);
-      }
-      if (belowEvidence.length) {
-        const lastEvidence = Math.max(...belowEvidence);
-        for (let i = caption; i <= lastEvidence; i++) marked.add(i);
-        for (let i = lastEvidence + 1; i < Math.min(lines.length, lastEvidence + 5); i++) {
-          const continuation = lines[i].words.length <= 18
-            && !/[.!?]["')\]}]?$/.test(lines[i].text);
-          if (!continuation) break;
-          marked.add(i);
-        }
-      }
-
-      const aboveStart = Math.max(0, caption - 32);
-      const aboveEvidence = [];
-      for (let i = aboveStart; i < caption; i++) {
-        if (profiles[i].tableLike || marked.has(i)) aboveEvidence.push(i);
-      }
-      if (aboveEvidence.length) {
-        const firstEvidence = Math.min(...aboveEvidence);
-        for (let i = firstEvidence; i <= caption; i++) marked.add(i);
-      }
-    }
-
-    // Include compact header/footer rows immediately adjacent to a detected block.
-    for (const index of [...marked]) {
-      for (const neighbor of [index - 1, index + 1]) {
-        if (neighbor < 0 || neighbor >= lines.length || marked.has(neighbor)) continue;
-        const compact = lines[neighbor].words.length <= 12
-          && !/[.!?]["')\]}]?$/.test(lines[neighbor].text)
-          && profiles[neighbor].cellCount >= 2;
-        if (compact) marked.add(neighbor);
-      }
-    }
-    return marked;
-  },
-
-  isPostReferenceHeading(heading) {
-    return /^(?:appendix|supplementary material|supplementary information)$/i.test(
-      FastKeySentenceNLP.normalizeText(heading)
-    );
-  },
-
-  isLikelyReferencePage(lines) {
-    const content = lines
-      .map(line => FastKeySentenceNLP.normalizeText(line.text))
-      .filter(text => text && !/^(?:references|bibliography|works cited|literature cited|reference list)$/i.test(text));
-    if (content.length < 6) return false;
-    const referenceHits = content.filter(text => FastKeySentenceNLP.isReferenceEntry(text)).length;
-    const yearHeavy = content.filter(text => /\b(?:18|19|20)\d{2}[a-z]?\b/.test(text)).length;
-    return referenceHits >= 4
-      && (referenceHits / content.length >= 0.28 || yearHeavy / content.length >= 0.45);
-  },
-
-  cleanRepeatedMargins(pages) {
-    if (pages.length < 4) return pages;
-    const counts = new Map();
-    const signaturesByPage = new Map();
-    for (const page of pages) {
-      const sigs = [];
-      for (const word of page.words) {
-        const nearMargin = word.rect[3] > page.height * 0.92 || word.rect[1] < page.height * 0.08;
-        if (!nearMargin) continue;
-        const sig = FastKeySentenceNLP.normalizeText(word.text).toLowerCase().replace(/\d+/g, "#");
-        if (sig.length >= 4) { sigs.push(sig); counts.set(sig, (counts.get(sig) || 0) + 1); }
-      }
-      signaturesByPage.set(page.pageIndex, new Set(sigs));
-    }
-    const threshold = Math.max(3, Math.ceil(pages.length * 0.35));
-    for (const page of pages) {
-      page.words = page.words.filter(word => {
-        const nearMargin = word.rect[3] > page.height * 0.92 || word.rect[1] < page.height * 0.08;
-        if (!nearMargin) return true;
-        const sig = FastKeySentenceNLP.normalizeText(word.text).toLowerCase().replace(/\d+/g, "#");
-        return (counts.get(sig) || 0) < threshold;
-      });
-    }
-    return pages;
-  },
-
-  extractPages(data) {
-    if (!data || !Array.isArray(data.pages)) throw new Error("Zotero's document worker returned no page structure.");
-    return data.pages.map((page, pageIndex) => {
-      const width = Number(page?.[0]) || 612;
-      const height = Number(page?.[1]) || 792;
-      const words = [];
-      const visit = node => {
-        if (!Array.isArray(node)) return;
-        if (node.length >= 5 && node.slice(0, 4).every(Number.isFinite) && typeof node[node.length - 1] === "string") {
-          const text = FastKeySentenceNLP.normalizeText(node[node.length - 1]);
-          if (text) {
-            const [x1, y1, x2, y2] = node;
-            words.push(...this.splitFragment(text, [x1, height - y2, x2, height - y1], y1));
-          }
-          return;
-        }
-        for (const child of node) visit(child);
-      };
-      visit(page.slice(2));
-      return { pageIndex, width, height, words };
-    });
-  },
-
-  buildSentences(pages) {
-    const sentences = [];
-    let order = 0;
-    let currentSection = "";
-    let pendingSectionStart = false;
-    let frontMatterEnded = false;
-    let inReferences = false;
-    let inBackMatter = false;
-
-    for (const page of pages) {
-      const lines = this.buildLines(page);
-      if (!lines.length) continue;
-
-      const openingHeadings = lines.slice(0, 8)
-        .map(line => FastKeySentenceNLP.detectHeading(line.text))
-        .filter(Boolean);
-      if (inReferences && openingHeadings.some(heading => this.isPostReferenceHeading(heading))) {
-        inReferences = false;
-      }
-      if (!inReferences && this.isLikelyReferencePage(lines)) inReferences = true;
-      if (inReferences && !openingHeadings.some(heading => this.isPostReferenceHeading(heading))) {
-        continue;
-      }
-
-      const tableLines = this.detectTableLineIndexes(lines, page);
-      let text = "";
-      let pageWords = [];
-      let previousLine = null;
-      let bufferSection = currentSection;
-      let bufferSectionStart = pendingSectionStart;
-
-      const resetBuffer = () => {
-        text = "";
-        pageWords = [];
-        bufferSection = currentSection;
-        bufferSectionStart = pendingSectionStart;
-      };
-
-      const flushBuffer = () => {
-        if (!text.trim()) {
-          resetBuffer();
-          return;
-        }
-        let firstCreated = true;
-        for (const [start, end] of FastKeySentenceNLP.sentenceRanges(text)) {
-          const sentenceText = FastKeySentenceNLP.normalizeText(text.slice(start, end));
-          if (!sentenceText) continue;
-          const hitWords = pageWords.filter(span => span.end > start && span.start < end);
-          if (!hitWords.length) continue;
-          const rects = this.mergeRects(hitWords.map(word => word.rect));
-          if (!rects.length) continue;
-          sentences.push({
-            text: sentenceText,
-            pageIndex: page.pageIndex,
-            pageHeight: page.height,
-            rects,
-            section: bufferSection,
-            sectionStart: firstCreated && bufferSectionStart,
-            frontMatter: hitWords.every(word => word.frontMatter),
-            inTable: false,
-            reference: false,
-            order: order++
-          });
-          if (firstCreated && bufferSectionStart) pendingSectionStart = false;
-          firstCreated = false;
-        }
-        resetBuffer();
-      };
-
-      for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-        const line = lines[lineIndex];
-        const rawLine = FastKeySentenceNLP.normalizeText(line.text);
-        if (!rawLine) continue;
-
-        const heading = FastKeySentenceNLP.detectHeading(rawLine);
-        if (heading && rawLine.split(/\s+/).length <= 12) {
-          flushBuffer();
-          if (inReferences && !FastKeySentenceNLP.isReferenceHeading(heading) && !this.isPostReferenceHeading(heading)) {
-            previousLine = null;
-            continue;
-          }
-          currentSection = heading;
-          previousLine = null;
-          if (FastKeySentenceNLP.isReferenceHeading(heading)) {
-            inReferences = true;
-            pendingSectionStart = false;
-            continue;
-          }
-          inReferences = false;
-          inBackMatter = false;
-          pendingSectionStart = true;
-          frontMatterEnded = true;
-          resetBuffer();
-          continue;
-        }
-
-        let lineText = rawLine;
-        const inlineHeading = lineText.match(/^\s*(abstract|introduction|background|related work|methods?|methodology|materials? and methods?|datasets?|workflow|architecture|experiments?|results?|discussion|limitations?|conclusions?|future work|references|bibliography|works cited|literature cited|reference list|appendix|supplementary material)\s*[:.—-]\s*(.+)$/i);
-        if (inlineHeading) {
-          flushBuffer();
-          const inlineSection = FastKeySentenceNLP.detectHeading(inlineHeading[1]) || inlineHeading[1].toLowerCase();
-          if (inReferences && !FastKeySentenceNLP.isReferenceHeading(inlineSection) && !this.isPostReferenceHeading(inlineSection)) {
-            previousLine = null;
-            continue;
-          }
-          currentSection = inlineSection;
-          previousLine = null;
-          if (FastKeySentenceNLP.isReferenceHeading(currentSection)) {
-            inReferences = true;
-            pendingSectionStart = false;
-            continue;
-          }
-          inReferences = false;
-          inBackMatter = false;
-          pendingSectionStart = true;
-          frontMatterEnded = true;
-          lineText = inlineHeading[2];
-          resetBuffer();
-        }
-
-        if (this.isBackMatterLine(lineText)) {
-          flushBuffer();
-          inBackMatter = true;
-          previousLine = null;
-          continue;
-        }
-
-        if (inReferences || inBackMatter) {
-          flushBuffer();
-          previousLine = null;
-          continue;
-        }
-
-        if (tableLines.has(lineIndex)) {
-          flushBuffer();
-          previousLine = null;
-          continue;
-        }
-
-        const metadata = this.isFrontMatterLine({ ...line, text: lineText }, page);
-        const isFrontMatter = page.pageIndex === 0 && !frontMatterEnded && !currentSection;
-        if (metadata) {
-          flushBuffer();
-          previousLine = null;
-          continue;
-        }
-
-        const verticalGap = previousLine ? previousLine.bottom - line.top : 0;
-        const indentShift = previousLine ? Math.abs(line.left - previousLine.left) : 0;
-        const paragraphBreak = previousLine && (
-          verticalGap > Math.max(previousLine.height, line.height) * 0.85
-          || indentShift > page.width * 0.075
-        );
-        if (paragraphBreak) {
-          if (text && !/[.!?]["')\]}]?$/.test(text)) text += ".";
-          flushBuffer();
-          previousLine = null;
-        }
-
-        if (!text) {
-          bufferSection = currentSection;
-          bufferSectionStart = pendingSectionStart;
-        }
-
-        for (const word of line.words) {
-          const normalized = FastKeySentenceNLP.normalizeText(word.text);
-          if (!normalized) continue;
-          const noSpaceBefore = /^[,.;:!?%\)\]\}]/.test(normalized);
-          const noSpaceAfterPrevious = /[\(\[\{\/$]$/.test(text);
-          if (text && !text.endsWith(" ") && !noSpaceBefore && !noSpaceAfterPrevious) text += " ";
-          const start = text.length;
-          text += normalized;
-          pageWords.push({
-            start,
-            end: text.length,
-            rect: word.rect,
-            top: word.top,
-            frontMatter: isFrontMatter
-          });
-        }
-        previousLine = line;
-      }
-      flushBuffer();
-    }
-    return sentences;
-  },
-
-  mergeRects(rects) {
-    if (!rects.length) return [];
-    const sorted = rects.slice().sort((a, b) => (b[3] - a[3]) || (a[0] - b[0]));
-    const lines = [];
-    for (const r of sorted) {
-      const cy = (r[1] + r[3]) / 2;
-      let line = lines.find(l => Math.abs(l.cy - cy) <= Math.max(2.5, (r[3] - r[1]) * 0.45));
-      if (!line) {
-        line = { cy, rects: [] };
-        lines.push(line);
-      }
-      line.rects.push(r);
-    }
-    return lines
-      .sort((a, b) => b.cy - a.cy)
-      .map(line => {
-        const rs = line.rects.sort((a, b) => a[0] - b[0]);
-        return [Math.min(...rs.map(r => r[0])), Math.min(...rs.map(r => r[1])), Math.max(...rs.map(r => r[2])), Math.max(...rs.map(r => r[3]))];
-      });
-  },
-
   makeAnnotation(sentence) {
-    const text = sentence.text;
+    const text = typeof FastKeySentenceExtractor?.cleanText === "function"
+      ? FastKeySentenceExtractor.cleanText(sentence.text)
+      : sentence.text;
     const rects = sentence.rects || [];
     const tag = typeof sentence.tag === "string" && sentence.tag.trim() ? sentence.tag.trim() : null;
     const configuredLabel = tag ? FastKeySentenceSummaryLabels.parseConfig(FastKeySentenceSummaryLabelConfigV2 || this.settingsDefaults.summaryLabelConfigV2)
@@ -1949,14 +980,13 @@ FastOfflineKeySentenceAnnotator = {
       ? sentence.tagColor : configuredLabel?.color || null;
     const tagIndex = Number.isInteger(sentence.tagIndex) ? sentence.tagIndex : -1;
     if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: makeAnnotation — tag="${tag || "(none)"}" tagColor="${tagColor || "(none)"}" tagIndex=${tagIndex} tagDescription="${(sentence.tagDescription || "").slice(0, 60)}" tagScore=${sentence.tagScore}`);
-    const top = Math.max(...rects.map(r => r[3]));
-    const left = Math.min(...rects.map(r => r[0]));
-    // Zotero 9 validates PDF annotation sort indexes as page|vertical|horizontal:
-    // exactly 5 digits, 6 digits, and 5 digits respectively.
+    const top = Math.max(...rects.map(rect => rect[3]));
+    const left = Math.min(...rects.map(rect => rect[0]));
     const pagePart = String(Math.max(0, Math.min(99999, sentence.pageIndex))).padStart(5, "0");
     const verticalPart = String(Math.max(0, Math.min(999999, Math.round((sentence.pageHeight - top) * 100)))).padStart(6, "0");
     const horizontalPart = String(Math.max(0, Math.min(99999, Math.round(left * 100)))).padStart(5, "0");
     const sortIndex = `${pagePart}|${verticalPart}|${horizontalPart}`;
+    const importance = Number(sentence.importance);
     return {
       key: Zotero.DataObjectUtilities.generateKey(),
       type: "highlight",
@@ -1965,9 +995,8 @@ FastOfflineKeySentenceAnnotator = {
       sortIndex,
       position: { pageIndex: sentence.pageIndex, rects },
       text,
-      comment: `${tag ? sentence.tagDescription + ". " : ""}Section: ${sentence.section || "unclassified"}. Score: ${sentence.importance.toFixed(3)}.`,
+      comment: `${sentence.tagDescription ? sentence.tagDescription + ". " : ""}Section: ${sentence.section || "unclassified"}. Score: ${(Number.isFinite(importance) ? importance : 0).toFixed(3)}.`,
       tags: [{ name: "autoskim-key-sentence" }, ...(tag ? [{ name: tag }] : [])]
     };
-  },
-
+  }
 };

@@ -38,12 +38,14 @@ async function startup({ id, version, rootURI }) {
   }
 
   Services.scriptloader.loadSubScript(rootURI + "content/nlp.js");
+  Services.scriptloader.loadSubScript(rootURI + "content/extractor.js");
   Services.scriptloader.loadSubScript(rootURI + "content/model-manager.js");
   Services.scriptloader.loadSubScript(rootURI + "content/remote-llm.js");
   Services.scriptloader.loadSubScript(rootURI + "content/annotator.js");
 
   const defaults = Services.prefs.getDefaultBranch("extensions.zotero-skimming.");
   defaults.setIntPref("compressionRatio", 10);
+  defaults.setIntPref("selectionThreshold", 0);
   defaults.setBoolPref("localRelevance", false);
   defaults.setBoolPref("zeroShotLabels", false);
   defaults.setStringPref("ollamaCommand", "/usr/bin/ollama");
@@ -58,6 +60,10 @@ async function startup({ id, version, rootURI }) {
 
   FastKeySentenceModels.init(rootURI);
   FastOfflineKeySentenceAnnotator.init({ id, version, rootURI });
+  // The preferences pane runs in its own window; expose the shared object so
+  // its inline load handler can reach the same settings code.
+  Zotero.__zoteroSkimming = FastOfflineKeySentenceAnnotator;
+  await FastOfflineKeySentenceAnnotator.registerPrefsPane();
 
   // Zotero 9 calls startup after core initialization, but existing main windows
   // still need explicit registration. Future windows are handled by the hooks.
@@ -76,6 +82,7 @@ function onMainWindowUnload({ window }) {
 
 function shutdown() {
   FastKeySentenceModels?.shutdown?.();
+  if (typeof Zotero !== "undefined" && Zotero) Zotero.__zoteroSkimming = undefined;
   if (!FastOfflineKeySentenceAnnotator) return;
   FastOfflineKeySentenceAnnotator.shutdown();
   FastOfflineKeySentenceAnnotator = undefined;

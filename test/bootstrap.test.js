@@ -3,7 +3,7 @@ import { loadScript } from "./helpers.js";
 
 function bootstrap({ windows = [], configExists = true } = {}) {
   const models = { init: vi.fn(), shutdown: vi.fn() };
-  const annotator = { init: vi.fn(), addToWindow: vi.fn(), removeFromWindow: vi.fn(), shutdown: vi.fn() };
+  const annotator = { init: vi.fn(), addToWindow: vi.fn(), removeFromWindow: vi.fn(), shutdown: vi.fn(), registerPrefsPane: vi.fn(async () => "pane") };
   const Zotero = { debug: vi.fn(), getMainWindows: vi.fn(() => windows), Prefs: { get: vi.fn(() => "") } };
   const defaults = { setIntPref: vi.fn(), setBoolPref: vi.fn(), setStringPref: vi.fn() };
   const Services = { scriptloader: { loadSubScript: vi.fn() }, prefs: { getDefaultBranch: vi.fn(() => defaults) } };
@@ -49,12 +49,14 @@ describe("bootstrap", () => {
       "resource://addon/content/build-info.js",
       "resource://addon/content/summary-label-config.js",
       "resource://addon/content/nlp.js",
+      "resource://addon/content/extractor.js",
       "resource://addon/content/model-manager.js",
       "resource://addon/content/remote-llm.js",
       "resource://addon/content/annotator.js"
     ]);
     expect(models.init).toHaveBeenCalledWith("resource://addon/");
     expect(annotator.init).toHaveBeenCalledWith({ id: "addon@example.com", version: "1.2.3", rootURI: "resource://addon/" });
+    expect(annotator.registerPrefsPane).toHaveBeenCalledOnce();
     expect(annotator.addToWindow).toHaveBeenCalledTimes(1);
     expect(annotator.addToWindow).toHaveBeenCalledWith(validWindow);
   });
