@@ -2,6 +2,7 @@
   "private": true,
   "scripts": {
     "test": "vitest run",
+    "smoke": "node scripts/smoke-zotero.mjs",
     "coverage": "vitest run --coverage"
   },
   "devDependencies": {

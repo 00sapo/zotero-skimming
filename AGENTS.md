@@ -34,7 +34,7 @@ Zotero 9 and 10 add-on that finds salient prose sentences in academic PDFs and s
 
 ## Validation
 
-No automated test suite or build script is currently tracked. For JavaScript syntax checks, run:
+Run the unit tests and JavaScript syntax checks:
 
 ```sh
 node --check bootstrap.js
@@ -42,7 +42,18 @@ node --check content/annotator.js
 node --check content/nlp.js
 node --check content/model-manager.js
 node --check content/model-host.mjs
+yarn test
 ```
+
+Run the end-to-end smoke test against a real Zotero 10 installation and Ollama:
+
+```sh
+SMOKE_PDF="/path/to/paper.pdf" \
+SMOKE_OLLAMA_COMMAND="mise exec -- ollama" \
+node scripts/smoke-zotero.mjs
+```
+
+The script builds an XPI from the working tree, starts Zotero with a throwaway profile and data directory, and checks summary generation, embeddings, and native highlight geometry and tags. It never touches the user profile or library. The script injects a probe into a copy of `bootstrap.js`, so update its anchors if `startup` changes shape. It requires `zip` and an Ollama installation that can serve the models in `model-identifiers.json`. Without `SMOKE_PDF` it checks summaries and embeddings only. Use `ZOTERO_BIN` to point at another Zotero install, `SMOKE_TIMEOUT` to change the 300000 ms limit, `SMOKE_HEADLESS=0` to show the window, and `SMOKE_KEEP=1` to keep the temporary profile and log.
 
 Then manually test in Zotero 10 with representative PDFs: single- and two-column layouts, multi-page documents, tables, references, and scanned/OCR-needed PDFs. Verify menu visibility, settings persistence, native highlight placement, duplicate prevention, baseline ranking, model download progress, and baseline fallback after model/runtime failure.
 
