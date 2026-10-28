@@ -3,9 +3,9 @@
 ## Unreleased
 
 - Replaced the local Transformers.js/ONNX runtime with Ollama.
-- Added explicit **Download Ollama models** provisioning for Qwen2.5 summary and Qwen3 semantic-relevance GGUF models.
+- Added explicit **Test Ollama** provisioning for the Qwen3.5 summary and Qwen3 semantic-relevance GGUF models.
 - Replaced local embedding/classification stages with optional summary and keyword-section relevance through Qwen3 embeddings.
-- Retained local map-reduce with a 256-token-minimum context window, 5% window overlap, and incremental summaries.
+- Retained local map-reduce with sentence-sized chunks and incremental summaries.
 - Added opt-in map-reduce remote summarization with a configurable 4096-token input window.
 - Renamed the project to **Zotero Skimming**.
 - Updated the project description and Codeberg metadata.

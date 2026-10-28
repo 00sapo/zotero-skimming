@@ -9,8 +9,8 @@ Zotero 9 and 10 add-on that finds salient prose sentences in academic PDFs and s
 - `manifest.json` — add-on identity, version, and Zotero 9 and 10 compatibility.
 - `bootstrap.js` — lifecycle hooks; loads scripts in dependency order.
 - `content/annotator.js` — Zotero UI, persisted settings, all-page positioned PDF extraction, sentence-to-rectangle mapping, and annotation creation.
-- `content/nlp.js` — model-free NLP baseline: filtering, TF-IDF features, TextRank, role heuristics, and MMR selection.
-- `content/model-manager.js` — optional local Transformers.js runtime, model downloads/cache, embeddings, classification, and reranking.
+- `content/nlp.js` — model-free NLP baseline: filtering, TF-IDF features, sentence-length scoring, and MMR selection.
+- `content/model-manager.js` — Ollama integration: server startup, model pulls, summary generation, embeddings, and logging.
 - `content/model-host.mjs` — standalone remote-runtime host experiment; it is not loaded by `bootstrap.js`.
 - `README.md` / `CHANGELOG.md` — user-facing description and release history.
 
@@ -22,7 +22,7 @@ Zotero 9 and 10 add-on that finds salient prose sentences in academic PDFs and s
 - Use Zotero/Gecko APIs (`Zotero`, `Services`, `IOUtils`, `PathUtils`) rather than Node or browser-only assumptions.
 - Keep PDF processing local. Baseline ranking must work without downloading models; optional inference must fail back to it cleanly.
 - Do not alter the source PDF. Annotations use `Zotero.Annotations.saveFromJSON()` and must retain valid positioned rectangles and sort indexes.
-- `Update models` explicitly downloads runtime/model assets into the Zotero profile cache. Preserve q8 selection, local-cache resolution, single-threaded WASM, disabled ONNX proxy workers, and clear progress/failure reporting.
+- `Test Ollama` explicitly starts `ollama serve` and pulls the models in `model-identifiers.json`. Preserve the configurable command, readiness polling, and clear progress/failure reporting.
 
 ## Code conventions
 
