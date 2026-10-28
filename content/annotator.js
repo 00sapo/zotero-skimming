@@ -661,6 +661,7 @@ FastOfflineKeySentenceAnnotator = {
       preview.overlays = this.installOverlays(reader, preview.visible);
       this.setPanelProgress(body, 100);
       this.updatePanel(body, preview, `Generated ${preview.visible.length} temporary highlight${preview.visible.length === 1 ? "" : "s"}. Press Save to keep them.`);
+      return preview;
     }
     catch (error) {
       this.log(error.stack || String(error));
@@ -670,6 +671,7 @@ FastOfflineKeySentenceAnnotator = {
         refs.progress.hidden = true;
         refs.summaryBox.hidden = true;
       }
+      return null;
     }
     finally {
       this.generateLocks.delete(attachment.id);
@@ -893,10 +895,12 @@ FastOfflineKeySentenceAnnotator = {
       this.updatePanel(body, preview, skipped
         ? `Saved ${created} new annotations. ${skipped} were already saved.`
         : `Saved ${created} Zotero annotations.`);
+      return { created, skipped };
     }
     catch (error) {
       this.log(error.stack || String(error));
       this.setPanelStatus(body, `⚠ Could not save annotations: ${error.message || error}`);
+      return null;
     }
     finally {
       if (refs) refs.progress.hidden = true;

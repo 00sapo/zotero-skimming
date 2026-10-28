@@ -62,7 +62,7 @@ COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then COMMIT="${COMMIT}-dirty"; fi
 printf 'var FastKeySentenceBuildCommit = "%s";\n' "$COMMIT" > "$BUILD_INFO"
 zip -r -9 "$XPI" \
-  manifest.json bootstrap.js content/ assets/book\ reader.svg \
+  manifest.json bootstrap.js content/ assets/book\ reader.svg locale/ \
   model-identifiers.json scoring-config.json \
   -x "*.DS_Store" "*.gitkeep"
 echo "✓ $XPI built"

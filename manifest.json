@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Zotero Skimming",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Guided sentence skimming for PDFs in Zotero, with temporary highlights and explicit save",
   "author": "00sapo",
   "icons": {
@@ -14,7 +14,7 @@
       "id": "zotero-skimming@00sapo.org",
       "update_url": "https://raw.githubusercontent.com/00sapo/zotero-skimming/main/updates.json",
       "strict_min_version": "9.0",
-      "strict_max_version": "9.*"
+      "strict_max_version": "10.*"
     }
   }
 }
