@@ -2,11 +2,11 @@
 
 ## Project
 
-Zotero 9 add-on that finds salient prose sentences in academic PDFs and saves them as native Zotero highlight annotations. It is a dependency-free, manifest-v2 extension loaded from `bootstrap.js`.
+Zotero 9 and 10 add-on that finds salient prose sentences in academic PDFs and saves them as native Zotero highlight annotations. It is a dependency-free, manifest-v2 extension loaded from `bootstrap.js`.
 
 ## Layout
 
-- `manifest.json` — add-on identity, version, and Zotero 9 compatibility.
+- `manifest.json` — add-on identity, version, and Zotero 9 and 10 compatibility.
 - `bootstrap.js` — lifecycle hooks; loads scripts in dependency order.
 - `content/annotator.js` — Zotero UI, persisted settings, all-page positioned PDF extraction, sentence-to-rectangle mapping, and annotation creation.
 - `content/nlp.js` — model-free NLP baseline: filtering, TF-IDF features, TextRank, role heuristics, and MMR selection.
@@ -16,7 +16,7 @@ Zotero 9 add-on that finds salient prose sentences in academic PDFs and saves th
 
 ## Runtime constraints
 
-- Target Zotero `9.x`; retain manifest v2 and the declared add-on ID unless an intentional compatibility/migration change is requested.
+- Target Zotero `10.x`; retain Zotero 9 support, manifest v2, and the declared add-on ID unless an intentional compatibility/migration change is requested.
 - Scripts share Zotero's chrome scope. Globals are deliberate: `FastKeySentenceNLP`, `FastKeySentenceModels`, and `FastOfflineKeySentenceAnnotator`.
 - Preserve load order in `bootstrap.js`: `nlp.js` → `model-manager.js` → `annotator.js`.
 - Use Zotero/Gecko APIs (`Zotero`, `Services`, `IOUtils`, `PathUtils`) rather than Node or browser-only assumptions.
@@ -44,7 +44,7 @@ node --check content/model-manager.js
 node --check content/model-host.mjs
 ```
 
-Then manually test in Zotero 9 with representative PDFs: single- and two-column layouts, multi-page documents, tables, references, and scanned/OCR-needed PDFs. Verify menu visibility, settings persistence, native highlight placement, duplicate prevention, baseline ranking, model download progress, and baseline fallback after model/runtime failure.
+Then manually test in Zotero 10 with representative PDFs: single- and two-column layouts, multi-page documents, tables, references, and scanned/OCR-needed PDFs. Verify menu visibility, settings persistence, native highlight placement, duplicate prevention, baseline ranking, model download progress, and baseline fallback after model/runtime failure.
 
 ## Release hygiene
 

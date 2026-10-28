@@ -9,6 +9,7 @@
 - Added opt-in map-reduce remote summarization with a configurable 4096-token input window.
 - Renamed the project to **Zotero Skimming**.
 - Updated the project description and Codeberg metadata.
+- Added Zotero 10 support and updated the compatibility range in the manifest and update manifest.
 
 ## 1.7.0
 
