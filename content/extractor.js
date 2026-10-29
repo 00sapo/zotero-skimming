@@ -380,7 +380,7 @@ var FastKeySentenceExtractor = (() => {
     if (numbered && !sentenceStart && words.length <= 8) return true;
     if (words.length < 2) return false;
     const capitals = words.filter(word => /^[A-Z]/.test(word) || word === word.toUpperCase()).length;
-    return capitals / words.length >= 0.6;
+    return capitals / words.length >= 0.7;
   }
 
   function detectColumnStarts(lines, pageWidth) {
