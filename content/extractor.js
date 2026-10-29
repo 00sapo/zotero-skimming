@@ -126,9 +126,11 @@ var FastKeySentenceExtractor = (() => {
       if (!(char.fontSize < fontSize * 0.92 && Math.abs(char.baseline - baseline) > char.fontSize * 0.35)) return true;
       // Keep superscript and subscript suffixes such as CLaMP 3c2sa, but drop
       // footnote markers that follow an ordinary letter.
-      const previous = ordered[index - 1];
+      let anchor = index - 1;
+      while (anchor >= 0 && ordered[anchor].fontSize < fontSize * 0.92) anchor--;
+      const previous = ordered[anchor];
       return Boolean(previous && /[0-9]/.test(previous.c)
-        && char.rect[0] - previous.rect[2] <= fontSize * 0.2);
+        && char.rect[0] - previous.rect[2] <= fontSize * 0.4);
     });
     const bullet = ordered.length > 0 && /^[•·◦▪▫‣]$/.test(ordered[0].c);
     while (ordered.length && /^[\s•·◦▪▫‣]$/.test(ordered[0].c)) ordered = ordered.slice(1);
@@ -198,10 +200,17 @@ var FastKeySentenceExtractor = (() => {
         && (segment.x1 - candidate.x2 <= candidate.fontSize * 0.2
           && segment.x1 - candidate.x2 >= -candidate.fontSize
           || candidate.x1 - segment.x2 <= candidate.fontSize * 0.2
-            && candidate.x1 - segment.x2 >= -candidate.fontSize));
+            && candidate.x1 - segment.x2 >= -candidate.fontSize
+          || segment.x1 >= candidate.x1 - candidate.fontSize
+            && segment.x2 <= candidate.x2 + candidate.fontSize));
       if (!host) continue;
-      const chars = [...host.chars, ...segment.chars].sort((a, b) =>
-        (a.rect[0] + a.rect[2]) / 2 - (b.rect[0] + b.rect[2]) / 2);
+      const extra = segment.chars.slice().sort((a, b) => a.rect[0] - b.rect[0]);
+      const chars = host.chars.slice();
+      let insert = 0;
+      for (let index = 0; index < chars.length; index++) {
+        if (chars[index].rect[2] <= segment.x1 + 1) insert = index + 1;
+      }
+      chars.splice(insert, 0, ...extra);
       Object.assign(host, describeVisualLine(chars));
       merged.add(segment);
     }
@@ -336,9 +345,13 @@ var FastKeySentenceExtractor = (() => {
 
   function looksLikeHeading(text) {
     if (!/^[A-Z0-9“‘]/.test(text.trim())) return false;
+    if (/[,;:]\s*$/.test(text)) return false;
+    if (/[.!?]\s+[A-Z“‘(]/.test(text)) return false;
     const words = text.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
     if (!words.length || words.length > 16 || /[.!?]\s*$/.test(text)) return false;
     const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+(?=[A-Z])/.test(text);
+    const afterNumber = (text.replace(/^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i, "").match(/^[A-Za-z]+/) || [""])[0];
+    const sentenceStart = /^(?:While|This|These|In|We|It|However|As|For|Both|Our|Such|If|When|By)$/i.test(afterNumber);
     const appendix = /^\s*[A-F](?:\.\d+)*\s+[A-Za-z]/.test(text);
     const titleWords = words.filter(word => /^[A-Z]/.test(word) || word === word.toUpperCase()).length;
     if (appendix && words.length <= 12 && titleWords / words.length >= 0.5) return true;
@@ -347,7 +360,7 @@ var FastKeySentenceExtractor = (() => {
       return marker.test(text);
     });
     if (known && words.length <= 4) return true;
-    if (numbered && words.length <= 8) return true;
+    if (numbered && !sentenceStart && words.length <= 8) return true;
     if (words.length < 2) return false;
     const capitals = words.filter(word => /^[A-Z]/.test(word) || word === word.toUpperCase()).length;
     return capitals / words.length >= 0.6;
