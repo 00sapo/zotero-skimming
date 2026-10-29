@@ -184,6 +184,12 @@ def build(output):
 
 
 def refresh_manifest():
+    manifest_path = FIXTURES / "manifest.json"
+    previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {"cases": []}
+    # Character labels are generated separately; keep their frozen paths and hashes here.
+    label_metadata = {case["id"]: {key: case[key] for key in ("labels", "labelsSha256")
+                                   if key in case}
+                      for case in previous["cases"]}
     cases = json.loads((MATRIX / "cases.json").read_text())
     cases += json.loads((FIXTURES / "upstream/cases.json").read_text())["cases"]
     for case in cases:
@@ -191,6 +197,7 @@ def refresh_manifest():
         digest = hashlib.sha256(pdf.read_bytes()).hexdigest()
         if digest != case["sha256"]:
             raise RuntimeError(f"PDF changed without updated provenance: {pdf}")
+        case.update(label_metadata.get(case["id"], {}))
         with pymupdf.open(pdf) as document:
             data = geometry(document)
         scope = set(case["annotationScope"]["pages"])
@@ -204,7 +211,7 @@ def refresh_manifest():
     manifest = {"schemaVersion": 1, "geometryParser": f"PyMuPDF {pymupdf.VersionBind}",
                 "coordinateSystem": "PDF bottom-left origin in points",
                 "cases": cases}
-    (FIXTURES / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 if __name__ == "__main__":

@@ -51,6 +51,78 @@ export function exactSentenceRecall(actual, expected) {
   return { recall: expected.length ? matched / expected.length : 1, matchedSentences: matched, expectedSentences: expected.length };
 }
 
+export function recoveredSentenceCount(actual, expected) {
+  const texts = actual.map(item => normalizeSentence(typeof item === "string" ? item : item.text).toLocaleLowerCase("en"));
+  const pages = actual.map(item => typeof item === "string" ? 0 : item.pageIndex ?? 0);
+  const used = new Array(texts.length).fill(false);
+  let matched = 0;
+  for (const item of expected) {
+    const text = typeof item === "string" ? item : item.text;
+    const firstPage = typeof item === "string" ? 0 : item.pageIndex ?? 0;
+    const lastPage = typeof item === "string" ? firstPage : item.endPageIndex ?? firstPage;
+    const target = normalizeSentence(text).toLocaleLowerCase("en");
+    const single = texts.findIndex((candidate, index) => !used[index] && candidate === target);
+    if (single >= 0) { used[single] = true; matched++; continue; }
+    if (lastPage === firstPage) continue;
+    for (let start = 0; start < texts.length; start++) {
+      if (used[start] || pages[start] < firstPage || pages[start] > lastPage) continue;
+      let joined = texts[start];
+      for (let end = start; end < texts.length && end < start + 4; end++) {
+        if (end > start) {
+          if (used[end] || pages[end] < pages[end - 1] || pages[end] < firstPage || pages[end] > lastPage) break;
+          joined = `${joined} ${texts[end]}`;
+        }
+        if (joined === target) {
+          for (let index = start; index <= end; index++) used[index] = true;
+          matched++;
+          start = texts.length;
+          break;
+        }
+        if (!target.startsWith(joined)) break;
+      }
+    }
+  }
+  return { recall: expected.length ? matched / expected.length : 1, matchedSentences: matched, expectedSentences: expected.length };
+}
+
+export function sentenceBalancedMetrics(matchedSentences, expectedSentences, negativeUnits, claimedCharIndices) {
+  const claimed = claimedCharIndices instanceof Set ? claimedCharIndices : new Set(claimedCharIndices);
+  const truePositive = matchedSentences;
+  const falseNegative = expectedSentences - matchedSentences;
+  let falsePositive = 0;
+  let trueNegative = 0;
+  for (const unit of negativeUnits) {
+    if (unit.charIndices.some(index => claimed.has(index))) falsePositive++;
+    else trueNegative++;
+  }
+  const sensitivity = expectedSentences ? truePositive / expectedSentences : 1;
+  const specificity = negativeUnits.length ? trueNegative / negativeUnits.length : 1;
+  return { sensitivity, specificity, balancedAccuracy: (sensitivity + specificity) / 2,
+    counts: { truePositive, falseNegative, falsePositive, trueNegative } };
+}
+
+export function characterConfusionMetrics(positiveCharIndices, negativeUnits, claimedCharIndices) {
+  const claimed = claimedCharIndices instanceof Set ? claimedCharIndices : new Set(claimedCharIndices);
+  let truePositive = 0;
+  let falseNegative = 0;
+  let falsePositive = 0;
+  let trueNegative = 0;
+  for (const index of positiveCharIndices) {
+    if (claimed.has(index)) truePositive++;
+    else falseNegative++;
+  }
+  for (const unit of negativeUnits) {
+    for (const index of unit.charIndices) {
+      if (claimed.has(index)) falsePositive++;
+      else trueNegative++;
+    }
+  }
+  const sensitivity = truePositive + falseNegative ? truePositive / (truePositive + falseNegative) : 1;
+  const specificity = falsePositive + trueNegative ? trueNegative / (falsePositive + trueNegative) : 1;
+  return { sensitivity, specificity, balancedAccuracy: (sensitivity + specificity) / 2,
+    counts: { truePositive, falseNegative, falsePositive, trueNegative } };
+}
+
 function sentenceMatches(actual, expected) {
   const positions = new Map();
   for (let index = 0; index < expected.length; index++) {
@@ -114,6 +186,45 @@ function readGeometry(fixtureRoot, geometryPath) {
   return JSON.parse(json);
 }
 
+function glyphKey(char) {
+  return JSON.stringify([char.u ?? char.c, char.rect]);
+}
+
+function claimedRawCharIndices(result, geometry) {
+  const rawByPage = new Map();
+  geometry.pages.forEach((page, pageIndex) => {
+    const ids = new Map();
+    page.chars.forEach((char, index) => {
+      const key = glyphKey(char);
+      if (!ids.has(key)) ids.set(key, []);
+      ids.get(key).push(`${pageIndex}:${index}`);
+    });
+    rawByPage.set(pageIndex, ids);
+  });
+  const outputPages = new Map((result.pages ?? []).map(page => [page.pageIndex, page]));
+  const claimed = new Set();
+  for (const sentence of result.sentences) {
+    const page = outputPages.get(sentence.pageIndex);
+    if (!page) continue;
+    const ids = rawByPage.get(sentence.pageIndex);
+    if (!ids) continue;
+    for (const char of page.chars.slice(sentence.startChar, sentence.endChar)) {
+      const matches = ids.get(glyphKey(char));
+      if (matches?.length) claimed.add(matches.shift());
+    }
+  }
+  return claimed;
+}
+
+function loadLabels(fixtureRoot, entry) {
+  if (!entry.labels || !entry.labelsSha256) throw new Error(`${entry.id}: missing frozen character labels`);
+  const bytes = fs.readFileSync(path.resolve(fixtureRoot, entry.labels));
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (digest !== entry.labelsSha256) throw new Error(`${entry.id}: stale or damaged fixture ${entry.labels}`);
+  const json = entry.labels.endsWith(".gz") ? zlib.gunzipSync(bytes).toString("utf8") : bytes.toString("utf8");
+  return JSON.parse(json);
+}
+
 export async function evaluateCorpus({ fixtureRoot = path.join(root, "test/fixtures/pdf-extraction"), manifestPath = "manifest.json", extractor = loadExtractor() } = {}) {
   const manifest = JSON.parse(fs.readFileSync(path.resolve(fixtureRoot, manifestPath), "utf8"));
   const cases = [];
@@ -128,6 +239,7 @@ export async function evaluateCorpus({ fixtureRoot = path.join(root, "test/fixtu
     }
     const truth = JSON.parse(fs.readFileSync(path.resolve(fixtureRoot, entry.groundTruth), "utf8"));
     const geometry = readGeometry(fixtureRoot, entry.geometry);
+    const labels = loadLabels(fixtureRoot, entry);
     const pages = geometry.pages;
     const reader = { _internalReader: { _primaryView: { _iframeWindow: { PDFViewerApplication: {
       pagesCount: pages.length,
@@ -140,15 +252,35 @@ export async function evaluateCorpus({ fixtureRoot = path.join(root, "test/fixtu
     const actual = result.sentences.map(sentence => sentence.text);
     const expected = truth.sentences.map(sentence => sentence.text);
     const exact = exactSentenceRecall(actual, expected);
+    const recovered = recoveredSentenceCount(result.sentences, truth.sentences);
+    const claimed = claimedRawCharIndices(result, geometry);
+    const labelPages = labels.pages ?? [];
+    const negativeUnits = labelPages.flatMap(page => page.negativeUnits.map(unit => ({
+      ...unit, charIndices: unit.charIndices.map(index => `${page.pageIndex}:${index}`)
+    })));
+    const positiveCharIndices = labelPages.flatMap(page => page.positiveCharIndices.map(index => `${page.pageIndex}:${index}`));
+    const sentenceMetrics = sentenceBalancedMetrics(recovered.matchedSentences, recovered.expectedSentences, negativeUnits, claimed);
+    const characterMetrics = characterConfusionMetrics(positiveCharIndices, negativeUnits, claimed);
     const words = wordMetrics(actual, [...expected, ...(truth.fragments ?? []).map(fragment => fragment.text)]);
     const order = orderInversions(result.sentences, truth.sentences);
     const rectangles = validRectangleFraction(result.sentences);
-    cases.push({ id: entry.id, exactSentenceRecall: exact.recall, wordPrecision: words.precision, wordRecall: words.recall,
+    cases.push({ id: entry.id, exactSentenceRecall: exact.recall, sentenceSensitivity: sentenceMetrics.sensitivity,
+      negativeSpecificity: sentenceMetrics.specificity, balancedAccuracy: sentenceMetrics.balancedAccuracy,
+      characterBalancedAccuracy: characterMetrics.balancedAccuracy,
+      wordPrecision: words.precision, wordRecall: words.recall,
       excludedLeakageCount: excludedLeakage(actual, truth.excluded ?? [], expected), readingOrderInversions: order.inversions,
       validRectangleFraction: rectangles.fraction,
       counts: {
         matchedSentences: exact.matchedSentences,
         expectedSentences: exact.expectedSentences,
+        negativeTruePositive: sentenceMetrics.counts.truePositive,
+        negativeFalseNegative: sentenceMetrics.counts.falseNegative,
+        negativeFalsePositive: sentenceMetrics.counts.falsePositive,
+        negativeTrueNegative: sentenceMetrics.counts.trueNegative,
+        characterTruePositive: characterMetrics.counts.truePositive,
+        characterFalseNegative: characterMetrics.counts.falseNegative,
+        characterFalsePositive: characterMetrics.counts.falsePositive,
+        characterTrueNegative: characterMetrics.counts.trueNegative,
         orderMatchedSentences: order.matchedSentences,
         matchedWords: words.matchedWords,
         actualWords: words.actualWords,
@@ -163,8 +295,13 @@ export async function evaluateCorpus({ fixtureRoot = path.join(root, "test/fixtu
   const matchedWords = cases.reduce((sum, item) => sum + item.counts.matchedWords, 0);
   const rectangleCount = cases.reduce((sum, item) => sum + item.counts.rectangles, 0);
   const validRects = cases.reduce((sum, item) => sum + item.counts.validRectangles, 0);
+  const macro = metric => cases.length ? cases.reduce((sum, item) => sum + item[metric], 0) / cases.length : 0;
   return { schemaVersion: 1, caseCount: cases.length, cases, totals: {
     exactSentenceRecall: cases.reduce((sum, item) => sum + item.counts.matchedSentences, 0) / Math.max(1, cases.reduce((sum, item) => sum + item.counts.expectedSentences, 0)),
+    sentenceSensitivity: macro("sentenceSensitivity"),
+    negativeSpecificity: macro("negativeSpecificity"),
+    balancedAccuracy: macro("balancedAccuracy"),
+    characterBalancedAccuracy: macro("characterBalancedAccuracy"),
     wordPrecision: actualWords ? matchedWords / actualWords : (expectedWords ? 0 : 1),
     wordRecall: expectedWords ? matchedWords / expectedWords : (actualWords ? 0 : 1),
     excludedLeakageCount: cases.reduce((sum, item) => sum + item.excludedLeakageCount, 0),
@@ -188,9 +325,21 @@ export function compareBaseline(current, baseline) {
 
 async function main() {
   const args = process.argv.slice(2);
+  const autoresearch = args.includes("--autoresearch");
   const baselineAt = args.indexOf("--baseline");
   const outputAt = args.indexOf("--output");
+  const started = performance.now();
   const report = await evaluateCorpus();
+  const runtime = performance.now() - started;
+  if (autoresearch) {
+    const percent = value => (value * 100).toFixed(2);
+    process.stdout.write(`METRIC balanced_accuracy=${percent(report.totals.balancedAccuracy)}\n`);
+    process.stdout.write(`METRIC sentence_recall=${percent(report.totals.sentenceSensitivity)}\n`);
+    process.stdout.write(`METRIC negative_specificity=${percent(report.totals.negativeSpecificity)}\n`);
+    process.stdout.write(`METRIC character_balanced_accuracy=${percent(report.totals.characterBalancedAccuracy)}\n`);
+    process.stdout.write(`METRIC runtime_ms=${runtime.toFixed(2)}\n`);
+    return;
+  }
   const json = `${JSON.stringify(report, null, 2)}\n`;
   if (outputAt >= 0) fs.writeFileSync(path.resolve(args[outputAt + 1]), json);
   process.stdout.write(json);

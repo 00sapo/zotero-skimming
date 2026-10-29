@@ -1,12 +1,51 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { compareBaseline, evaluateCorpus, exactSentenceRecall, excludedLeakage, orderInversions, validRectangleFraction, wordMetrics } from "../scripts/evaluate-extraction.mjs";
+import { characterConfusionMetrics, compareBaseline, evaluateCorpus, exactSentenceRecall, excludedLeakage, orderInversions, recoveredSentenceCount, sentenceBalancedMetrics, validRectangleFraction, wordMetrics } from "../scripts/evaluate-extraction.mjs";
 
 const rect = [0, 0, 10, 5];
 
 describe("extraction evaluation metrics", () => {
   it("computes exact sentence recall without reusing duplicate matches", () => {
     expect(exactSentenceRecall(["A repeated sentence.", "A repeated sentence."], ["A repeated sentence.", "A repeated sentence.", "Missing."])).toMatchObject({ recall: 2 / 3, matchedSentences: 2 });
+  });
+
+  it("balances exact sentence recovery against false-positive negative units", () => {
+    const result = sentenceBalancedMetrics(1, 2, [
+      { charIndices: [4, 5] },
+      { charIndices: [9] },
+      { charIndices: [12, 13] }
+    ], new Set([4, 9]));
+    expect(result).toMatchObject({
+      sensitivity: 0.5,
+      specificity: 1 / 3,
+      counts: { truePositive: 1, falseNegative: 1, falsePositive: 2, trueNegative: 1 }
+    });
+    expect(result.balancedAccuracy).toBeCloseTo(5 / 12, 12);
+  });
+
+  it("counts character confusion including empty predictions and keeps short sentences legitimate", () => {
+    expect(characterConfusionMetrics([1, 2], [{ charIndices: [3] }], [])).toEqual({
+      sensitivity: 0,
+      specificity: 1,
+      balancedAccuracy: 0.5,
+      counts: { truePositive: 0, falseNegative: 2, falsePositive: 0, trueNegative: 1 }
+    });
+    expect(exactSentenceRecall(["Hi."], ["Hi."])).toMatchObject({ recall: 1, matchedSentences: 1 });
+  });
+
+  it("recovers sentences that continue across pages without matching unrelated text", () => {
+    const actual = [
+      { text: "The first sentence continues across", pageIndex: 0 },
+      { text: "the page boundary with its final words.", pageIndex: 1 },
+      { text: "An unrelated sentence sits between pages.", pageIndex: 1 },
+      { text: "A separate complete sentence.", pageIndex: 2 }
+    ];
+    const expected = [
+      { text: "The first sentence continues across the page boundary with its final words.", pageIndex: 0, endPageIndex: 1 },
+      { text: "A separate complete sentence.", pageIndex: 2 }
+    ];
+    expect(recoveredSentenceCount(actual, expected)).toEqual({ recall: 1, matchedSentences: 2, expectedSentences: 2 });
+    expect(recoveredSentenceCount([actual[0]], expected).matchedSentences).toBe(0);
   });
 
   it("normalizes word tokens and uses multiset overlap", () => {
