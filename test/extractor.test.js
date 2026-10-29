@@ -240,6 +240,21 @@ describe("FastKeySentenceExtractor", () => {
       .toContain("Ordinary prose follows the list heading in this paragraph.");
   });
 
+  it("excludes noun phrase list runs after a lead-in label", () => {
+    const api = extractor();
+    const lines = [
+      textLine("Possibilities:", 40, 720),
+      textLine("Absolute performance i.e., acceptable", 40, 708),
+      textLine("Relative performance among approaches", 40, 696),
+      textLine("continuation of the item in lowercase", 40, 684),
+      textLine("Ordinary prose follows the list in this paragraph.", 40, 650)
+    ];
+    const page = api.buildStructuredPage(1, lines.flat(), 600, {});
+    expect(page.text).not.toContain("Absolute performance");
+    expect(page.text).not.toContain("continuation of the item");
+    expect(page.text).toContain("Ordinary prose follows");
+  });
+
   it("extracts sentences from the reader document", async () => {
     const api = loadScript("content/extractor.js", {
       Components: { utils: { waiveXrays: value => value, cloneInto: value => value } },

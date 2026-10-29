@@ -506,6 +506,37 @@ var FastKeySentenceExtractor = (() => {
       }
     }
 
+    const nounListLines = new Set();
+    for (const column of new Set(lines.map(lineColumn))) {
+      const ordered = lines.filter(line => lineColumn(line) === column)
+        .sort((a, b) => b.baseline - a.baseline);
+      let run = [];
+      let afterLead = false;
+      const flush = () => {
+        if (run.length >= 2 && afterLead) for (const line of run) nounListLines.add(line);
+        run = [];
+      };
+      let previous = null;
+      for (const line of ordered) {
+        const text = line.text.trim();
+        const candidate = !line.bullet && text.length >= 10 && /^[A-Z]/.test(text)
+          && !/[.!?](?:\s|$)/.test(text.replace(/\.{3,}/g, ""))
+          && !/:\s*$/.test(text) && !looksLikeHeading(text);
+        const continuation = run.length > 0 && !candidate
+          && /^[a-z]/.test(text)
+          && !/[.!?](?:\s|$)/.test(text.replace(/\.{3,}/g, ""));
+        if (candidate || continuation) {
+          if (!run.length) afterLead = previous ? /:\s*$/.test(previous.text.trim()) : false;
+          run.push(line);
+        }
+        else {
+          flush();
+        }
+        previous = line;
+      }
+      flush();
+    }
+
     const bulletProse = new Map();
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       const line = lines[lineIndex];
@@ -580,6 +611,7 @@ var FastKeySentenceExtractor = (() => {
       else if (section || largeHeading) suppressed[sectionColumn] = false;
       if (!line.bullet && !sentenceEnd && !/:\s*$/.test(text) && /^[A-Z]/.test(text)
         && text.length < 45) continue;
+      if (nounListLines.has(line)) continue;
 
       const titleMatch = pageIndex === 0 && key.length >= 6 && title.length >= 6
         && (title.includes(key) || key.includes(title));
