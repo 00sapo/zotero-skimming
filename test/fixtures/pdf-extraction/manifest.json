@@ -516,9 +516,9 @@
         "completePages": true
       },
       "geometrySha256": "63b89f23ce441923405d00befcf80fed2c46e2a85e3486b7b86f551fa74037c8",
-      "groundTruthSha256": "66668f9a8de4316c6648f73609fddfe9b65d716719d682017f8682546dc412e8",
+      "groundTruthSha256": "5f9ab327e12cf31a92192c1e340de3a1ecea5aab50f2abe6655b032e7ebf58c9",
       "labels": "clamp3/ground-truth.json.labels.json.gz",
-      "labelsSha256": "1ffc8d8e105e53fcdf51bea8c843def7b4c0dfd14060174c154e405ff3af4b64"
+      "labelsSha256": "e7ce35add8a27d3833cbd56c25762227b3415342f68e6ebc6ac86550e011ea39"
     }
   ]
 }

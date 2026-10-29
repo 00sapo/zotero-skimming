@@ -158,6 +158,10 @@
       "pageIndex": 1
     },
     {
+      "text": "Overall, this work contributes:",
+      "pageIndex": 1
+    },
+    {
       "text": "CLaMP 3 unifies musical modalities and languages in a shared representation space, achieving strong performance on a wide range of MIR tasks and generalizing to unseen languages with emergent cross-modal alignment.",
       "pageIndex": 1
     },
@@ -1071,6 +1075,22 @@
     },
     {
       "text": "However, CLaMP 3 still outperforms M3—the symbolic music encoder it was initialized from—on most benchmarks, suggesting that contrastive text supervision enhances the semantic salience of extracted features.",
+      "pageIndex": 18
+    },
+    {
+      "text": "These results indicate that retrieval and classification improvements are relatively independent.",
+      "pageIndex": 18
+    },
+    {
+      "text": "In text-to-music retrieval (Table 2, Table 3), CLaMP 3—especially CLaMP 3c2sa—significantly outperforms CLaMP 2, yet this advantage does not extend to classification.",
+      "pageIndex": 18
+    },
+    {
+      "text": "A possible explanation is that retrieval requires rich representations and effective interaction between text and music encoders, while classification depends solely on an encoder’s ability to extract features relevant to predefined labels.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Thus, while higher-quality text annotations enhance retrieval, they do not necessarily improve symbolic music classification.",
       "pageIndex": 18
     },
     {

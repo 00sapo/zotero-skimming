@@ -631,6 +631,8 @@ var FastKeySentenceExtractor = (() => {
       const letters = (text.match(/[A-Za-z]/g) || []).length;
       const wordCount = (text.match(/[A-Za-z][A-Za-z'’-]*/g) || []).length;
       if (visible.length >= 4 && letters < visible.length * 0.4) continue;
+      const mathSymbols = (text.match(/[=+×÷⋅→←↔≤≥≠∑∫√∞±τλσμ]/g) || []).length;
+      if (mathSymbols >= 2 && mathSymbols / visible.length > 0.12) continue;
       if (wordCount < 4 && !line.bullet && !/[.!?]\s*$/.test(text)
         && !(wordCount >= 2 && /:\s*$/.test(text))) continue;
       if (nounListLines.has(line)) continue;
