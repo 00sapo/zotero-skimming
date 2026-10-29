@@ -601,7 +601,9 @@ var FastKeySentenceExtractor = (() => {
       let previous = null;
       for (const line of ordered) {
         const text = line.text.trim();
-        const candidate = !line.bullet && text.length >= 10 && /^[A-Z]/.test(text)
+        const runInLabel = /^[A-Z][A-Za-z0-9]*(?:\s+[A-Za-z0-9][A-Za-z0-9]*){0,3}:\s+[A-Z]/.test(text)
+          && text.slice(text.indexOf(":") + 1).trim().split(/\s+/).length >= 4;
+        const candidate = !line.bullet && !runInLabel && text.length >= 10 && /^[A-Z]/.test(text)
           && text.split(/\s+/).length <= 12
           && !/[.!?](?:\s|$)/.test(text.replace(/\.{3,}/g, ""))
           && !/:\s*$/.test(text) && !looksLikeHeading(text);
