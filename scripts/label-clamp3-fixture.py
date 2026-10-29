@@ -37,10 +37,14 @@ def block_payload(page):
     return chars
 
 
+def windows(text, size=28):
+    return {text[start:start + size] for start in range(0, max(1, len(text) - size + 1))}
+
+
 def body_blocks(page, sentences):
     """Return block rectangles that hold at least one curated sentence."""
     wanted = [canonical(sentence["text"]) for sentence in sentences]
-    wanted = [text for text in wanted if len(text) >= 40]
+    wanted = [text for text in wanted if len(text) >= 24]
     marked = []
     for block in page.get_text("blocks"):
         x1, y1, x2, y2, text, *_ = block
@@ -50,10 +54,13 @@ def body_blocks(page, sentences):
         if any(needle in block_text or block_text in needle for needle in wanted):
             marked.append((x1, y1, x2, y2))
             continue
-        # Superscripts and footnote markers can drop characters from the raw
-        # stream. Compare a digit-free prefix to keep the block attributable.
-        prefix = re.sub(r"\d", "", block_text)[:80]
-        if len(prefix) >= 40 and any(prefix in re.sub(r"\d", "", needle) for needle in wanted):
+        # Sentences split across blocks, or whose superscripts vanish from the
+        # raw stream, still share a long canonical window with their block.
+        block_windows = windows(block_text)
+        digits = re.sub(r"\d", "", block_text)
+        digit_windows = windows(digits)
+        if any(windows(needle) & block_windows or windows(re.sub(r"\d", "", needle)) & digit_windows
+               for needle in wanted):
             marked.append((x1, y1, x2, y2))
     return marked
 

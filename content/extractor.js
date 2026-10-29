@@ -195,7 +195,7 @@ var FastKeySentenceExtractor = (() => {
       && segment.text.length <= 6);
     const merged = new Set();
     for (const segment of tiny) {
-      const host = segments.find(candidate => candidate !== segment && !merged.has(candidate)
+      const hosts = segments.filter(candidate => candidate !== segment && !merged.has(candidate)
         && candidate.fontSize >= segment.fontSize * 1.15
         && Math.abs(candidate.baseline - segment.baseline) <= candidate.fontSize * 0.9
         && (segment.x1 - candidate.x2 <= candidate.fontSize * 0.2
@@ -204,6 +204,8 @@ var FastKeySentenceExtractor = (() => {
             && candidate.x1 - segment.x2 >= -candidate.fontSize
           || segment.x1 >= candidate.x1 - candidate.fontSize
             && segment.x2 <= candidate.x2 + candidate.fontSize));
+      hosts.sort((a, b) => Math.abs(a.baseline - segment.baseline) - Math.abs(b.baseline - segment.baseline));
+      const host = hosts[0];
       if (!host) continue;
       const extra = segment.chars.slice().sort((a, b) => a.rect[0] - b.rect[0]);
       const chars = host.chars.slice();
@@ -345,7 +347,8 @@ var FastKeySentenceExtractor = (() => {
   }
 
   function looksLikeHeading(text) {
-    if (!/^[A-Z0-9“‘]/.test(text.trim())) return false;
+    const lowerTech = /^[a-z]+-[A-Z]/.test(text.trim());
+    if (!lowerTech && !/^[A-Z0-9“‘]/.test(text.trim())) return false;
     if (/[,;:]\s*$/.test(text)) return false;
     if (/[.!?]\s+[A-Z“‘(]/.test(text)) return false;
     const words = text.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
@@ -355,6 +358,7 @@ var FastKeySentenceExtractor = (() => {
     const sentenceStart = /^(?:While|This|These|In|We|It|However|As|For|Both|Our|Such|If|When|By)$/i.test(afterNumber);
     const appendix = /^\s*[A-F](?:\.\d+)*\s+[A-Za-z]/.test(text);
     const titleWords = words.filter(word => /^[A-Z]/.test(word) || word === word.toUpperCase()).length;
+    if (lowerTech && words.length <= 12 && titleWords / words.length >= 0.5) return true;
     if (appendix && words.length <= 12 && titleWords / words.length >= 0.5) return true;
     const known = SECTION_MARKERS.some(([marker]) => {
       marker.lastIndex = 0;
