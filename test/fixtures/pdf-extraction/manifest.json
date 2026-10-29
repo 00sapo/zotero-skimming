@@ -477,6 +477,48 @@
       "labelsSha256": "deb6c365ecf864c2aad070c0ff2b24351c5f1459905d7ad287670b2f238110d2",
       "geometrySha256": "1bb3a239f39de03420f56d2b78e2d7359c1ffc93697ea210b615dbeff1e231b3",
       "groundTruthSha256": "c02cb116a35d2f506af5dd28e7ab6ef85828f24289fc4d3bf71213a8da80038c"
+    },
+    {
+      "id": "clamp3-acl-2025",
+      "pdf": "clamp3/clamp3.pdf",
+      "groundTruth": "clamp3/ground-truth.json",
+      "geometry": "clamp3/geometry.json.gz",
+      "sha256": "44483ecf340161769731aafb0a9078bb201f30ea9b2386ca509b28556dd35019",
+      "layout": {
+        "columns": 2,
+        "numberedLines": false
+      },
+      "source": "CLaMP 3 ACL 2025 paper provided for extraction evaluation",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "63b89f23ce441923405d00befcf80fed2c46e2a85e3486b7b86f551fa74037c8",
+      "groundTruthSha256": "66668f9a8de4316c6648f73609fddfe9b65d716719d682017f8682546dc412e8",
+      "labels": "clamp3/ground-truth.json.labels.json.gz",
+      "labelsSha256": "1ffc8d8e105e53fcdf51bea8c843def7b4c0dfd14060174c154e405ff3af4b64"
     }
   ]
 }

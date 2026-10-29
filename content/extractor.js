@@ -20,7 +20,7 @@ var FastKeySentenceExtractor = (() => {
   const MIN_REPEAT_PAGES = 3;
   const REPEAT_PAGE_FRACTION = 0.3;
   const Y_BAND_PT = 30;
-  const REF_DENSITY = 0.5;
+  const REF_DENSITY = 0.4;
   const REF_MIN_HITS = 5;
 
   const REF_SIGNALS = [
@@ -166,7 +166,7 @@ var FastKeySentenceExtractor = (() => {
     const rows = clusters.map(cluster => describeVisualLine(cluster.chars));
     const segments = [];
     for (const row of rows) {
-      const threshold = Math.max(14, row.fontSize * 1.6);
+      const threshold = Math.max(8, row.fontSize * 1.0);
       let start = 0;
       for (let index = 1; index < row.chars.length; index++) {
         const gap = row.chars[index].rect[0] - row.chars[index - 1].rect[2];
@@ -311,14 +311,17 @@ var FastKeySentenceExtractor = (() => {
     const words = text.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
     if (!words.length || words.length > 16 || /[.!?]\s*$/.test(text)) return false;
     const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i.test(text);
+    const appendix = /^\s*[A-F](?:\.\d+)*\s+[A-Z][A-Za-z]/.test(text);
+    if (appendix && words.length <= 12) return true;
     const known = SECTION_MARKERS.some(([marker]) => {
       marker.lastIndex = 0;
       return marker.test(text);
     });
     if (known && words.length <= 4) return true;
+    if (numbered && words.length <= 8) return true;
     if (words.length < 2) return false;
     const capitals = words.filter(word => /^[A-Z]/.test(word) || word === word.toUpperCase()).length;
-    return numbered || capitals / words.length >= 0.6;
+    return capitals / words.length >= 0.6;
   }
 
   function detectColumnStarts(lines, pageWidth) {
@@ -435,7 +438,7 @@ var FastKeySentenceExtractor = (() => {
       for (const value of cluster.values) marked.add(value.line);
       for (const line of lines) {
         if (!short(line)) continue;
-        if (Math.abs(line.baseline - baseline) > lineHeight * 4) continue;
+        if (Math.abs(line.baseline - baseline) > lineHeight * 0.7) continue;
         if (marked.has(line)) continue;
         marked.add(line);
       }
@@ -478,22 +481,31 @@ var FastKeySentenceExtractor = (() => {
         if (gap > 1 && gap < bodySize * 3) gaps.push(gap);
       }
     }
-    const lineHeight = gaps.length ? median(gaps) : Math.max(bodySize * 1.2, 10);
+    const measured = gaps.length ? median(gaps) : 0;
+    const lineHeight = measured >= bodySize * 1.05 ? measured : Math.max(bodySize * 1.2, 10);
     const tableLines = detectTableLines(lines, lineHeight);
     const captionLines = new Set();
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       if (!CAPTION_START.test(lines[lineIndex].text)) continue;
       const caption = lines[lineIndex];
       captionLines.add(lineIndex);
+      for (let sibling = 0; sibling < lines.length; sibling++) {
+        if (sibling === lineIndex) continue;
+        const other = lines[sibling];
+        if (Math.abs(other.baseline - caption.baseline) > lineHeight * 0.5) continue;
+        if (lineColumn(other) !== lineColumn(caption)) continue;
+        captionLines.add(sibling);
+      }
       let lastBaseline = caption.baseline;
       let lastText = caption.text;
       let continuationCount = 0;
-      for (let cursor = lineIndex + 1; cursor < lines.length && continuationCount < 2; cursor++) {
+      for (let cursor = lineIndex + 1; cursor < lines.length && continuationCount < 6; cursor++) {
         const line = lines[cursor];
         const gap = lastBaseline - line.baseline;
         if (gap <= 0) continue;
         if (lineColumn(line) !== lineColumn(caption)) continue;
         if (gap > lineHeight * 2.2) break;
+        if (line.fontSize > caption.fontSize + 0.3) break;
         const overlaps = line.x1 <= caption.x2 + bodySize && line.x2 >= caption.x1 - bodySize;
         const continuation = !/[.!?]\s*$/.test(lastText)
           && gap <= lineHeight * 1.2
@@ -602,6 +614,10 @@ var FastKeySentenceExtractor = (() => {
         keywordColumn = column;
         continue;
       }
+      if (/^(?:authors?|correspondence|affiliations|acknowledg(?:e)?ments?|acknowlegdements)$/i.test(key)) {
+        suppressed[column] = true;
+        continue;
+      }
       if (pageIndex === 0 && keywordColumn === column && line.x2 - line.x1 < pageWidth * 0.38 && !/[.!?]\s*$/.test(text)) {
         continue;
       }
@@ -609,8 +625,14 @@ var FastKeySentenceExtractor = (() => {
       if (section === "abstract") suppressed[sectionColumn] = true;
       else if (section === "references") references = true;
       else if (section || largeHeading) suppressed[sectionColumn] = false;
-      if (!line.bullet && !sentenceEnd && !/:\s*$/.test(text) && /^[A-Z]/.test(text)
-        && text.length < 45) continue;
+      if (/^(?:https?:\/\/|www\.)\S+$/i.test(text)) continue;
+      if (/[^\s@]+@[^\s@]+/.test(text)) continue;
+      const visible = text.replace(/\s/g, "");
+      const letters = (text.match(/[A-Za-z]/g) || []).length;
+      const wordCount = (text.match(/[A-Za-z][A-Za-z'’-]*/g) || []).length;
+      if (visible.length >= 4 && letters < visible.length * 0.4) continue;
+      if (wordCount < 4 && !line.bullet && !/[.!?]\s*$/.test(text)
+        && !(wordCount >= 2 && /:\s*$/.test(text))) continue;
       if (nounListLines.has(line)) continue;
 
       const titleMatch = pageIndex === 0 && key.length >= 6 && title.length >= 6
@@ -643,8 +665,11 @@ var FastKeySentenceExtractor = (() => {
     let charBase = 0;
     for (const line of orderedLines) {
       if (!line.chars.length) continue;
+      const continues = previousLine
+        && !/[.!?]["'’)]?$/.test(previousLine.text)
+        && /^[a-zà-öø-ÿ]/.test(line.chars[0].c);
       const newBlock = previousLine && (
-        lineColumn(line) !== lineColumn(previousLine)
+        (lineColumn(line) !== lineColumn(previousLine) && !continues)
         || previousLine.baseline - line.baseline > lineHeight * 1.45
 
       );
@@ -817,6 +842,44 @@ var FastKeySentenceExtractor = (() => {
       else if (start >= 0) break;
     }
     if (start >= 0) zones.referenceStartPage = paged[start].pageIndex;
+    if (zones.referenceStartPage >= 0) {
+      const dense = page => {
+        const text = page.text || "";
+        const years = (text.match(/\b(?:19|20)\d{2}\b/g) || []).length;
+        const words = (text.match(/[A-Za-z][A-Za-z'-]*/g) || []).length;
+        return years >= 8 && words > 0 && years / words >= 0.04;
+      };
+      for (const page of paged) {
+        if (page.pageIndex <= zones.referenceStartPage) continue;
+        if (dense(page)) {
+          zones.referenceEndPage = page.pageIndex;
+          continue;
+        }
+        if (zones.referenceEndPage >= 0) break;
+      }
+    }
+    const headingPattern = /^\s*(?:references|bibliography|works cited|literature cited|reference list)\s*$/i;
+    const appendixPattern = /^\s*[A-F](?:\.\d+)*\s+[A-Z][A-Za-z]/;
+    for (const page of paged) {
+      const heading = linesByPage.get(page.pageIndex)
+        .find(line => headingPattern.test(line.text.replace(/[\d.\s]+$/, "").trim()));
+      if (!heading) continue;
+      zones.referenceStart = { pageIndex: page.pageIndex, startChar: heading.startChar };
+      if (zones.referenceStartPage < 0) zones.referenceStartPage = page.pageIndex;
+      let scanning = true;
+      for (const later of paged) {
+        if (!scanning) break;
+        if (later.pageIndex < page.pageIndex) continue;
+        for (const line of linesByPage.get(later.pageIndex)) {
+          if (later.pageIndex === page.pageIndex && line.startChar <= heading.startChar) continue;
+          if (!appendixPattern.test(line.text.trim())) continue;
+          zones.referenceEnd = { pageIndex: later.pageIndex, startChar: line.startChar };
+          scanning = false;
+          break;
+        }
+      }
+      break;
+    }
     return zones;
   }
 
@@ -886,11 +949,11 @@ var FastKeySentenceExtractor = (() => {
 
   const LEADING_HEADING = /^(?:Phase\s*\d+\s*[:.]?|(?:Results?|Methods?|Methodology|Findings?|Discussion|Conclusions?|Introduction|Background|Abstract|Limitations?)(?:\s+(?:for|of|to|in)\s+(?:the\s+)?[A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,2})?)\s*[:.]?\s+(?=[A-Z])/;
 
-  const LIST_LABEL = /^([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,2}):\s+(?=\S)/;
+  const LIST_LABEL = /^(?:(?:Stage|Step|Phase|Checkpoint|Setting|Setup)\s*\d+|(?:[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,2})):\s+(?=\S)/;
 
   function listLabelTrimOffset(text) {
     const match = LIST_LABEL.exec(text);
-    if (!match || /[0-9]/.test(match[1])) return 0;
+    if (!match) return 0;
     const rest = text.slice(match[0].length);
     if (rest.length < MIN_LEN || !/^[A-Z]/.test(rest)) return 0;
     return match[0].length;
@@ -1061,6 +1124,12 @@ var FastKeySentenceExtractor = (() => {
     return rects.filter(rect => rect[3] - rect[1] <= maxHeight);
   }
 
+  function isMaterialPage(page) {
+    const text = page.text || "";
+    if (/```/.test(text)) return true;
+    return (text.match(/"/g) || []).length > 30;
+  }
+
   function cleanText(value) {
     return String(value || "")
       .replace(/\u00ad/g, "")
@@ -1089,11 +1158,29 @@ var FastKeySentenceExtractor = (() => {
     }
     if (!pages.length) throw new Error("No extractable text was found. Run OCR first if this is a scanned PDF.");
 
-    const zones = analyzeZones(pages);
+    const prosePages = pages.filter(page => !isMaterialPage(page));
+    const zones = analyzeZones(prosePages);
+    const reference = zones.referenceStart;
+    const referenceEnd = zones.referenceEnd;
+    const referenceEndPage = zones.referenceEndPage ?? -1;
+    const referenceStartPoint = reference
+      ?? (zones.referenceStartPage >= 0 ? { pageIndex: zones.referenceStartPage, startChar: 0 } : null);
+    const lastReferencePage = referenceEndPage >= 0 ? referenceEndPage : (reference?.pageIndex ?? Number.POSITIVE_INFINITY);
+    const afterReferenceHeading = (pageIndex, startChar) => {
+      if (!referenceStartPoint) return false;
+      const afterStart = pageIndex > referenceStartPoint.pageIndex
+        || (pageIndex === referenceStartPoint.pageIndex && startChar >= referenceStartPoint.startChar);
+      if (!afterStart) return false;
+      if (!referenceEnd) return pageIndex <= lastReferencePage;
+      return pageIndex < referenceEnd.pageIndex
+        || (pageIndex === referenceEnd.pageIndex && startChar < referenceEnd.startChar);
+    };
     const sentences = [];
     let order = 0;
     for (const page of pages) {
+      if (isMaterialPage(page)) continue;
       for (const sentence of segmentSentences(page)) {
+        if (afterReferenceHeading(page.pageIndex, sentence.startChar)) continue;
         if (overlapsFurniture(zones, page.pageIndex, sentence.startChar, sentence.endChar)) continue;
         const rects = rangeToLineRects(page, sentence.startChar, sentence.endChar);
         if (!rects.length) continue;
@@ -1111,7 +1198,9 @@ var FastKeySentenceExtractor = (() => {
 
     let processed = withDocumentSections(pages, sentences);
     if (zones.referenceStartPage >= 0) {
+      const lastReferencePage = referenceEndPage >= 0 ? referenceEndPage : Number.POSITIVE_INFINITY;
       for (const sentence of processed) {
+        if (sentence.pageIndex > lastReferencePage) continue;
         if (sentence.pageIndex > zones.referenceStartPage
           || (sentence.pageIndex === zones.referenceStartPage && refSignalScore(sentence.text) >= 1)) {
           sentence.section = "references";
