@@ -197,7 +197,7 @@ var FastKeySentenceExtractor = (() => {
     const rows = clusters.map(cluster => describeVisualLine(cluster.chars));
     const segments = [];
     for (const row of rows) {
-      const threshold = Math.max(8, row.fontSize * 1.0);
+      const threshold = Math.max(10, row.fontSize * 1.2);
       let start = 0;
       for (let index = 1; index < row.chars.length; index++) {
         const gap = row.chars[index].rect[0] - row.chars[index - 1].rect[2];
