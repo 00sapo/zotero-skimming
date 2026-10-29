@@ -574,6 +574,7 @@ var FastKeySentenceExtractor = (() => {
       for (const line of ordered) {
         const text = line.text.trim();
         const candidate = !line.bullet && text.length >= 10 && /^[A-Z]/.test(text)
+          && text.split(/\s+/).length <= 12
           && !/[.!?](?:\s|$)/.test(text.replace(/\.{3,}/g, ""))
           && !/:\s*$/.test(text) && !looksLikeHeading(text);
         const continuation = run.length > 0 && !candidate
@@ -634,7 +635,7 @@ var FastKeySentenceExtractor = (() => {
       const largeHeading = line.fontSize >= bodySize * 1.28;
       const textHeading = looksLikeHeading(text);
       const runInProse = /^[A-Z][A-Za-z0-9]*(?:\s+[A-Za-z0-9][A-Za-z0-9]*){0,2}:\s+\S/.test(text)
-        && text.slice(text.indexOf(":") + 1).trim().split(/\s+/).length >= 4;
+        && text.slice(text.indexOf(":") + 1).trim().split(/\s+/).length >= 2;
       const headingLike = !tooSmall && !runInProse
         && (textHeading || largeHeading || line.fontSize >= bodySize * 1.15);
       const section = headingLike ? sectionFromText(text) : null;
@@ -686,6 +687,7 @@ var FastKeySentenceExtractor = (() => {
           && Math.abs(other.baseline - line.baseline) <= line.fontSize * 0.3
           && other.x2 <= line.x1);
       if (wordCount < 4 && !line.bullet && !/[.!?]\s*$/.test(text)
+        && !/^(?:Fig|Table|Sec|Eq|Ref)\./i.test(text)
         && !(wordCount >= 2 && colonTail) && !colonContinuation) continue;
       if (nounListLines.has(line)) continue;
 
