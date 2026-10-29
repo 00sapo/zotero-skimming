@@ -22,8 +22,8 @@ var FastKeySentenceExtractor = (() => {
   const Y_BAND_PT = 30;
   const REF_DENSITY = 0.4;
   const REF_MIN_HITS = 5;
-  const COMPOUND_SUFFIXES = new Set(["extracted", "level", "form", "trained", "scale", "music", "symbolic", "lingual", "modal", "stage", "shot", "based", "aware", "driven", "specific", "grained", "quality", "resource", "length", "term", "time", "extended", "annotated", "supervised", "interleaved", "format", "level", "scale", "track", "task"]);
-  const HYPHEN_FUNCTION_PREFIXES = new Set(["to", "of"]);
+  const COMPOUND_SUFFIXES = new Set(["extracted", "level", "form", "trained", "scale", "music", "symbolic", "lingual", "modal", "stage", "shot", "based", "aware", "driven", "specific", "grained", "quality", "resource", "length", "term", "time", "extended", "annotated", "supervised", "interleaved", "format", "level", "scale", "track", "task", "performing"]);
+  const HYPHEN_FUNCTION_PREFIXES = new Set(["to", "of", "the"]);
 
   const REF_SIGNALS = [
     /\b(?:19|20)\d{2}\b/,
@@ -776,6 +776,7 @@ var FastKeySentenceExtractor = (() => {
         const known = hints.vocabulary?.has(joined);
         const compound = /^[A-Z]/.test(line.chars[0].c) || /\d/.test(prefix)
           || HYPHEN_FUNCTION_PREFIXES.has(prefix.toLowerCase())
+          || HYPHEN_FUNCTION_PREFIXES.has(nextWord.toLowerCase())
           || COMPOUND_SUFFIXES.has(nextWord.toLowerCase());
         if (known || !compound) {
           text = text.slice(0, -1);
