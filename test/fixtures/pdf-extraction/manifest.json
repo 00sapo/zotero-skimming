@@ -467,14 +467,16 @@
         "pages": [
           1,
           2,
-          13
+          5,
+          13,
+          15
         ],
         "completePages": true
       },
       "labels": "upstream/pmichaillat/ground-truth.json.labels.json.gz",
-      "labelsSha256": "3328ae4633bfa3a082563559f34ac1631c09e1e85022be96eb166e66b78589f7",
-      "geometrySha256": "92131575a7d7a9bb71ecfcdbe1a4a6881b69c9c632b4b335de95013c8f500fec",
-      "groundTruthSha256": "6b48111e9a04501e39cd52306df0094e3021aa234fc4920a6b350353bb675551"
+      "labelsSha256": "deb6c365ecf864c2aad070c0ff2b24351c5f1459905d7ad287670b2f238110d2",
+      "geometrySha256": "1bb3a239f39de03420f56d2b78e2d7359c1ffc93697ea210b615dbeff1e231b3",
+      "groundTruthSha256": "c02cb116a35d2f506af5dd28e7ab6ef85828f24289fc4d3bf71213a8da80038c"
     }
   ]
 }

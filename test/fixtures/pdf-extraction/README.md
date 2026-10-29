@@ -26,9 +26,11 @@ The two downloaded PDFs remain unchanged. Their annotations cover selected origi
 | Original template | Annotated page index | Source |
 |---|---|---|
 | Two-column conference paper | 0, 1 | [Iroro Orife template](https://github.com/ruohoruotsi/latex-template-arxiv-preprint/tree/ac24f569abb5f67cdbf00cac88b707738fbd52da) |
-| One-column research paper | 1, 2, 13 | [Pascal Michaillat template](https://github.com/pmichaillat/latex-paper/tree/f8afa108da12b18f8b059b81b2ccba23bd4ee7aa) |
+| One-column research paper | 1, 2, 5, 13, 15 | [Pascal Michaillat template](https://github.com/pmichaillat/latex-paper/tree/f8afa108da12b18f8b059b81b2ccba23bd4ee7aa) |
 
 Page 13 of the one-column paper holds a floating table with grouped column headings, Greek table cells, and a table note, so the annotated prose on that page is interrupted by a float. Page 13 also starts inside a sentence that continues from page 11 across the full-page figure on page 12; that opening text is recorded as a fragment.
+
+Page 5 holds inline math, display equations, Greek letters, and dense digits. Page 15 holds a quotation block, run-in labels, and the conclusion. Display equations and equation numbers are excluded. Prose that contains inline math remains expected.
 
 Both repositories declare the MIT license. The `upstream` directory retains their licenses, source files, pinned revisions, download URLs, and original file hashes.
 
@@ -78,7 +80,7 @@ The report contains these measurements.
 
 Word metrics count repeated words separately. Excluded leakage ignores phrases that also occur in expected prose. It matches whole phrases and does not detect every partial reference or table fragment. Order measurements cover exact matches that occur once in each text. A zero inversion count does not prove correct order when sentence recall is low.
 
-The test suite requires at least 99 percent balanced accuracy, sentence sensitivity, and negative specificity. It also rejects lower recall, lower precision, more leakage, more order inversions, or lower rectangle validity for any case. The committed corpus reaches 99.69 percent balanced accuracy, 100 percent sentence sensitivity, and 99.38 percent negative specificity. Passing these tests means the measured corpus passes, not that every unseen PDF extracts perfectly.
+The test suite requires at least 99 percent balanced accuracy, sentence sensitivity, and negative specificity. It also rejects lower recall, lower precision, more leakage, more order inversions, or lower rectangle validity for any case. The committed corpus reaches 99.61 percent balanced accuracy, 99.84 percent sentence sensitivity, and 99.38 percent negative specificity. Passing these tests means the measured corpus passes, not that every unseen PDF extracts perfectly.
 
 The replay uses PyMuPDF geometry rather than the Zotero reader parser. It tests layout processing after character extraction. It does not replace a real Zotero smoke test or prove that rectangles align with the reader on every PDF.
 

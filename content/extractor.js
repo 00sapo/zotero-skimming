@@ -571,7 +571,8 @@ var FastKeySentenceExtractor = (() => {
       if (section === "abstract") suppressed[sectionColumn] = true;
       else if (section === "references") references = true;
       else if (section || largeHeading) suppressed[sectionColumn] = false;
-      if (!line.bullet && !sentenceEnd && /^[A-Z]/.test(text) && text.length < 45) continue;
+      if (!line.bullet && !sentenceEnd && !/:\s*$/.test(text) && /^[A-Z]/.test(text)
+        && text.length < 45) continue;
 
       const titleMatch = pageIndex === 0 && key.length >= 6 && title.length >= 6
         && (title.includes(key) || key.includes(title));

@@ -28,7 +28,7 @@
         "license": "MIT",
         "licenseFile": "upstream/pmichaillat/LICENSE.md"
       },
-      "annotationScope": {"pages": [1, 2, 13], "completePages": true}
+      "annotationScope": {"pages": [1, 2, 5, 13, 15], "completePages": true}
     }
   ]
 }

@@ -4,6 +4,7 @@
   "independentReview": {
     "textExtraction": "Poppler pdftotext, performed independently of the extractor under evaluation. Two-column pages are extracted column by column with the pdftotext crop box so that the columns are read left before right.",
     "visualReview": "The assistant rendered pages with Poppler pdftoppm at 110 dpi and visually reviewed the complete annotated page for each PDF. This is assistant review, not human review.",
+    "reviewNote": "Assistant review only: every annotated sentence and exclusion was curated by the assistant from rendered pages and Poppler-extracted text. No human reviewed these annotations.",
     "geometry": "PyMuPDF 1.26.7 extracted character geometry independently from the PDFs. Geometry is retained for every original page; unannotated pages have empty chars arrays. PDF coordinates are converted to bottom-left origin.",
     "renderedPages": [
       {
@@ -28,8 +29,18 @@
       },
       {
         "pdf": "upstream/pmichaillat/paper.pdf",
+        "originalPageIndex": 5,
+        "rendered": "/tmp/pm-page-06.png"
+      },
+      {
+        "pdf": "upstream/pmichaillat/paper.pdf",
         "originalPageIndex": 13,
         "rendered": "/tmp/pm-page-14.png"
+      },
+      {
+        "pdf": "upstream/pmichaillat/paper.pdf",
+        "originalPageIndex": 15,
+        "rendered": "/tmp/pm-page-16.png"
       }
     ]
   },
@@ -93,7 +104,9 @@
         "pages": [
           1,
           2,
-          13
+          5,
+          13,
+          15
         ],
         "completePages": true,
         "pageIndexBase": 0
