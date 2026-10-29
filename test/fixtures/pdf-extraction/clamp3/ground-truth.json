@@ -922,7 +922,7 @@
       "pageIndex": 16
     },
     {
-      "text": "The text encoder struggled because symbolic and audio data had very different distributions (Fig. 8a) and pulled it in opposite directions, making alignment ineffective.",
+      "text": "The text encoder struggled because symbolic and audio data had very different distributions (Fig.8a) and pulled it in opposite directions, making alignment ineffective.",
       "pageIndex": 16
     },
     {
