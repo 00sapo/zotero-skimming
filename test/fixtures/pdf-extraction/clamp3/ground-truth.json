@@ -1,0 +1,1311 @@
+{
+  "title": "CLaMP 3: Universal Music Information Retrieval Across Unaligned Modalities and Unseen Languages",
+  "creators": [
+    "Shangda Wu",
+    "Zhancheng Guo",
+    "Ruibin Yuan",
+    "Junyan Jiang",
+    "Seungheon Doh",
+    "Gus Xia",
+    "Juhan Nam",
+    "Xiaobing Li",
+    "Feng Yu",
+    "Maosong Sun"
+  ],
+  "sentences": [
+    {
+      "text": "Music Information Retrieval (MIR) is a field that aims at developing computational tools for processing, organizing, and accessing music data.",
+      "pageIndex": 0
+    },
+    {
+      "text": "A core challenge in MIR is retrieving musical content—whether sheet music, performance signals, or audio recordings—based on natural language queries (“a fast-paced classical piano piece”).",
+      "pageIndex": 0
+    },
+    {
+      "text": "This connection enables applications such as automatic music tagging, where models assign genres (“jazz,” “folk”) or descriptive attributes (“melancholic,” “upbeat”), facilitating music organization, search, and recommendation.",
+      "pageIndex": 0
+    },
+    {
+      "text": "By integrating NLP methodologies, MIR enables more intuitive access to musical content, making it more interpretable and searchable through text.",
+      "pageIndex": 0
+    },
+    {
+      "text": "These capabilities position MIR as a critical bridge between music and language, supporting various applications beyond retrieval and annotation.",
+      "pageIndex": 0
+    },
+    {
+      "text": "For instance, cross-modal representations enable text-to-music generation models (Agostinelli et al., 2023; Chen et al., 2024) to create music based on text descriptions.",
+      "pageIndex": 0
+    },
+    {
+      "text": "MIR also aids in the automatic evaluation of these models by assessing how closely the generated music aligns with text descriptions or resembles the ground truth (Copet et al., 2023; Retkowski et al., 2024).",
+      "pageIndex": 0
+    },
+    {
+      "text": "Despite these advancements, MIR faces significant challenges in addressing the complexities of multimodality and multilinguality.",
+      "pageIndex": 0
+    },
+    {
+      "text": "Music exists in many forms: sheet music offers human-readable representations for theoretical analysis and education; performance signals (e.g., MIDI) capture timing and dynamics for precise digital editing; and audio recordings serve as the primary medium for listening.",
+      "pageIndex": 0
+    },
+    {
+      "text": "While these modalities complement each other, their heterogeneous representational structures complicate unified computational processing.",
+      "pageIndex": 0
+    },
+    {
+      "text": "Adding to this complexity, as a universal medium, music is described in numerous languages, crossing cultural and linguistic boundaries.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Musical terminology, descriptions, and cultural references vary significantly between linguistic communities, each bringing its own rich vocabulary and cultural context.",
+      "pageIndex": 1
+    },
+    {
+      "text": "To build global and accessible MIR systems, it is essential to process and understand these diverse expressions effectively.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Unfortunately, the development of MIR is limited not only by the lack of music-text pairs but also by the general scarcity of paired data across different musical modalities.",
+      "pageIndex": 1
+    },
+    {
+      "text": "As a result, most research focuses on retrieval between specific modality pairs, such as text and audio (Huang et al., 2022; Doh et al., 2024; Zhu et al., 2025) or text and sheet music (Wu et al., 2023a).",
+      "pageIndex": 1
+    },
+    {
+      "text": "This narrow focus restricts the potential for cross-modal interactions, preventing a more comprehensive understanding of music.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Additionally, existing text data is often short-form, like tags, with few long-form descriptions (Wu et al., 2023b), leading to shallow semantics.",
+      "pageIndex": 1
+    },
+    {
+      "text": "These datasets are also predominantly in English (Doh et al., 2023b), with limited representation of other languages, neglecting music’s global and multilingual nature.",
+      "pageIndex": 1
+    },
+    {
+      "text": "To tackle these challenges, a unified framework is crucial for aligning musical modalities and bridging linguistic gaps, particularly in the absence of paired training data.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Large Language Models (LLMs) present a promising solution by addressing the limitations of text semantics and the scarcity of linguistic diversity in music-text datasets.",
+      "pageIndex": 1
+    },
+    {
+      "text": "These models excel at transforming basic metadata into fluent and contextually rich descriptions (Doh et al., 2023a; Bai et al., 2024).",
+      "pageIndex": 1
+    },
+    {
+      "text": "Furthermore, their multilingual capabilities allow them to support a wide array of languages (Wu et al., 2024), enhancing semantic depth and enabling more inclusive access across diverse linguistic and cultural contexts.",
+      "pageIndex": 1
+    },
+    {
+      "text": "In this paper, we introduce CLaMP 3, a universal MIR framework that processes music and text while aligning them into a shared representation space.",
+      "pageIndex": 1
+    },
+    {
+      "text": "It covers all major music modalities: 1) sheet music, 2) performance signals, and 3) audio recordings, along with 4) multilingual text.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Each modality is encoded through its respective feature extractor.",
+      "pageIndex": 1
+    },
+    {
+      "text": "To unify these representations, we employ contrastive learning (Sohn, 2016), aligning both musical and textual features.",
+      "pageIndex": 1
+    },
+    {
+      "text": "This enables seamless cross-modal retrieval and integration across diverse musical formats and languages.",
+      "pageIndex": 1
+    },
+    {
+      "text": "To address the shortage of paired music-text data, we use Retrieval-Augmented Generation (RAG) (Lewis et al., 2020) to create M4-RAG, a dataset of 2.31 million music-text pairs covering various musical modalities.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Starting with basic metadata like song titles and artist names, we retrieve relevant web documents and use an LLM to generate detailed annotations.",
+      "pageIndex": 1
+    },
+    {
+      "text": "These annotations include short tags, long descriptions, and multilingual translations, providing rich and diverse information.",
+      "pageIndex": 1
+    },
+    {
+      "text": "In addition, we present WikiMT-X, the first benchmark to align text, audio, and sheet music.",
+      "pageIndex": 1
+    },
+    {
+      "text": "It includes 1,000 triplets with diverse text annotations, such as genre labels and detailed long-form descriptions, including background context, musical analysis, general descriptions, and scene depictions.",
+      "pageIndex": 1
+    },
+    {
+      "text": "WikiMT-X facilitates evaluation across modalities and semantic perspectives, providing a holistic framework to assess models’ ability to align and interpret musical content.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Experiments demonstrate that CLaMP 3 achieves state-of-the-art performance on various MIR tasks, including text-to-audio and text-to-symbolic music retrieval, significantly surpassing all baselines.",
+      "pageIndex": 1
+    },
+    {
+      "text": "It also excels in multilingual retrieval, generalizing to languages not present during alignment.",
+      "pageIndex": 1
+    },
+    {
+      "text": "By leveraging text as a bridge, CLaMP 3 enables emergent cross-modal retrieval, connecting musical modalities without paired training data.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Overall, this work contributes:",
+      "pageIndex": 1
+    },
+    {
+      "text": "CLaMP 3 unifies musical modalities and languages in a shared representation space, achieving strong performance on a wide range of MIR tasks and generalizing to unseen languages with emergent cross-modal alignment.",
+      "pageIndex": 1
+    },
+    {
+      "text": "We curate M4-RAG, a dataset of 2.31 million music-text pairs with diverse annotations, spanning 27 languages and 194 countries, addressing a critical gap in high-quality training data for music and language tasks.",
+      "pageIndex": 1
+    },
+    {
+      "text": "WikiMT-X links text, audio, and sheet music with 1,000 triplets, offering a first-of-its-kind resource to evaluate models holistically across different modalities and semantic aspects.",
+      "pageIndex": 1
+    },
+    {
+      "text": "To support future research, we have publicly released the complete codebase, pre-trained weights of CLaMP 3, 1.56 million audio-text training pairs, and the WikiMT-X benchmark.",
+      "pageIndex": 1
+    },
+    {
+      "text": "CLaMP 3’s optimization objective is to minimize the InfoNCE loss (Oord et al., 2018), aligning embeddings using contrastive learning:",
+      "pageIndex": 2
+    },
+    {
+      "text": "where zti and zmi are text and music embeddings, sim(·, ·) is the similarity function (e.g., dot product), and τ is the temperature parameter.",
+      "pageIndex": 2
+    },
+    {
+      "text": "Positive pairs are aligned text-music samples, while negatives are unrelated samples from the same batch.",
+      "pageIndex": 2
+    },
+    {
+      "text": "Inspired by ImageBind (Girdhar et al., 2023), we adopt a multi-stage strategy using text as a bridge to address the lack of paired music data:",
+      "pageIndex": 2
+    },
+    {
+      "text": "The text encoder is first trained to align with one music encoder (e.g., symbolic encoder).",
+      "pageIndex": 2
+    },
+    {
+      "text": "It is then aligned with another music encoder (e.g., audio encoder), freezing the text encoder to prevent representation drift.",
+      "pageIndex": 2
+    },
+    {
+      "text": "The text encoder is unfrozen to refine its alignment with the music encoder from Stage 2.",
+      "pageIndex": 2
+    },
+    {
+      "text": "The text encoder is frozen again to prevent shifts while re-aligning with the Stage 1 music encoder to fix alignment drift from Stage 3.",
+      "pageIndex": 2
+    },
+    {
+      "text": "This strategy minimizes modality interference while mapping all modalities into a shared representation space for effective cross-modal transfer.",
+      "pageIndex": 2
+    },
+    {
+      "text": "CLaMP 3 consists of several transformer-based encoders (Vaswani et al., 2017) for each modality:",
+      "pageIndex": 2
+    },
+    {
+      "text": "The text encoder in CLaMP 3 is based on XLM-R-base (Conneau et al., 2020), a model pre-trained on 2.5 TB of CommonCrawl data across 100 languages.",
+      "pageIndex": 2
+    },
+    {
+      "text": "It has 12 layers and a hidden size of 768, enabling strong cross-lingual generalization to unseen languages.",
+      "pageIndex": 2
+    },
+    {
+      "text": "CLaMP 3 uses M3 (Wu et al., 2024), a self-supervised model for encoding symbolic music, including multi-track voice-interleaved ABC notation and lossless MIDI encoding via MIDI Text Format (MTF).",
+      "pageIndex": 2
+    },
+    {
+      "text": "M3 segments ABC into bars and MIDI into messages, treating each segment as a patch.",
+      "pageIndex": 2
+    },
+    {
+      "text": "The model has 12 encoder layers, a hidden size of 768, and processes up to 512 patches or 32,768 characters per input.",
+      "pageIndex": 2
+    },
+    {
+      "text": "It is a 12-layer transformer with a 768-dimensional hidden size, trained from scratch for audio processing.",
+      "pageIndex": 2
+    },
+    {
+      "text": "This encoder leverages pre-trained features from MERT-v1-95M (Li et al., 2024), where MERT serves as a frozen audio feature extractor.",
+      "pageIndex": 2
+    },
+    {
+      "text": "Each 5-second clip is represented by a single embedding, obtained by averaging across all MERT layers and time steps.",
+      "pageIndex": 2
+    },
+    {
+      "text": "CLaMP 3 processes up to 128 such embeddings, covering 640 seconds of audio, allowing it to capture high-level audio patterns over extended durations.",
+      "pageIndex": 2
+    },
+    {
+      "text": "All encoders process their outputs through a linear layer, followed by average pooling, to generate a single global semantic feature for each input.",
+      "pageIndex": 2
+    },
+    {
+      "text": "In this section, we introduce the M4-RAG dataset for training CLaMP 3 and the WikiMT-X benchmark for evaluation.",
+      "pageIndex": 3
+    },
+    {
+      "text": "We start with data sources, followed by the metadata curation process.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Then, we summarize dataset statistics like scale and diversity.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Finally, we elaborate on the details of the WikiMT-X benchmark.",
+      "pageIndex": 3
+    },
+    {
+      "text": "The training data for CLaMP 3 is built from both symbolic and audio music datasets, ensuring a rich and diverse foundation for multimodal learning.",
+      "pageIndex": 3
+    },
+    {
+      "text": "The symbolic music data is sourced from Web-MusicText (WebMT) (Wu et al., 2023a) with 1.4 million ABC notation files and the Million MIDI Dataset (MMD) (Zeng et al., 2021) with 1.5 million MIDI files.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Since symbolic music formats use discrete symbols to represent music, they can be converted into one another, albeit with some information loss.",
+      "pageIndex": 3
+    },
+    {
+      "text": "To fully utilize the data, these datasets were unified by converting MMD to ABC and WebMT to MIDI.",
+      "pageIndex": 3
+    },
+    {
+      "text": "This process yields 3 million symbolic music files, offering diverse and comprehensive training coverage.",
+      "pageIndex": 3
+    },
+    {
+      "text": "The audio data is collected from online sources, comprising 160 thousand hours of audio from 1.8 million tracks.",
+      "pageIndex": 3
+    },
+    {
+      "text": "As CLaMP 3 directly utilizes pre-extracted features, the training data exclusively consists of these precomputed features, leading to substantial savings in both computational resources and time.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Music titles often serve as unique identifiers, enabling the retrieval of rich and detailed descriptions from diverse online sources.",
+      "pageIndex": 3
+    },
+    {
+      "text": "When paired with artist names, they further refine searches, pinpointing specific versions or performances and reducing ambiguities caused by covers or adaptations.",
+      "pageIndex": 3
+    },
+    {
+      "text": "This distinctive property makes music titles a reliable basis for generating annotations, even in the absence of paired music-text datasets.",
+      "pageIndex": 3
+    },
+    {
+      "text": "To leverage this, we curated M4-RAG (Million-scale Multilingual Music Metadata), a dataset comprising 2.31 million metadata entries.",
+      "pageIndex": 3
+    },
+    {
+      "text": "The curation process involved several key steps:",
+      "pageIndex": 3
+    },
+    {
+      "text": "Entries without titles were excluded, as titles are essential for retrieving meaningful information from the web.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Google searches were conducted using titles and, where available, artist names.",
+      "pageIndex": 3
+    },
+    {
+      "text": "For each entry, the top 10 search results were collected to ensure diverse and reliable sources.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Using Qwen2.5-72B (Yang et al., 2024), we generated annotations from the retrieved documents and basic metadata (titles and artist names).",
+      "pageIndex": 3
+    },
+    {
+      "text": "The annotations covered the fields in Table 1 under Annotations, with an additional Boolean field indicating if the source material had sufficient information for generating meaningful annotations.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Entries were discarded if flagged by the Boolean field for insufficient information, if their format failed to meet the standards outlined in Table 1, or if any fields were left empty.",
+      "pageIndex": 3
+    },
+    {
+      "text": "To address inconsistencies in the generated annotations, Region fields were mapped to recognized countries, while Description fields were refined using Qwen to remove identifiable details such as titles and lyrics.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Language consistency across long-form fields (Background, Analysis, Description, Scene) was verified with fastText (Joulin et al., 2017).",
+      "pageIndex": 3
+    },
+    {
+      "text": "Entries with inconsistent languages or languages unsupported by either XLM-R or Qwen were removed, and valid detected languages were recorded in the Language field.",
+      "pageIndex": 3
+    },
+    {
+      "text": "To enhance linguistic diversity, a random language supported by both XLM-R and Qwen—different from the original—was selected for each entry, and long-form annotations were translated into it using Qwen.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Prompt and examples of generated annotations are provided in Appendix A.",
+      "pageIndex": 3
+    },
+    {
+      "text": "Through metadata curation, we obtained M4-RAG, which consists of 2.31 million entries.",
+      "pageIndex": 4
+    },
+    {
+      "text": "It includes 0.58 million ABC-text pairs from WebMT, 0.17 million MIDI-text pairs from MMD, and 1.56 million audio-text pairs.",
+      "pageIndex": 4
+    },
+    {
+      "text": "Each metadata entry includes both short-form annotations, such as genres and tags, and detailed long-form descriptions.",
+      "pageIndex": 4
+    },
+    {
+      "text": "As summarized in Table 1, the long-form descriptions account for the majority of the dataset, providing extensive semantic details from multiple perspectives.",
+      "pageIndex": 4
+    },
+    {
+      "text": "M4-RAG spans 27 languages, with the original metadata predominantly in English, as shown in Fig. 3.",
+      "pageIndex": 4
+    },
+    {
+      "text": "To address this imbalance, translations were added to the long-form descriptions, greatly boosting non-English data.",
+      "pageIndex": 4
+    },
+    {
+      "text": "This was particularly impactful for low-resource languages, such as Malay and Burmese, where most data depends on translations, greatly enhancing their representation.",
+      "pageIndex": 4
+    },
+    {
+      "text": "In terms of geographic coverage, M4-RAG incorporates music from 194 countries.",
+      "pageIndex": 4
+    },
+    {
+      "text": "Fig. 4 illustrates contributions from both major music-producing nations and less-represented regions.",
+      "pageIndex": 4
+    },
+    {
+      "text": "This global reach ensures the dataset reflects a diverse range of musical traditions and styles from across the world.",
+      "pageIndex": 4
+    },
+    {
+      "text": "WikiMT-X (WikiMusicText-eXtended) extends WikiMT (Wu et al., 2023a), focusing on 20th-century Western music with 1,000 entries, each with sheet music, audio, and detailed metadata.",
+      "pageIndex": 4
+    },
+    {
+      "text": "The original WikiMT dataset had the following drawbacks: 1) the text was sourced from Wikipedia, mainly focused on background information with limited semantic diversity; 2) the absence of audio data severely restricted the evaluation scope; and 3) the genre labels were obtained through keyword matching, resulting in relatively low accuracy and reducing the reliability of the dataset.",
+      "pageIndex": 4
+    },
+    {
+      "text": "To address these deficiencies, WikiMT-X made the following improvements:",
+      "pageIndex": 4
+    },
+    {
+      "text": "We used llama-3.1-sonar-large-128k-online (Dubey et al., 2024), feeding it sheet music with titles, artist names, and lyrics.",
+      "pageIndex": 4
+    },
+    {
+      "text": "It retrieved relevant web pages and summarized them into background, analysis, description, and scene.",
+      "pageIndex": 4
+    },
+    {
+      "text": "We manually matched sheet music with audio recordings retrieved from YouTube and removed 10 identified duplicates.",
+      "pageIndex": 4
+    },
+    {
+      "text": "We reorganized genre categories based on data distribution and re-annotated labels.",
+      "pageIndex": 4
+    },
+    {
+      "text": "These enhancements make WikiMT-X useful for multimodal MIR research tasks, assessing models’ capabilities in handling text annotations of diverse semantic types, and classifying music across modalities using genre labels.",
+      "pageIndex": 4
+    },
+    {
+      "text": "Appendix B presents detailed objective and human evaluations of WikiMT-X annotation quality.",
+      "pageIndex": 4
+    },
+    {
+      "text": "In addition, Appendix C provides t-SNE visualizations of CLaMP 3 embeddings on WikiMT-X, showing modality, language, and semantic distributions in the shared representation space.",
+      "pageIndex": 4
+    },
+    {
+      "text": "This section evaluates CLaMP 3 on retrieval tasks, comparing it to state-of-the-art baselines.",
+      "pageIndex": 5
+    },
+    {
+      "text": "We present results for the two best-performing CLaMP 3 variants—one for symbolic music and one for audio.",
+      "pageIndex": 5
+    },
+    {
+      "text": "A full retrieval comparison of all variants can be found in Appendix D, and classification results are available in Appendix E.",
+      "pageIndex": 5
+    },
+    {
+      "text": "Both symbolic music and audio alignments were trained for up to 100 epochs on 8 NVIDIA H800 GPUs.",
+      "pageIndex": 5
+    },
+    {
+      "text": "Symbolic music alignment required 4 days with a learning rate of 5e-5 and a batch size of 1024.",
+      "pageIndex": 5
+    },
+    {
+      "text": "Audio alignment took 1 day with a learning rate of 1e-5 and a batch size of 2048.",
+      "pageIndex": 5
+    },
+    {
+      "text": "M4-RAG was divided into 99% for training and 1% for validation.",
+      "pageIndex": 5
+    },
+    {
+      "text": "During training, metadata information was randomly selected to form text inputs.",
+      "pageIndex": 5
+    },
+    {
+      "text": "Mixed-precision (Micikevicius et al., 2018), AdamW optimizer (Loshchilov and Hutter, 2019), and a 1,000-step warm-up (Goyal et al., 2017) were used to enhance efficiency.",
+      "pageIndex": 5
+    },
+    {
+      "text": "Following the training strategy in Sec. 2.1, we explored various modality alignment orders for symbolic and audio modalities, and present the two top-performing variants below:",
+      "pageIndex": 5
+    },
+    {
+      "text": "Optimized for audio, this model follows the full multi-stage alignment: symbolic → audio → audio → symbolic.",
+      "pageIndex": 5
+    },
+    {
+      "text": "Optimized for symbolic, this model starts from CLaMP 2-initialized text and symbolic encoders, followed by two stages: the text encoder is jointly trained with the symbolic encoder, then frozen to align with the audio encoder.",
+      "pageIndex": 5
+    },
+    {
+      "text": "We evaluated retrieval performance using Mean Reciprocal Rank (MRR), which measures the inverse of the rank of the paired item, across all tasks.",
+      "pageIndex": 5
+    },
+    {
+      "text": "For symbolic music retrieval, we compared CLaMP 3 with CLaMP 2 (Wu et al., 2024) and CLaMP (Wu et al., 2023a) on WikiMT (using ABC notation) and MidiCaps (Melechovsky et al., 2024) (using MIDI).",
+      "pageIndex": 5
+    },
+    {
+      "text": "For audio retrieval, we evaluated CLaMP 3 against state-of-the-art models CLAP (Wu et al., 2023b) and TTMR++ (Doh et al., 2024) on the Song Describer Dataset (SDD) (Manco et al., 2023) and MusicCaps-Remake (MC-R) (Agostinelli et al., 2023), which addresses data leakage by using full-length audio and rewritten captions (see Appendix F) from AudioSet’s evaluation set (Gemmeke et al., 2017).",
+      "pageIndex": 5
+    },
+    {
+      "text": "In addition, we tested all models on WikiMT-X to evaluate their performance across varying semantic perspectives.",
+      "pageIndex": 5
+    },
+    {
+      "text": "As shown in Table 2, CLaMP 3 achieved significant improvements over its predecessors and baseline models across both symbolic and audio retrieval tasks.",
+      "pageIndex": 5
+    },
+    {
+      "text": "For symbolic music retrieval, CLaMP 3c2sa achieved MRR scores of 0.4498 on WikiMT and 0.2826 on MidiCaps, clearly outperforming both CLaMP 2 and CLaMP, despite using only half the training data.",
+      "pageIndex": 5
+    },
+    {
+      "text": "This improvement can be attributed to the high-quality, richly annotated M4-RAG dataset.",
+      "pageIndex": 5
+    },
+    {
+      "text": "Similarly, CLaMP 3saas, though optimized for audio retrieval, exceeded CLaMP by a notable margin on symbolic benchmarks and performed comparably to CLaMP 2 on WikiMT.",
+      "pageIndex": 5
+    },
+    {
+      "text": "These results demonstrate that our multi-stage training approach effectively preserves performance on modalities that were not explicitly optimized.",
+      "pageIndex": 5
+    },
+    {
+      "text": "Beyond symbolic music retrieval, CLaMP 3 also achieved notable performances in audio retrieval.",
+      "pageIndex": 6
+    },
+    {
+      "text": "Both variants—CLaMP 3c2sa and CLaMP 3saas—consistently outperformed CLAP, with CLaMP 3saas standing out.",
+      "pageIndex": 6
+    },
+    {
+      "text": "It achieved the highest MRR of 0.1985 on SDD, marking a substantial improvement over TTMR++ (0.1437) and CLAP (0.1310).",
+      "pageIndex": 6
+    },
+    {
+      "text": "While TTMR++ performed well on MC-R (0.1248), its results on the original MusicCaps dataset are abnormally higher (see Table 13), likely because it was trained on half of MusicCaps’ original music-text pairs.",
+      "pageIndex": 6
+    },
+    {
+      "text": "This training overlap suggests that indirect data leakage affects its performance, even when evaluated on MC-R.",
+      "pageIndex": 6
+    },
+    {
+      "text": "CLaMP 3’s strong performance extends to WikiMT-X, with both variants outperforming baselines across all four semantic categories.",
+      "pageIndex": 6
+    },
+    {
+      "text": "In Background and Analysis, where texts provide rich cultural or technical details, CLaMP 3c2sa and CLaMP 3saas excelled, achieving MRRs of 0.4028 and 0.3382 (sheet music) and 0.2017 and 0.1711 (audio).",
+      "pageIndex": 6
+    },
+    {
+      "text": "Description and Scene, however, are much harder to retrieve because they are less specific and semantically sparse.",
+      "pageIndex": 6
+    },
+    {
+      "text": "Description excludes explicit identifiers like titles or artist names, while Scene focuses on abstract, visualized scenario depictions (rather than the music itself), both of which make retrieval more difficult.",
+      "pageIndex": 6
+    },
+    {
+      "text": "Even so, CLaMP 3 performed notably better, with CLaMP 3saas scoring 0.0988 (Description) and 0.0963 (Scene) in audio, compared to TTMR++ (0.0584, 0.0301).",
+      "pageIndex": 6
+    },
+    {
+      "text": "This improvement stems from M4-RAG’s diverse annotations, which better equip CLaMP 3 to retrieve abstract, semantically sparse texts compared to baseline models trained on less diverse data.",
+      "pageIndex": 6
+    },
+    {
+      "text": "Currently, no non-English music-text benchmarks exist, making multilingual evaluation challenging.",
+      "pageIndex": 6
+    },
+    {
+      "text": "To address this, we used SeamlessM4T (Barrault et al., 2023) to translate WikiMT-X background annotations into multiple languages.",
+      "pageIndex": 6
+    },
+    {
+      "text": "To account for translation noise, BLEU scores (Papineni et al., 2002) were calculated by comparing original texts with back-translations.",
+      "pageIndex": 6
+    },
+    {
+      "text": "The translated annotations were then used for retrieval of matching ABC notation, MIDI (from ABC), and audio files.",
+      "pageIndex": 6
+    },
+    {
+      "text": "We carefully selected ten languages to ensure diversity in linguistic families, scripts, regions, and resource levels.",
+      "pageIndex": 6
+    },
+    {
+      "text": "Five UN official languages were chosen from those included in M4-RAG as they represent different cultures and regions with global significance.",
+      "pageIndex": 6
+    },
+    {
+      "text": "The other five, marked with asterisks in Table 3, come from different linguistic families with distinct scripts and minimal vocabulary overlap, specifically to test CLaMP 3’s generalization to languages unseen in music-text alignment.",
+      "pageIndex": 6
+    },
+    {
+      "text": "To the best of our knowledge, apart from CLaMP 3, CLaMP 2 is the only multilingual MIR model, but it is limited to symbolic music.",
+      "pageIndex": 6
+    },
+    {
+      "text": "No baselines exist for multilingual audio retrieval, as models like CLAP and TTMR++ are restricted to English.",
+      "pageIndex": 6
+    },
+    {
+      "text": "CLaMP 3’s two variants differ in their language exposure.",
+      "pageIndex": 6
+    },
+    {
+      "text": "CLaMP 3c2sa initializes its text and symbolic music encoders from CLaMP 2, which was pre-trained on symbolic-text alignment across all XLM-R-supported languages, giving it prior exposure to all languages in Table 3.",
+      "pageIndex": 6
+    },
+    {
+      "text": "In contrast, CLaMP 3saas has never aligned music data with the languages marked with asterisks, demonstrating true cross-lingual generalization in its performance.",
+      "pageIndex": 6
+    },
+    {
+      "text": "Table 3 shows that CLaMP 3 demonstrates strong cross-lingual generalization in both symbolic music and audio retrieval tasks.",
+      "pageIndex": 7
+    },
+    {
+      "text": "For symbolic music retrieval, CLaMP 3c2sa clearly outperforms CLaMP 2 on all languages, including those not in M4-RAG, showing that full language coverage during training is not necessary for improved multilingual retrieval.",
+      "pageIndex": 7
+    },
+    {
+      "text": "Meanwhile, CLaMP 3saas, without any prior alignment between these languages and music or specific optimization for symbolic music tasks, matches CLaMP 2’s performance on MIDI and surpasses it on ABC notation.",
+      "pageIndex": 7
+    },
+    {
+      "text": "This indicates that CLaMP 3saas achieves true cross-lingual generalization on unseen languages.",
+      "pageIndex": 7
+    },
+    {
+      "text": "In audio retrieval, CLaMP 3saas performed well on languages it had never seen during alignment.",
+      "pageIndex": 7
+    },
+    {
+      "text": "For instance, it outperformed CLaMP 3c2sa on Finnish (0.1770 vs. 0.1112), Greek (0.1736 vs. 0.1014), and Kazakh (0.1561 vs. 0.1005), even though CLaMP 3c2sa had indirect exposure to these languages during CLaMP 2 pre-training.",
+      "pageIndex": 7
+    },
+    {
+      "text": "Notably, even for its weakest unseen language, Amharic (0.0675), CLaMP 3saas outperformed CLAP’s performance on English text (0.0598).",
+      "pageIndex": 7
+    },
+    {
+      "text": "This suggests that prior exposure to a language is not necessary for achieving strong audio retrieval performance.",
+      "pageIndex": 7
+    },
+    {
+      "text": "The ability to retrieve languages beyond the training data stems from XLM-R’s cross-lingual semantics and the universal representations of CLaMP 3’s music encoders.",
+      "pageIndex": 7
+    },
+    {
+      "text": "This enables the model to handle low-resource languages and even generalize to unseen ones, enhancing its inclusivity and versatility for global MIR.",
+      "pageIndex": 7
+    },
+    {
+      "text": "Emergent cross-modal retrieval assesses a model’s ability to align and retrieve musical content across modalities without explicit alignment training, showcasing its capacity to generalize to unaligned modalities.",
+      "pageIndex": 7
+    },
+    {
+      "text": "Table 4 reports results for all possible retrieval directions between ABC notation, MIDI, and audio data.",
+      "pageIndex": 7
+    },
+    {
+      "text": "CLaMP 3 significantly advances cross-modal retrieval by supporting both symbolic and audio modalities, addressing a key limitation of CLaMP 2.",
+      "pageIndex": 7
+    },
+    {
+      "text": "While CLaMP 2 excels in symbolic tasks (S→P: 0.5138, P→S: 0.4480) without explicit alignment between ABC and MIDI, it cannot retrieve between symbolic and audio modalities.",
+      "pageIndex": 7
+    },
+    {
+      "text": "In contrast, CLaMP 3c2sa not only achieves state-of-the-art performance on symbolic music tasks like P→S (0.5293) but also enables emergent retrieval between symbolic music and audio.",
+      "pageIndex": 7
+    },
+    {
+      "text": "Similarly, CLaMP 3saas, optimized for audio retrieval, achieves meaningful results on new tasks such as S→A (0.0578) and P→A (0.0397), demonstrating its ability to unify symbolic and audio modalities in a shared representation space.",
+      "pageIndex": 7
+    },
+    {
+      "text": "While audio retrieval is inherently more challenging due to the continuous nature of audio signals, all directions achieve MRR scores well above the random baseline of 0.0075.",
+      "pageIndex": 7
+    },
+    {
+      "text": "Nonetheless, further optimization is required to reduce the performance gap between symbolic and audio retrieval.",
+      "pageIndex": 7
+    },
+    {
+      "text": "In this paper, we introduced CLaMP 3, a unified MIR framework that aligns sheet music, performance signals, audio, and multilingual text using contrastive learning.",
+      "pageIndex": 7
+    },
+    {
+      "text": "CLaMP 3 demonstrates strong cross-modal and cross-lingual generalization, effectively handling unaligned modalities and unseen languages during training.",
+      "pageIndex": 7
+    },
+    {
+      "text": "To address the lack of high-quality datasets, we curated M4-RAG, a collection of 2.31 million music-text pairs spanning 27 languages and 194 countries.",
+      "pageIndex": 7
+    },
+    {
+      "text": "We also released WikiMT-X, the first benchmark combining text, sheet music, and audio for comprehensive evaluation.",
+      "pageIndex": 7
+    },
+    {
+      "text": "Our experiments show that CLaMP 3 achieves state-of-the-art performance in both symbolic and audio retrieval, excels in multilingual tasks, and enables retrieval across unaligned musical modalities.",
+      "pageIndex": 7
+    },
+    {
+      "text": "These results demonstrate its flexibility and the effectiveness of its shared representation space.",
+      "pageIndex": 7
+    },
+    {
+      "text": "To conclude, CLaMP 3 sets a new standard in multimodal and multilingual MIR, demonstrating robust cross-modal and cross-lingual generalization.",
+      "pageIndex": 7
+    },
+    {
+      "text": "By releasing the CLaMP 3 model, M4-RAG dataset, and WikiMT-X benchmark, we provide resources to support future research in MIR and music generation across languages and modalities.",
+      "pageIndex": 7
+    },
+    {
+      "text": "Although CLaMP 3 attains state-of-the-art performance across modalities and languages, showing cross-modal and cross-lingual generalization, this work has several limitations that need to be addressed for further advancements in MIR.",
+      "pageIndex": 8
+    },
+    {
+      "text": "First, while contrastive learning has advanced multimodal information retrieval, it struggles to capture the temporal dynamics of music.",
+      "pageIndex": 8
+    },
+    {
+      "text": "This is because such models typically use a single global representation to store the entire semantic content of a piece of music, making them insensitive to temporal dynamics.",
+      "pageIndex": 8
+    },
+    {
+      "text": "For example, in Beethoven’s Symphony No. 5, the iconic four-note motif develops throughout the piece, yet current systems often miss this context.",
+      "pageIndex": 8
+    },
+    {
+      "text": "Addressing this requires moving beyond contrastive learning to incorporate temporal modeling, enabling systems to better capture nuances and deliver more context-aware and accurate retrieval.",
+      "pageIndex": 8
+    },
+    {
+      "text": "Second, although Table 3 indicates that while CLaMP 3 can generalize to languages beyond music-text alignment, the multilingual text-to-music retrieval evaluation in it heavily relies on translation models due to the lack of native multilingual benchmarks.",
+      "pageIndex": 8
+    },
+    {
+      "text": "The translation quality varies significantly across languages, which introduces noise and reduces the reliability of evaluations.",
+      "pageIndex": 8
+    },
+    {
+      "text": "Developing native multilingual benchmarks is the primary and almost indispensable solution to achieve more accurate and fair assessments of model performance.",
+      "pageIndex": 8
+    },
+    {
+      "text": "Finally, as shown in Table 4, the alignment between audio and symbolic modalities, though showing emergent capabilities with performance far above random, remains relatively weak.",
+      "pageIndex": 8
+    },
+    {
+      "text": "Addressing this limitation requires collecting paired data for supervised alignment and leveraging text as a bridging modality to further enhance connections between different musical modalities.",
+      "pageIndex": 8
+    },
+    {
+      "text": "To evaluate the semantic quality of music-text pairings, we conduct an evaluation combining (i) automatic similarity scores from models and (ii) human ratings on music-text alignment and musical aesthetics.",
+      "pageIndex": 13
+    },
+    {
+      "text": "The results are summarized in Table 5.",
+      "pageIndex": 13
+    },
+    {
+      "text": "We include both LLM-generated and human-annotated datasets in this evaluation.",
+      "pageIndex": 13
+    },
+    {
+      "text": "Specifically, all symbolic datasets—WikiMT, MidiCaps, and WikiMT-X—contain text annotations generated by large language models.",
+      "pageIndex": 13
+    },
+    {
+      "text": "In contrast, the audio datasets differ in annotation quality: MusicCaps captions are written by trained musicians, while SDD was annotated by non-expert crowd workers.",
+      "pageIndex": 13
+    },
+    {
+      "text": "For the automatic evaluation, we report the average cosine similarity between text and music embeddings generated by multiple retrieval models, including CLAP, TTMR++, CLaMP, CLaMP 2, and two CLaMP 3 variants.",
+      "pageIndex": 13
+    },
+    {
+      "text": "These similarity scores indicate how well the text and music are aligned in the shared embedding space.",
+      "pageIndex": 13
+    },
+    {
+      "text": "WikiMT-X consistently achieves higher similarity scores across most annotation types compared to previous datasets.",
+      "pageIndex": 13
+    },
+    {
+      "text": "For example, its Background annotations reach cosine similarities of 0.2429 (CLaMP), 0.3734 (CLAP), and 0.4477 (TTMR++), outperforming scores seen in other datasets.",
+      "pageIndex": 13
+    },
+    {
+      "text": "Similar improvements are observed in the Analysis and Description categories, with the highest overall score of 0.2874 achieved by CLaMP 3saas on the Scene annotation type.",
+      "pageIndex": 13
+    },
+    {
+      "text": "To complement the automatic metrics, we conducted a human evaluation.",
+      "pageIndex": 13
+    },
+    {
+      "text": "Four conservatory-trained musicians (each with over 10 years of formal experience) rated 144 music-text examples based on two criteria: semantic alignment (how well the text matches the music) and musical aesthetics (the perceived quality of the music), using a 1-5 scale.",
+      "pageIndex": 13
+    },
+    {
+      "text": "Results show that WikiMT-X performs on par with or better than expert-annotated datasets.",
+      "pageIndex": 13
+    },
+    {
+      "text": "In the symbolic domain, its Background annotations receive a high alignment score of 4.67—close to WikiMT’s 4.83 and higher than MidiCaps’ 3.92.",
+      "pageIndex": 13
+    },
+    {
+      "text": "In the audio domain, WikiMT-X again demonstrates strong performance.",
+      "pageIndex": 13
+    },
+    {
+      "text": "Its alignment scores reach up to 4.50, and aesthetics up to 3.58—substantially outperforming SDD (2.25 / 2.50) and MusicCaps (4.08 / 2.58), which include more amateur or crowd-sourced material.",
+      "pageIndex": 13
+    },
+    {
+      "text": "The consistently higher aesthetic ratings for WikiMT and WikiMT-X likely stem from their inclusion of well-known Western popular music from the 20th century, in contrast to the less polished recordings found in other benchmarks.",
+      "pageIndex": 13
+    },
+    {
+      "text": "Overall, the results support WikiMT-X as a high-quality benchmark for multimodal text-to-music retrieval.",
+      "pageIndex": 13
+    },
+    {
+      "text": "Its annotations show robust semantic alignment and musical relevance, confirmed by both model metrics and expert ratings.",
+      "pageIndex": 13
+    },
+    {
+      "text": "With careful filtering and validation, LLM-generated annotations can match or even exceed expert quality across both symbolic and audio datasets.",
+      "pageIndex": 13
+    },
+    {
+      "text": "We apply t-SNE (t-distributed Stochastic Neighbor Embedding) to the WikiMT-X dataset to visualize how CLaMP 3 organizes data into a shared representation space.",
+      "pageIndex": 14
+    },
+    {
+      "text": "The projections illustrate the model’s ability to align data across modalities, languages, and semantic categories.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Fig. 8a includes features from Text (background annotations), ABC notation, MIDI, and Audio.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Each modality forms a distinct cluster, reflecting the inherent differences in how information is encoded.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Notably, modalities closer to Text tend to perform better, aligning with the trend in Table 3, suggesting a correlation between embedding proximity and cross-modal effectiveness.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Additionally, all musical modalities display a mirrored symmetry around the Text cluster, indicating that Text may serve as a semantic anchor.",
+      "pageIndex": 14
+    },
+    {
+      "text": "This symmetry suggests CLaMP 3 aligns modalities relative to Text, balancing modality-specific features while preserving semantic consistency.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Fig. 8b focuses on background annotations in four languages—English, Spanish, Chinese, and Amharic—selected to represent varying retrieval performance levels.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Despite their linguistic differences, these languages largely overlap, indicating strong cross-lingual alignment.",
+      "pageIndex": 14
+    },
+    {
+      "text": "English and Spanish cluster closely, reflecting both their shared linguistic roots.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Chinese shows moderate overlap with English, suggesting that CLaMP 3 effectively bridges typologically distant languages.",
+      "pageIndex": 14
+    },
+    {
+      "text": "However, Amharic, a low-resource and unseen language, forms more isolated clusters, indicating the challenges of aligning low-resource languages.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Fig. 8c shows four semantic categories—Background, Analysis, Description, and Scene—presenting how CLaMP 3 handles different content types.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Background, Analysis, and Description often converge, reflecting the overlap in explanatory texts as they cover related musical concepts.",
+      "pageIndex": 14
+    },
+    {
+      "text": "In contrast, Scene forms distinct clusters, likely because it focuses on visual depictions, leading to more consistent semantic patterns tied to specific imagery rather than music.",
+      "pageIndex": 14
+    },
+    {
+      "text": "Across all three visualizations, genre boundaries remain clear despite differences in modality, language, or semantic category.",
+      "pageIndex": 14
+    },
+    {
+      "text": "This shows that CLaMP 3 effectively aligns multimodal and multilingual data while preserving genre-specific distinctions, demonstrating the model’s strong representational capabilities.",
+      "pageIndex": 14
+    },
+    {
+      "text": "A straightforward way to train CLaMP 3 would be to align symbolic music, audio, and text all at once.",
+      "pageIndex": 16
+    },
+    {
+      "text": "However, early experiments showed that this led to unstable training.",
+      "pageIndex": 16
+    },
+    {
+      "text": "The text encoder struggled because symbolic and audio data had very different distributions (Fig.8a) and pulled it in opposite directions, making alignment ineffective.",
+      "pageIndex": 16
+    },
+    {
+      "text": "To solve this, we adopted a multi-stage alignment strategy (Sec. 2.1) that gradually integrates each modality, ensuring stable and effective alignment.",
+      "pageIndex": 16
+    },
+    {
+      "text": "To explore the best way to align modalities, we tested different training orders, leading to several model variants.",
+      "pageIndex": 16
+    },
+    {
+      "text": "The main difference among them is how and when the text encoder is aligned with symbolic music and audio encoders:",
+      "pageIndex": 16
+    },
+    {
+      "text": "A two-stage alignment where text is first aligned with audio, then the text encoder is frozen while aligning with symbolic music.",
+      "pageIndex": 16
+    },
+    {
+      "text": "The reverse of CLaMP 3as, first aligning text with symbolic music, then freezing the text encoder while aligning with audio.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Same as CLaMP 3sa, but starting with pre-trained text and symbolic encoders from CLaMP 2.",
+      "pageIndex": 16
+    },
+    {
+      "text": "A four-stage alignment: audio → symbolic → symbolic → audio, with the text encoder frozen in the second and fourth stages to maintain stability.",
+      "pageIndex": 16
+    },
+    {
+      "text": "A four-stage alignment: symbolic → audio → audio → symbolic, also freezing the text encoder in the second and fourth stages.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Same as CLaMP 3saas, but initialized with pre-trained text and symbolic encoders from CLaMP 2.",
+      "pageIndex": 16
+    },
+    {
+      "text": "We evaluate these six variants across all experiments in Sec. 4 to assess their effectiveness in different retrieval tasks.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Table 6 shows that aligning text with symbolic music before audio improves generalization in English text-to-music retrieval.",
+      "pageIndex": 16
+    },
+    {
+      "text": "CLaMP 3sa outperforms CLaMP 3as in symbolic retrieval without compromising audio performance.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Four-stage models outperform two-stage models in audio retrieval, emphasizing the importance of iterative alignment.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Among them, CLaMP 3saas achieves the best balance between symbolic and audio retrieval.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Leveraging CLaMP 2’s weight initialization enhances symbolic retrieval, as seen in CLaMP 3c2sa leading symbolic tasks.",
+      "pageIndex": 16
+    },
+    {
+      "text": "However, it does not consistently improve audio retrieval, likely because CLaMP 2 was trained only on symbolic music, limiting its text encoder’s adaptability to audio alignment.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Table 7 demonstrates the impact of pre-training and training order on multilingual text-to-music retrieval.",
+      "pageIndex": 16
+    },
+    {
+      "text": "In symbolic retrieval, using CLaMP 2’s pre-trained text-symbolic encoders provides a clear advantage, with CLaMP 3c2sa achieving the highest scores across most languages.",
+      "pageIndex": 16
+    },
+    {
+      "text": "This suggests that pre-training helps build a strong shared representation space, especially for MIDI, where M4-RAG’s limited native data weakens overall performance.",
+      "pageIndex": 16
+    },
+    {
+      "text": "However, pre-training is not always decisive, as some non-pretrained models surpass pre-trained variants in certain languages for ABC retrieval.",
+      "pageIndex": 16
+    },
+    {
+      "text": "In contrast, audio retrieval is consistently strongest with CLaMP 3saas, even in unseen languages, suggesting that training order plays a more crucial role in cross-lingual generalization.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Table 8 evaluates emergent cross-modal retrieval, where no direct supervised alignment exists among musical modalities.",
+      "pageIndex": 16
+    },
+    {
+      "text": "CLaMP 3c2sa achieves the best symbolic retrieval (S↔P), showing that CLaMP 2 pre-training strengthens symbolic-text alignment, which indirectly benefits symbolic retrieval.",
+      "pageIndex": 16
+    },
+    {
+      "text": "For symbolic-audio retrieval, CLaMP 3c2saas performs best, leading in P→A (0.0467), A→S (0.0558), and A→P (0.0431).",
+      "pageIndex": 16
+    },
+    {
+      "text": "It consistently outperforms CLaMP 3saas, suggesting that pre-training provides a stronger shared representation space, leading to better cross-modal generalization between unpaired modalities.",
+      "pageIndex": 16
+    },
+    {
+      "text": "These results show the importance of both training order and pre-training in MIR.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Multi-stage alignment stabilizes training, while training order plays a key role, particularly in audio retrieval and cross-lingual generalization.",
+      "pageIndex": 16
+    },
+    {
+      "text": "Pre-training with CLaMP 2 strengthens symbolic retrieval and improves cross-modal generalization, but its benefits are limited for audio retrieval.",
+      "pageIndex": 16
+    },
+    {
+      "text": "This section evaluates CLaMP 3 variants and baselines via linear probing, assessing their ability to classify musical attributes in symbolic and audio music, as well as musical modalities and text annotations in WikiMT-X.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Table 9 presents symbolic music classification results for ABC notation and MIDI across three benchmarks: WikiMT (Wu et al., 2023a) consists of 1,010 lead sheets in ABC notation sourced from Wikifonia, labeled into 8 genre categories based on corresponding Wikipedia entries.",
+      "pageIndex": 18
+    },
+    {
+      "text": "VGMIDI (Ferreira and Whitehead, 2019) contains 204 MIDI transcriptions of video game soundtracks, annotated with 4 emotion labels derived from valence and arousal levels.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Pianist8 (Chou et al., 2021) includes 411 piano performances, transcribed from audio to performance MIDI, and labeled with their respective composers across eight categories.",
+      "pageIndex": 18
+    },
+    {
+      "text": "To enable evaluation in both formats, all datasets were converted between ABC and MIDI.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Despite improved text alignment, CLaMP 3 does not surpass CLaMP 2 in sheet music classification.",
+      "pageIndex": 18
+    },
+    {
+      "text": "This is likely because CLaMP 3 was trained on only half as much symbolic data.",
+      "pageIndex": 18
+    },
+    {
+      "text": "While stronger textual supervision benefits retrieval, it does not fully offset the reduced symbolic training for classification.",
+      "pageIndex": 18
+    },
+    {
+      "text": "However, CLaMP 3 still outperforms M3—the symbolic music encoder it was initialized from—on most benchmarks, suggesting that contrastive text supervision enhances the semantic salience of extracted features.",
+      "pageIndex": 18
+    },
+    {
+      "text": "These results indicate that retrieval and classification improvements are relatively independent.",
+      "pageIndex": 18
+    },
+    {
+      "text": "In text-to-music retrieval (Table 2, Table 3), CLaMP 3—especially CLaMP 3c2sa—significantly outperforms CLaMP 2, yet this advantage does not extend to classification.",
+      "pageIndex": 18
+    },
+    {
+      "text": "A possible explanation is that retrieval requires rich representations and effective interaction between text and music encoders, while classification depends solely on an encoder’s ability to extract features relevant to predefined labels.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Thus, while higher-quality text annotations enhance retrieval, they do not necessarily improve symbolic music classification.",
+      "pageIndex": 18
+    },
+    {
+      "text": "To evaluate the audio classification performance of CLaMP 3 variants and baselines, we conduct linear probing on MARBLE (Yuan et al., 2023) and MTG-Jamendo (Bogdanov et al., 2019).",
+      "pageIndex": 18
+    },
+    {
+      "text": "MARBLE is a comprehensive benchmark collection for music representation evaluation.",
+      "pageIndex": 18
+    },
+    {
+      "text": "We assess models on 8 tasks covering different aspects of audio understanding.",
+      "pageIndex": 18
+    },
+    {
+      "text": "MTG-Jamendo is a large-scale benchmark with over 55,000 music tracks annotated for multiple classification tasks.",
+      "pageIndex": 18
+    },
+    {
+      "text": "It focuses on high-level musical attributes, making it well-suited for evaluating a model’s ability to capture semantic meaning in music.",
+      "pageIndex": 18
+    },
+    {
+      "text": "We also assess the self-supervised model MERT, CLaMP 3’s audio feature extractor, averaging embeddings to one per 5-second clip across layers and time steps.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Table 10 shows the strengths of contrastive and self-supervised models on the MARBLE benchmark.",
+      "pageIndex": 18
+    },
+    {
+      "text": "CLaMP 3 variants excel in high-level tasks, like genre classification (GTZAN) and tagging (MTT), where capturing abstract musical meaning is crucial.",
+      "pageIndex": 18
+    },
+    {
+      "text": "MERT, however, performs better in low-level tasks such as key detection (GS) and pitch classification (Nsynth), where fine spectral detail is more important.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Contrastive models generally struggle with short-duration audio (e.g., 4-second clips in Nsynth) because their focus on aligning longer segments with text limits their ability to capture acoustic details.",
+      "pageIndex": 18
+    },
+    {
+      "text": "These results suggest contrastive learning is better for semantic tasks, while self-supervised models are more effective for low-level acoustic analysis.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Table 11 shows that contrastive models, particularly CLaMP 3 variants, consistently outperform MERT across all MTG-Jamendo tasks.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Notably, CLaMP 3 models achieve the highest scores in most tasks, demonstrating how diverse and high-quality text annotations help contrastive models learn and capture complex musical semantics.",
+      "pageIndex": 18
+    },
+    {
+      "text": "In summary, contrastive models perform well in high-level classification tasks but struggle with short clips and fine-grained acoustic details.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Their effectiveness heavily depends on the text annotations used during training.",
+      "pageIndex": 18
+    },
+    {
+      "text": "For instance, CLAP achieves strong results in instrument classification (Nsynth) because its training data is dominated by instrument and genre descriptions.",
+      "pageIndex": 18
+    },
+    {
+      "text": "However, it performs poorly in key detection (GS), where such annotations offer little relevant information.",
+      "pageIndex": 18
+    },
+    {
+      "text": "Table 12 presents classification results across different musical modalities (ABC, MIDI, Audio) and text annotations (Background, Analysis, Description, Scene) on WikiMT-X.",
+      "pageIndex": 19
+    },
+    {
+      "text": "Compared to the WikiMT results in Table 9, all models show substantial gains in genre classification accuracy and F1-macro for ABC and MIDI.",
+      "pageIndex": 19
+    },
+    {
+      "text": "This confirms that reannotating genre labels significantly reduced label noise, leading to more reliable classification.",
+      "pageIndex": 19
+    },
+    {
+      "text": "The improvements suggest that earlier inconsistencies in genre annotations were a major limiting factor in classification performance.",
+      "pageIndex": 19
+    },
+    {
+      "text": "The reorganized label taxonomy and refined annotations in WikiMT-X provide a more structured and consistent genre framework, making it a more reliable benchmark for music classification.",
+      "pageIndex": 19
+    },
+    {
+      "text": "Across different musical modalities, the best-performing models for ABC, MIDI, and Audio achieve comparable classification results.",
+      "pageIndex": 19
+    },
+    {
+      "text": "This suggests that genre-related features are well-preserved regardless of musical representation.",
+      "pageIndex": 19
+    },
+    {
+      "text": "Fig. 8a further supports this observation, showing clear genre boundaries across all modalities, indicating CLaMP 3 models can effectively extract genre information from both representations, reinforcing the idea that genre characteristics are consistently encoded in musical data.",
+      "pageIndex": 19
+    },
+    {
+      "text": "A clear distinction emerges between text and music classification: models perform significantly better on text annotations (Background, Analysis, Description) than on music data.",
+      "pageIndex": 19
+    },
+    {
+      "text": "This is likely because text often contains explicit genre-related cues, making classification more direct.",
+      "pageIndex": 19
+    },
+    {
+      "text": "For example, descriptions like “syncopated piano chords and walking bass” strongly suggest jazz.",
+      "pageIndex": 19
+    },
+    {
+      "text": "In contrast, classifying music requires models to infer genre from intricate relationships between harmony, rhythm, and timbre.",
+      "pageIndex": 19
+    },
+    {
+      "text": "However, Scene classification behaves differently from other text-based categories—it describes environmental settings rather than musical attributes, making its classification challenge more similar to music than text.",
+      "pageIndex": 19
+    },
+    {
+      "text": "Models trained solely on audio-text alignment (i.e., CLAP, TTMR++) perform worse in text classification, likely due to the limited diversity of annotations in large-scale audio-text datasets, which often list only instruments and genres.",
+      "pageIndex": 19
+    },
+    {
+      "text": "In contrast, symbolic-text datasets provide richer semantics, including background context and musicological analysis.",
+      "pageIndex": 19
+    },
+    {
+      "text": "CLaMP 3as is an exception—though its text encoder was fully updated during audio alignment, it achieves much stronger text classification than models like CLAP and TTMR++.",
+      "pageIndex": 19
+    },
+    {
+      "text": "This is likely due to M4-RAG’s well-curated and diverse annotations, which offer a broader and more expressive linguistic representation of musical content.",
+      "pageIndex": 19
+    },
+    {
+      "text": "MusicCaps, a widely used text-to-music retrieval benchmark, includes 5,521 music-text pairs with 10-second audio clips.",
+      "pageIndex": 20
+    },
+    {
+      "text": "As a subset of AudioSet, many models are trained on overlapping data, raising concerns about reliability, as they may memorize seen examples rather than learning true retrieval patterns.",
+      "pageIndex": 20
+    },
+    {
+      "text": "Table 13 shows text-to-music retrieval results on MusicCaps, examining data leakage in baseline models.",
+      "pageIndex": 20
+    },
+    {
+      "text": "We evaluate performance on the full dataset (Full Set) and the AudioSet evaluation subset (Eval Set), while also assessing the effects of caption rewording (Original vs. Rewritten) and audio length (Clip vs. Full Track).",
+      "pageIndex": 20
+    },
+    {
+      "text": "Leakage varies across models: TTMR++ is the most affected, having been trained on MusicCaps pairs from the training set of AudioSet, exposing it to half the benchmark; CLAP, trained on the full AudioSet, has seen all MusicCaps audio; in contrast, CLaMP 3 has minimal exposure, with only 150 audio recordings appearing in M4-RAG.",
+      "pageIndex": 20
+    },
+    {
+      "text": "Table 13 reveals clear data leakage.",
+      "pageIndex": 20
+    },
+    {
+      "text": "TTMR++ is the only model that performs worse on the evaluation set than on the full benchmark, despite the evaluation set containing fewer retrieval candidates, which should naturally lead to higher MRR scores.",
+      "pageIndex": 20
+    },
+    {
+      "text": "This suggests severe overfitting to seen MusicCaps training data.",
+      "pageIndex": 20
+    },
+    {
+      "text": "Additionally, both TTMR++ and CLAP show performance drops with rewritten captions and full-length tracks.",
+      "pageIndex": 20
+    },
+    {
+      "text": "For TTMR++, this suggests that these modifications help reduce leakage effects, though not entirely.",
+      "pageIndex": 20
+    },
+    {
+      "text": "For CLAP, the decline is likely due to rewritten captions incorporating more detailed semantic information from aspect lists, which may shift retrieval behavior.",
+      "pageIndex": 20
+    },
+    {
+      "text": "In contrast, all CLaMP 3 variants show improved performance with rewritten captions, likely due to M4-RAG’s use of Qwen, making them more attuned to its text patterns.",
+      "pageIndex": 20
+    },
+    {
+      "text": "They also gain an advantage in full-track retrieval.",
+      "pageIndex": 20
+    },
+    {
+      "text": "While baseline models rely on 10-second clips and average embeddings across segments, CLaMP 3 processes up to 640 seconds of audio, enabling it to capture relationships across an entire track.",
+      "pageIndex": 20
+    },
+    {
+      "text": "In contrast, baselines extract semantics from isolated clips, restricting their ability to utilize long-form audio context effectively.",
+      "pageIndex": 20
+    },
+    {
+      "text": "These results raise broader concerns about benchmark reliability in text-to-music retrieval.",
+      "pageIndex": 20
+    },
+    {
+      "text": "Other benchmarks also face leakage risks—SDD, for instance, comes from MTG-Jamendo, which was included in CLAP’s training data.",
+      "pageIndex": 20
+    },
+    {
+      "text": "In contrast, WikiMT-X, manually curated for this study, mitigates leakage by sourcing audio from the web rather than existing datasets.",
+      "pageIndex": 20
+    },
+    {
+      "text": "However, since this audio remains publicly accessible, large-scale models may still have exposure.",
+      "pageIndex": 20
+    },
+    {
+      "text": "To further reduce leakage, future benchmarks should prioritize private or newly recorded datasets for unbiased evaluation.",
+      "pageIndex": 20
+    }
+  ],
+  "excluded": [],
+  "annotationMethod": "Manually curated body prose from the CLaMP 3 paper. Excludes the abstract, headings, paragraph labels, captions, tables, author matter, references, prompt text, and JSON examples. Wording, numbers, and punctuation follow the paper; line-break hyphenation and broken spacing were repaired by hand."
+}

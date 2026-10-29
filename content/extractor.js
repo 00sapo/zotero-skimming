@@ -20,8 +20,10 @@ var FastKeySentenceExtractor = (() => {
   const MIN_REPEAT_PAGES = 3;
   const REPEAT_PAGE_FRACTION = 0.3;
   const Y_BAND_PT = 30;
-  const REF_DENSITY = 0.5;
+  const REF_DENSITY = 0.4;
   const REF_MIN_HITS = 5;
+  const COMPOUND_SUFFIXES = new Set(["extracted", "level", "form", "trained", "scale", "music", "symbolic", "lingual", "modal", "stage", "shot", "based", "aware", "driven", "specific", "grained", "quality", "resource", "length", "term", "time", "extended", "annotated", "supervised", "interleaved", "format", "level", "scale", "track", "task", "performing"]);
+  const HYPHEN_FUNCTION_PREFIXES = new Set(["to", "of", "the"]);
 
   const REF_SIGNALS = [
     /\b(?:19|20)\d{2}\b/,
@@ -121,8 +123,37 @@ var FastKeySentenceExtractor = (() => {
       (a.rect[0] + a.rect[2]) / 2 - (b.rect[0] + b.rect[2]) / 2);
     const baseline = median(ordered.map(char => char.baseline));
     const fontSize = median(ordered.map(char => char.fontSize));
-    ordered = ordered.filter(char => !(char.fontSize < fontSize * 0.92
-      && Math.abs(char.baseline - baseline) > char.fontSize * 0.35));
+    let lastKept = null;
+    ordered = ordered.filter(char => {
+      const small = char.fontSize < fontSize * 0.92
+        && Math.abs(char.baseline - baseline) > char.fontSize * 0.35;
+      if (!small) {
+        lastKept = char;
+        return true;
+      }
+      // Keep superscript and subscript suffixes such as CLaMP 3c2sa, but drop
+      // footnote markers that follow an ordinary letter.
+      const gap = lastKept ? char.rect[0] - lastKept.rect[2] : Number.POSITIVE_INFINITY;
+      const keep = Boolean(lastKept) && (
+        /[0-9]/.test(lastKept.c) && gap <= fontSize * 0.4
+        || lastKept.fontSize < fontSize * 0.92 && gap <= fontSize * 0.25
+        || /^[A-Za-z]$/.test(char.c) && /^[A-Za-z]$/.test(lastKept.c) && gap <= fontSize * 0.15
+      );
+      if (keep) lastKept = char;
+      return keep;
+    });
+    // Superscript and subscript suffixes overlap in x. Read the raised part
+    // before the lowered part so CLaMP 3c2sa keeps its order.
+    for (let index = 0; index < ordered.length;) {
+      if (!(ordered[index].fontSize < fontSize * 0.92)) { index++; continue; }
+      let end = index;
+      while (end < ordered.length && ordered[end].fontSize < fontSize * 0.92) end++;
+      const run = ordered.slice(index, end)
+        .sort((a, b) => (b.baseline > baseline ? 1 : 0) - (a.baseline > baseline ? 1 : 0)
+          || a.rect[0] - b.rect[0]);
+      ordered.splice(index, end - index, ...run);
+      index = end;
+    }
     const bullet = ordered.length > 0 && /^[•·◦▪▫‣]$/.test(ordered[0].c);
     while (ordered.length && /^[\s•·◦▪▫‣]$/.test(ordered[0].c)) ordered = ordered.slice(1);
     return {
@@ -166,11 +197,13 @@ var FastKeySentenceExtractor = (() => {
     const rows = clusters.map(cluster => describeVisualLine(cluster.chars));
     const segments = [];
     for (const row of rows) {
-      const threshold = Math.max(14, row.fontSize * 1.6);
+      const threshold = Math.max(8, row.fontSize * 1.0);
+      const middle = pageWidth / 2;
       let start = 0;
       for (let index = 1; index < row.chars.length; index++) {
         const gap = row.chars[index].rect[0] - row.chars[index - 1].rect[2];
-        if (gap < threshold) continue;
+        const crossesGutter = row.chars[index - 1].rect[2] < middle && row.chars[index].rect[0] > middle;
+        if (gap < threshold || !(crossesGutter || gap >= row.fontSize * 2)) continue;
         const segment = describeVisualLine(row.chars.slice(start, index));
         if (segment.text) segments.push(segment);
         start = index;
@@ -178,7 +211,36 @@ var FastKeySentenceExtractor = (() => {
       const segment = describeVisualLine(row.chars.slice(start));
       if (segment.text) segments.push(segment);
     }
-    return segments;
+    // Raised or lowered suffixes (CLaMP 3c2sa) form their own tiny rows. Attach
+    // them to the neighbouring full-size segment so the suffix stays attached.
+    const bodySize = segments.length ? median(segments.map(segment => segment.fontSize)) : 0;
+    const tiny = segments.filter(segment => segment.fontSize < bodySize * 0.85
+      && segment.text.length <= 6);
+    const merged = new Set();
+    for (const segment of tiny) {
+      const hosts = segments.filter(candidate => candidate !== segment && !merged.has(candidate)
+        && candidate.fontSize >= segment.fontSize * 1.15
+        && Math.abs(candidate.baseline - segment.baseline) <= candidate.fontSize * 0.9
+        && (segment.x1 - candidate.x2 <= candidate.fontSize * 0.2
+          && segment.x1 - candidate.x2 >= -candidate.fontSize
+          || candidate.x1 - segment.x2 <= candidate.fontSize * 0.2
+            && candidate.x1 - segment.x2 >= -candidate.fontSize
+          || segment.x1 >= candidate.x1 - candidate.fontSize
+            && segment.x2 <= candidate.x2 + candidate.fontSize));
+      hosts.sort((a, b) => Math.abs(a.baseline - segment.baseline) - Math.abs(b.baseline - segment.baseline));
+      const host = hosts[0];
+      if (!host) continue;
+      const extra = segment.chars.slice().sort((a, b) => a.rect[0] - b.rect[0]);
+      const chars = host.chars.slice();
+      let insert = 0;
+      for (let index = 0; index < chars.length; index++) {
+        if (chars[index].rect[2] <= segment.x1 + 1) insert = index + 1;
+      }
+      chars.splice(insert, 0, ...extra);
+      Object.assign(host, describeVisualLine(chars));
+      merged.add(segment);
+    }
+    return segments.filter(segment => !merged.has(segment));
   }
 
   function normalizedGlyph(character) {
@@ -308,17 +370,28 @@ var FastKeySentenceExtractor = (() => {
   }
 
   function looksLikeHeading(text) {
+    const lowerTech = /^[a-z]+-[A-Z]/.test(text.trim());
+    if (!lowerTech && !/^[A-Z0-9“‘]/.test(text.trim())) return false;
+    if (/[,;:]\s*$/.test(text)) return false;
+    if (/[.!?]\s+[A-Z“‘(]/.test(text)) return false;
     const words = text.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
     if (!words.length || words.length > 16 || /[.!?]\s*$/.test(text)) return false;
-    const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i.test(text);
+    const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+(?=[A-Z])/.test(text);
+    const afterNumber = (text.replace(/^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i, "").match(/^[A-Za-z]+/) || [""])[0];
+    const sentenceStart = /^(?:While|This|These|In|We|It|However|As|For|Both|Our|Such|If|When|By)$/i.test(afterNumber);
+    const appendix = /^\s*[A-F](?:\.\d+)*\s+[A-Za-z]/.test(text);
+    const titleWords = words.filter(word => /^[A-Z]/.test(word) || word === word.toUpperCase()).length;
+    if (lowerTech && words.length <= 12 && titleWords / words.length >= 0.5) return true;
+    if (appendix && words.length <= 12 && titleWords / words.length >= 0.5) return true;
     const known = SECTION_MARKERS.some(([marker]) => {
       marker.lastIndex = 0;
       return marker.test(text);
     });
     if (known && words.length <= 4) return true;
+    if (numbered && !sentenceStart && words.length <= 8) return true;
     if (words.length < 2) return false;
     const capitals = words.filter(word => /^[A-Z]/.test(word) || word === word.toUpperCase()).length;
-    return numbered || capitals / words.length >= 0.6;
+    return capitals / words.length >= 0.7;
   }
 
   function detectColumnStarts(lines, pageWidth) {
@@ -388,7 +461,9 @@ var FastKeySentenceExtractor = (() => {
     const spanning = lines.filter(line => line.x2 - line.x1 >= pageWidth * 0.6 || crossesBothColumns(line));
     const columnLines = lines.filter(line => !spanning.includes(line));
     const left = columnLines.filter(line =>
-      Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center)
+      line.x2 <= columns.right.center - columns.tolerance * 0.4
+      || (line.x1 >= columns.left.center - columns.tolerance
+        && Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center))
     );
     const right = columnLines.filter(line => !left.includes(line));
     if (left.length < 3 || right.length < 3) return lines.slice().sort(topDown);
@@ -415,7 +490,7 @@ var FastKeySentenceExtractor = (() => {
     return null;
   }
 
-  const CAPTION_START = /^\s*(?:figure|fig\.?|table|tab\.?)\s*(?:[A-Z]?\d+|[IVXLC]+)\s*(?:[.:]|$)/i;
+  const CAPTION_START = /^\s*(?:(?:figure|table|tab\.?)\s*(?:[A-Z]?\d+|[IVXLC]+)\s*[.:]|fig\.\s*(?:[A-Z]?\d+|[IVXLC]+)\s*:)/i;
 
   function isPageNumberLine(text) {
     return /^\s*(?:\d{1,4}|[ivxlcdm]{1,7})\s*$/i.test(text);
@@ -435,7 +510,7 @@ var FastKeySentenceExtractor = (() => {
       for (const value of cluster.values) marked.add(value.line);
       for (const line of lines) {
         if (!short(line)) continue;
-        if (Math.abs(line.baseline - baseline) > lineHeight * 4) continue;
+        if (Math.abs(line.baseline - baseline) > lineHeight * 0.7) continue;
         if (marked.has(line)) continue;
         marked.add(line);
       }
@@ -450,9 +525,12 @@ var FastKeySentenceExtractor = (() => {
     const title = normalized(hints.title || "");
     const creators = (hints.creators || []).map(normalized).filter(creator => creator.length >= 4);
     const columns = detectColumnStarts(lines, pageWidth);
+    const gutter = columns ? (columns.left.center + columns.right.center) / 2 : 0;
     const lineColumn = line => !columns
       ? "single"
-      : Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center) ? "left" : "right";
+      : line.x1 < gutter
+        && (line.x2 <= columns.right.center - columns.tolerance * 0.4
+          || Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center)) ? "left" : "right";
     let columnRanges = null;
     if (columns) {
       const ranges = { left: { x1: Infinity, x2: -Infinity }, right: { x1: Infinity, x2: -Infinity } };
@@ -478,22 +556,32 @@ var FastKeySentenceExtractor = (() => {
         if (gap > 1 && gap < bodySize * 3) gaps.push(gap);
       }
     }
-    const lineHeight = gaps.length ? median(gaps) : Math.max(bodySize * 1.2, 10);
+    const measured = gaps.length ? median(gaps) : 0;
+    const lineHeight = measured >= bodySize * 1.05 ? measured : Math.max(bodySize * 1.2, 10);
     const tableLines = detectTableLines(lines, lineHeight);
     const captionLines = new Set();
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       if (!CAPTION_START.test(lines[lineIndex].text)) continue;
       const caption = lines[lineIndex];
       captionLines.add(lineIndex);
+      for (let sibling = 0; sibling < lines.length; sibling++) {
+        if (sibling === lineIndex) continue;
+        const other = lines[sibling];
+        if (Math.abs(other.baseline - caption.baseline) > lineHeight * 0.5) continue;
+        if (lineColumn(other) !== lineColumn(caption)) continue;
+        const near = other.x2 >= caption.x1 - bodySize * 1.2 && other.x1 <= caption.x2 + bodySize * 1.2;
+        if (near) captionLines.add(sibling);
+      }
       let lastBaseline = caption.baseline;
       let lastText = caption.text;
       let continuationCount = 0;
-      for (let cursor = lineIndex + 1; cursor < lines.length && continuationCount < 2; cursor++) {
+      for (let cursor = lineIndex + 1; cursor < lines.length && continuationCount < 6; cursor++) {
         const line = lines[cursor];
         const gap = lastBaseline - line.baseline;
         if (gap <= 0) continue;
         if (lineColumn(line) !== lineColumn(caption)) continue;
         if (gap > lineHeight * 2.2) break;
+        if (line.fontSize > caption.fontSize + 0.3) break;
         const overlaps = line.x1 <= caption.x2 + bodySize && line.x2 >= caption.x1 - bodySize;
         const continuation = !/[.!?]\s*$/.test(lastText)
           && gap <= lineHeight * 1.2
@@ -519,7 +607,10 @@ var FastKeySentenceExtractor = (() => {
       let previous = null;
       for (const line of ordered) {
         const text = line.text.trim();
-        const candidate = !line.bullet && text.length >= 10 && /^[A-Z]/.test(text)
+        const runInLabel = /^[A-Z][A-Za-z0-9]*(?:\s+[A-Za-z0-9][A-Za-z0-9]*){0,3}:\s+[A-Z]/.test(text)
+          && text.slice(text.indexOf(":") + 1).trim().split(/\s+/).length >= 4;
+        const candidate = !line.bullet && !runInLabel && text.length >= 10 && /^[A-Z]/.test(text)
+          && text.split(/\s+/).length <= 12
           && !/[.!?](?:\s|$)/.test(text.replace(/\.{3,}/g, ""))
           && !/:\s*$/.test(text) && !looksLikeHeading(text);
         const continuation = run.length > 0 && !candidate
@@ -565,6 +656,7 @@ var FastKeySentenceExtractor = (() => {
     const suppressedBullet = { left: false, right: false, single: false };
     const lastColumnLine = { left: null, right: null, single: null };
     let references = false;
+    let referenceHeading = null;
     const eligible = [];
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -579,7 +671,10 @@ var FastKeySentenceExtractor = (() => {
       const tooSmall = line.fontSize <= Math.max(3, bodySize * 0.9);
       const largeHeading = line.fontSize >= bodySize * 1.28;
       const textHeading = looksLikeHeading(text);
-      const headingLike = !tooSmall && (textHeading || largeHeading || line.fontSize >= bodySize * 1.15);
+      const runInProse = /^[A-Z][A-Za-z0-9]*(?:\s+[A-Za-z0-9][A-Za-z0-9]*){0,2}:\s+\S/.test(text)
+        && text.slice(text.indexOf(":") + 1).trim().split(/\s+/).length >= 2;
+      const headingLike = !tooSmall && !runInProse
+        && (textHeading || largeHeading || line.fontSize >= bodySize * 1.15);
       const section = headingLike ? sectionFromText(text) : null;
       const sentenceEnd = /[.!?](?:\s|$)/.test(text.replace(/\.{3,}/g, ""));
       if (line.bullet) {
@@ -602,15 +697,40 @@ var FastKeySentenceExtractor = (() => {
         keywordColumn = column;
         continue;
       }
+      if (/^(?:authors?|correspondence|affiliations|acknowledg(?:e)?ments?|acknowlegdements)$/i.test(key)) {
+        suppressed[column] = true;
+        continue;
+      }
       if (pageIndex === 0 && keywordColumn === column && line.x2 - line.x1 < pageWidth * 0.38 && !/[.!?]\s*$/.test(text)) {
         continue;
       }
 
       if (section === "abstract") suppressed[sectionColumn] = true;
-      else if (section === "references") references = true;
+      else if (section === "references") {
+        if (!referenceHeading) referenceHeading = { baseline: line.baseline, x1: line.x1 };
+      }
       else if (section || largeHeading) suppressed[sectionColumn] = false;
-      if (!line.bullet && !sentenceEnd && !/:\s*$/.test(text) && /^[A-Z]/.test(text)
-        && text.length < 45) continue;
+      if (/^(?:https?:\/\/|www\.)\S+$/i.test(text)) continue;
+      if (/[^\s@]+@[^\s@]+/.test(text)) continue;
+      const visible = text.replace(/\s/g, "");
+      const letters = (text.match(/[A-Za-z]/g) || []).length;
+      const wordCount = (text.match(/[A-Za-z][A-Za-z'’-]*/g) || []).length;
+      const operators = (text.match(/[=+×÷⋅↔≤≥≠∑∫√∞±/]/g) || []).length;
+      if (visible.length >= 4 && letters < visible.length * 0.35 && operators) continue;
+      const mathSymbols = (text.match(/[=+×÷⋅→←↔≤≥≠∑∫√∞±τλσμ]/g) || []).length;
+      if (!/^[→←]/.test(text) && mathSymbols >= 2 && mathSymbols / visible.length > 0.12) continue;
+      const colonTail = /:\s*$/.test(text);
+      const colonContinuation = wordCount === 1 && colonTail && previousColumnLine
+        && !/[.!?]["'’)]?$/.test(previousColumnLine.text)
+        && previousColumnLine.baseline - line.baseline <= lineHeight * 1.6
+        && !lines.some(other => other !== line
+          && Math.abs(other.baseline - line.baseline) <= line.fontSize * 0.3
+          && other.x2 <= line.x1);
+      if (wordCount < 4 && !line.bullet && !/[.!?]\s*$/.test(text)
+        && !(/\d/.test(text) && /\([A-Z]/.test(text))
+        && !/^(?:Fig|Table|Sec|Eq|Ref)\./i.test(text)
+        && !(/\w-\w/.test(text) && text.replace(/[^A-Za-z]/g, "").length >= 25)
+        && !(wordCount >= 2 && colonTail) && !colonContinuation) continue;
       if (nounListLines.has(line)) continue;
 
       const titleMatch = pageIndex === 0 && key.length >= 6 && title.length >= 6
@@ -643,9 +763,13 @@ var FastKeySentenceExtractor = (() => {
     let charBase = 0;
     for (const line of orderedLines) {
       if (!line.chars.length) continue;
+      const continues = previousLine
+        && !/[.!?]["'’)]?$/.test(previousLine.text)
+        && /^[a-zà-öø-ÿ→←]/.test(line.chars[0].c);
       const newBlock = previousLine && (
-        lineColumn(line) !== lineColumn(previousLine)
-        || previousLine.baseline - line.baseline > lineHeight * 1.45
+        (lineColumn(line) !== lineColumn(previousLine) && !continues)
+        || (previousLine.baseline - line.baseline > lineHeight * 1.45
+          && !(/-$/.test(previousLine.text) && /^[a-zà-öø-ÿ]/.test(line.chars[0].c)))
 
       );
       if (!previousLine) {
@@ -658,9 +782,19 @@ var FastKeySentenceExtractor = (() => {
         blockStart = text.length;
         blockFirstX = line.x1;
       }
-      else if (text.endsWith("-") && /^[a-zà-öø-ÿ]/.test(line.chars[0].c)) {
-        text = text.slice(0, -1);
-        charMap.pop();
+      else if (text.endsWith("-") && /^[A-Za-zà-öø-ÿ0-9]/.test(line.chars[0].c)) {
+        const prefix = (text.slice(0, -1).match(/[A-Za-z0-9]+$/) || [""])[0];
+        const nextWord = (line.chars.slice(0, 32).map(char => char.c).join("").match(/^[A-Za-zà-öø-ÿ]+/) || [""])[0];
+        const joined = `${prefix}${nextWord}`.toLowerCase();
+        const known = hints.vocabulary?.has(joined);
+        const compound = /^[A-Z]/.test(line.chars[0].c) || /\d/.test(prefix)
+          || HYPHEN_FUNCTION_PREFIXES.has(prefix.toLowerCase())
+          || HYPHEN_FUNCTION_PREFIXES.has(nextWord.toLowerCase())
+          || COMPOUND_SUFFIXES.has(nextWord.toLowerCase());
+        if (known || !compound) {
+          text = text.slice(0, -1);
+          charMap.pop();
+        }
       }
       else {
         text += " ";
@@ -685,15 +819,33 @@ var FastKeySentenceExtractor = (() => {
       previousLine = line;
     }
     if (text.length > blockStart) blockRanges.push([blockStart, text.length]);
-    return { pageIndex, text, charMap, chars: orderedChars, width: pageWidth, heading, blockRanges };
+    return { pageIndex, text, charMap, chars: orderedChars, width: pageWidth, heading, blockRanges, referenceHeading };
   }
 
-  async function extractPage(reader, pageIndex, hints = {}) {
+  async function readPageData(reader, pageIndex) {
     const handle = getHandle(reader);
     if (!handle) return null;
     const { win, app, Cu } = handle;
-    const argument = Cu.cloneInto({ pageIndex }, win);
-    const pageData = await app.pdfDocument.getPageData(argument);
+    return app.pdfDocument.getPageData(Cu.cloneInto({ pageIndex }, win));
+  }
+
+  function addVocabulary(words, pageData) {
+    let run = "";
+    for (const char of pageData?.chars ?? []) {
+      if (char.rotation || char.diagonal) continue;
+      const text = String(char.u ?? char.c ?? "");
+      if (/^[A-Za-zà-öø-ÿ]$/.test(text)) run += text;
+      else {
+        if (run.length >= 3) words.add(run.toLowerCase());
+        run = "";
+      }
+    }
+    if (run.length >= 3) words.add(run.toLowerCase());
+  }
+
+  async function extractPage(reader, pageIndex, hints = {}, pageData = null) {
+    if (!pageData) pageData = await readPageData(reader, pageIndex);
+    if (!pageData) return null;
     const rawChars = pageData?.chars;
     if (!rawChars || !rawChars.length) return { pageIndex, text: "", charMap: [], chars: [], width: 0, height: 0, heading: null };
 
@@ -711,13 +863,20 @@ var FastKeySentenceExtractor = (() => {
     const medianSize = sizes.length ? sizes[Math.floor(sizes.length / 2)] : 10;
 
     const chars = [];
+    let previous = null;
     for (const char of rawChars) {
       if (char.rotation || char.diagonal) continue;
       if (pageHeight > 0) {
         const y = yMid(char);
         if (y > pageHeight * 0.945 || y < pageHeight * 0.055) continue;
-        if (y > pageHeight * 0.82 && (char.fontSize ?? 10) < medianSize * 0.82) continue;
+        const small = (char.fontSize ?? 10) < medianSize * 0.82;
+        const inlineSuffix = small && previous
+          && Math.abs((previous.baseline ?? previous.rect[1]) - (char.baseline ?? char.rect[1])) <= 3
+          && (previous.fontSize ?? 10) >= medianSize * 0.82
+          && char.rect[0] - previous.rect[2] <= (char.fontSize ?? 10) * 2;
+        if (y > pageHeight * 0.82 && small && !inlineSuffix) continue;
       }
+      previous = char;
       chars.push({
         c: String(normalizedGlyph(String(char.u ?? char.c ?? ""))),
         rect: [char.rect[0], char.rect[1], char.rect[2], char.rect[3]],
@@ -817,6 +976,53 @@ var FastKeySentenceExtractor = (() => {
       else if (start >= 0) break;
     }
     if (start >= 0) zones.referenceStartPage = paged[start].pageIndex;
+    if (zones.referenceStartPage >= 0) {
+      const dense = page => {
+        const text = page.text || "";
+        const years = (text.match(/\b(?:19|20)\d{2}\b/g) || []).length;
+        const words = (text.match(/[A-Za-z][A-Za-z'-]*/g) || []).length;
+        return years >= 8 && words > 0 && years / words >= 0.04;
+      };
+      for (const page of paged) {
+        if (page.pageIndex <= zones.referenceStartPage) continue;
+        if (dense(page)) {
+          zones.referenceEndPage = page.pageIndex;
+          continue;
+        }
+        if (zones.referenceEndPage >= 0) break;
+      }
+    }
+    const headingPattern = /^\s*(?:references|bibliography|works cited|literature cited|reference list)\s*$/i;
+    const appendixPattern = /^\s*[A-F](?:\.\d+)*\s+[A-Z][A-Za-z]/;
+    for (const page of paged) {
+      const heading = linesByPage.get(page.pageIndex)
+        .find(line => headingPattern.test(line.text.replace(/[\d.\s]+$/, "").trim()));
+      if (!heading) continue;
+      zones.referenceStart = { pageIndex: page.pageIndex, startChar: heading.startChar };
+      if (zones.referenceStartPage < 0) zones.referenceStartPage = page.pageIndex;
+      let scanning = true;
+      for (const later of paged) {
+        if (!scanning) break;
+        if (later.pageIndex < page.pageIndex) continue;
+        for (const line of linesByPage.get(later.pageIndex)) {
+          if (later.pageIndex === page.pageIndex && line.startChar <= heading.startChar) continue;
+          if (!appendixPattern.test(line.text.trim())) continue;
+          zones.referenceEnd = { pageIndex: later.pageIndex, startChar: line.startChar };
+          scanning = false;
+          break;
+        }
+      }
+      break;
+    }
+    const headingPage = paged.find(page => page.referenceHeading);
+    if (headingPage) {
+      zones.referenceStart = {
+        pageIndex: headingPage.pageIndex,
+        startChar: 0,
+        baseline: headingPage.referenceHeading.baseline,
+        x1: headingPage.referenceHeading.x1
+      };
+    }
     return zones;
   }
 
@@ -886,11 +1092,16 @@ var FastKeySentenceExtractor = (() => {
 
   const LEADING_HEADING = /^(?:Phase\s*\d+\s*[:.]?|(?:Results?|Methods?|Methodology|Findings?|Discussion|Conclusions?|Introduction|Background|Abstract|Limitations?)(?:\s+(?:for|of|to|in)\s+(?:the\s+)?[A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,2})?)\s*[:.]?\s+(?=[A-Z])/;
 
-  const LIST_LABEL = /^([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,2}):\s+(?=\S)/;
+  const LIST_LABEL = /^(?:(?:Stage|Step|Phase|Checkpoint|Setting|Setup)\s*\d+|(?:[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,4})):\s+(?=\S)/;
 
   function listLabelTrimOffset(text) {
+    const model = /^([A-Z][A-Za-z]*(?:\s+[A-Za-z0-9._-]+){0,2}):\s+(?=\S)/.exec(text);
+    if (model && model[1].split(/\s+/).some(token => /[A-Za-z]/.test(token) && /\d/.test(token))) {
+      const rest = text.slice(model[0].length);
+      if (rest.length >= MIN_LEN && /^[A-Z]/.test(rest)) return model[0].length;
+    }
     const match = LIST_LABEL.exec(text);
-    if (!match || /[0-9]/.test(match[1])) return 0;
+    if (!match) return 0;
     const rest = text.slice(match[0].length);
     if (rest.length < MIN_LEN || !/^[A-Z]/.test(rest)) return 0;
     return match[0].length;
@@ -916,8 +1127,10 @@ var FastKeySentenceExtractor = (() => {
       .match(/[A-Za-z][A-Za-z'’-]*/g);
     if (!words?.length || words.length > 16) return false;
     const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i.test(text);
+    const afterNumber = (text.replace(/^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i, "").match(/^[A-Za-z]+/) || [""])[0];
+    if (/^(?:While|This|These|In|We|It|However|As|For|Both|Our|Such|If|When|By)$/i.test(afterNumber)) return false;
     const capitals = words.filter(word => /^[A-Z]{2,}$/.test(word) || /^[A-Z]/.test(word)).length;
-    const titleLike = capitals / words.length >= 0.65;
+    const titleLike = capitals / words.length >= 0.65 && !/[()]/.test(text);
     const allCaps = words.every(word => word === word.toUpperCase());
     const lineSize = medianFontSize(page, line.startChar, line.endChar);
     const bodySize = medianFontSize(page, 0, page.chars.length);
@@ -968,7 +1181,7 @@ var FastKeySentenceExtractor = (() => {
       }
     }
     const currentStart = startText + leadingWhitespace + removedFront;
-    const subtitleSkip = subtitleTrimOffset(page, currentStart, endText);
+    const subtitleSkip = labelSkip > 0 || headSkip > 0 ? 0 : subtitleTrimOffset(page, currentStart, endText);
     if (subtitleSkip < 0) return;
     if (subtitleSkip > 0) {
       const kept = text.slice(subtitleSkip).trimStart();
@@ -976,6 +1189,7 @@ var FastKeySentenceExtractor = (() => {
       removedFront += text.length - kept.length;
       text = kept;
     }
+    text = text.replace(/\s+([,.;:!?])/g, "$1");
     if (removedFront > 0) startText += leadingWhitespace + removedFront;
     let startChar = -1;
     let endChar = -1;
@@ -1005,17 +1219,38 @@ var FastKeySentenceExtractor = (() => {
   }
 
   function sentenceSegments(text) {
+    const masked = text.replace(/\b(e\.g|i\.e|et al|Fig|Figs|Sec|Eq|Ref|No|vs|Dr|Prof|cf)\.(?=\s)/gi,
+      match => `${match.slice(0, -1)}\u0001`);
     if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
       const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-      return [...segmenter.segment(text)].map(item => ({ index: item.index, segment: item.segment }));
+      return [...segmenter.segment(masked)].map(item => ({ index: item.index, segment: item.segment.replace(/\u0001/g, ".") }));
     }
     const out = [];
     const pattern = /[^.!?]+(?:[.!?]+|$)/g;
     let match;
-    while ((match = pattern.exec(text))) {
-      if (match[0].trim()) out.push({ index: match.index, segment: match[0] });
+    while ((match = pattern.exec(masked))) {
+      if (match[0].trim()) out.push({ index: match.index, segment: match[0].replace(/\u0001/g, ".") });
     }
     return out;
+  }
+
+  function splitRunInLabels(segment) {
+    const parts = [];
+    const pattern = /:\s+(?=[A-Z][A-Za-z0-9'’-]*(?:\s+[A-Za-z0-9'’-]+){0,3}:\s)/g;
+    const lowercaseStart = /(?<![.!?])[.!?](?!\.)["'’)]?\s+(?=[a-zà-öø-ÿ])/g;
+    const cuts = [];
+    let start = 0;
+    let match;
+    while ((match = pattern.exec(segment))) cuts.push(match.index + 1);
+    while ((match = lowercaseStart.exec(segment))) cuts.push(match.index + match[0].length);
+    cuts.sort((a, b) => a - b);
+    for (const cut of cuts) {
+      if (cut - start >= MIN_LEN) parts.push({ index: start, segment: segment.slice(start, cut) });
+      start = cut;
+      while (start < segment.length && segment[start] === " ") start++;
+    }
+    if (segment.length - start >= MIN_LEN) parts.push({ index: start, segment: segment.slice(start) });
+    return parts.length ? parts : [{ index: 0, segment }];
   }
 
   function segmentSentences(page) {
@@ -1025,12 +1260,14 @@ var FastKeySentenceExtractor = (() => {
     for (const [start, end] of ranges) {
       const text = page.text.slice(start, end);
       for (const item of sentenceSegments(text)) {
-        const raw = item.segment;
-        const trimmed = raw.trim();
-        if (trimmed.length < MIN_LEN || !/[a-zA-Z]{3}/.test(trimmed)) continue;
-        const base = start + item.index + (raw.length - raw.trimStart().length);
-        if (trimmed.length <= MAX_LEN) pushSpan(page, out, base, base + trimmed.length);
-        else splitLongSegment(page, out, base, trimmed);
+        for (const piece of splitRunInLabels(item.segment)) {
+          const raw = piece.segment;
+          const trimmed = raw.trim();
+          if (trimmed.length < MIN_LEN || !/[a-zA-Z]{3}/.test(trimmed)) continue;
+          const base = start + item.index + piece.index + (raw.length - raw.trimStart().length);
+          if (trimmed.length <= MAX_LEN) pushSpan(page, out, base, base + trimmed.length);
+          else splitLongSegment(page, out, base, trimmed);
+        }
       }
     }
     return out;
@@ -1061,6 +1298,12 @@ var FastKeySentenceExtractor = (() => {
     return rects.filter(rect => rect[3] - rect[1] <= maxHeight);
   }
 
+  function isMaterialPage(page) {
+    const text = page.text || "";
+    if (/```/.test(text)) return true;
+    return (text.match(/"/g) || []).length > 30;
+  }
+
   function cleanText(value) {
     return String(value || "")
       .replace(/\u00ad/g, "")
@@ -1080,23 +1323,47 @@ var FastKeySentenceExtractor = (() => {
     const pageCount = getPageCount(reader);
     if (!pageCount) throw new Error("The reader did not report any pages.");
     const hints = hintsForAttachment(attachment);
+    const vocabulary = new Set();
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+      addVocabulary(vocabulary, await readPageData(reader, pageIndex));
+    }
     const pages = [];
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-      const page = await extractPage(reader, pageIndex, hints);
+      const page = await extractPage(reader, pageIndex, { ...hints, vocabulary }, await readPageData(reader, pageIndex));
       if (page?.text) pages.push(page);
       onProgress?.((pageIndex + 1) / pageCount, pageIndex + 1, pageCount);
       await Promise.resolve();
     }
     if (!pages.length) throw new Error("No extractable text was found. Run OCR first if this is a scanned PDF.");
 
-    const zones = analyzeZones(pages);
+    const prosePages = pages.filter(page => !isMaterialPage(page));
+    const zones = analyzeZones(prosePages);
+    const reference = zones.referenceStart;
+    const referenceEnd = zones.referenceEnd;
+    const referenceEndPage = zones.referenceEndPage ?? -1;
+    const referenceStartPoint = reference
+      ?? (zones.referenceStartPage >= 0 ? { pageIndex: zones.referenceStartPage, startChar: 0 } : null);
+    const lastReferencePage = referenceEndPage >= 0 ? referenceEndPage : (reference?.pageIndex ?? Number.POSITIVE_INFINITY);
+    const afterReferenceHeading = sentence => {
+      if (!referenceStartPoint) return false;
+      const endPage = referenceEndPage >= 0 ? referenceEndPage : referenceStartPoint.pageIndex;
+      if (sentence.pageIndex > referenceStartPoint.pageIndex) return sentence.pageIndex <= endPage;
+      if (sentence.pageIndex < referenceStartPoint.pageIndex) return false;
+      const rect = sentence.rects[0];
+      const sameColumn = rect[0] >= (referenceStartPoint.x1 ?? 0) - 8;
+      const baseline = referenceStartPoint.baseline;
+      if (baseline === undefined) return true;
+      return sameColumn && (rect[1] + rect[3]) / 2 <= baseline + 1;
+    };
     const sentences = [];
     let order = 0;
     for (const page of pages) {
+      if (isMaterialPage(page)) continue;
       for (const sentence of segmentSentences(page)) {
-        if (overlapsFurniture(zones, page.pageIndex, sentence.startChar, sentence.endChar)) continue;
         const rects = rangeToLineRects(page, sentence.startChar, sentence.endChar);
         if (!rects.length) continue;
+        if (afterReferenceHeading({ ...sentence, pageIndex: page.pageIndex, rects })) continue;
+        if (overlapsFurniture(zones, page.pageIndex, sentence.startChar, sentence.endChar)) continue;
         sentences.push({
           pageIndex: page.pageIndex,
           pageHeight: page.height,
@@ -1111,7 +1378,9 @@ var FastKeySentenceExtractor = (() => {
 
     let processed = withDocumentSections(pages, sentences);
     if (zones.referenceStartPage >= 0) {
+      const lastReferencePage = referenceEndPage >= 0 ? referenceEndPage : Number.POSITIVE_INFINITY;
       for (const sentence of processed) {
+        if (sentence.pageIndex > lastReferencePage) continue;
         if (sentence.pageIndex > zones.referenceStartPage
           || (sentence.pageIndex === zones.referenceStartPage && refSignalScore(sentence.text) >= 1)) {
           sentence.section = "references";
