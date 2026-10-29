@@ -172,6 +172,43 @@ describe("FastKeySentenceExtractor", () => {
     expect(api.segmentSentences(page).map(item => item.text)).toEqual(["Research question.", "A paragraph."]);
   });
 
+  it("keeps small capitals in logos near the page bottom", async () => {
+    const api = loadScript("content/extractor.js", {
+      Components: { utils: { waiveXrays: value => value, cloneInto: value => value } },
+      Zotero: { Promise: { delay: async () => {} }, Items: { get: () => null } }
+    }).FastKeySentenceExtractor;
+    const chars = textLine("This cites LATEXsources in a complete sentence.", 40, 90)
+      .map(char => ({ ...char, u: char.c, rotation: 0, diagonal: false }));
+    const logo = chars.find(char => char.c === "A");
+    logo.fontSize = 7;
+    logo.baseline += 2;
+    const reader = {
+      _internalReader: {
+        _primaryView: {
+          _iframeWindow: {
+            PDFViewerApplication: {
+              pagesCount: 1,
+              pdfDocument: { getPageData: async () => ({ viewBox: [0, 0, 600, 800], chars }) }
+            }
+          }
+        }
+      }
+    };
+    const page = await api.extractPage(reader, 1, {});
+    expect(page.text).toContain("LATEXsources");
+  });
+
+  it("trims run-in list labels from prose bullets", () => {
+    const api = extractor();
+    const bullet = textLine("• Running Example: When possible, use a running example throughout the paper.", 40, 700);
+    const body = textLine("Ordinary prose follows the list in this paragraph.", 40, 660);
+    const page = api.buildStructuredPage(1, [bullet, body].flat(), 600, {});
+    const texts = api.segmentSentences(page).map(item => item.text);
+    expect(texts).toContain("When possible, use a running example throughout the paper.");
+    expect(texts).toContain("Ordinary prose follows the list in this paragraph.");
+    expect(page.text).toContain("Running Example:");
+  });
+
   it("extracts sentences from the reader document", async () => {
     const api = loadScript("content/extractor.js", {
       Components: { utils: { waiveXrays: value => value, cloneInto: value => value } },

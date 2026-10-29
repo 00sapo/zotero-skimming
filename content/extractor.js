@@ -123,9 +123,11 @@ var FastKeySentenceExtractor = (() => {
     const fontSize = median(ordered.map(char => char.fontSize));
     ordered = ordered.filter(char => !(char.fontSize < fontSize * 0.92
       && Math.abs(char.baseline - baseline) > char.fontSize * 0.35));
+    const bullet = ordered.length > 0 && /^[•·◦▪▫‣]$/.test(ordered[0].c);
     while (ordered.length && /^[\s•·◦▪▫‣]$/.test(ordered[0].c)) ordered = ordered.slice(1);
     return {
       chars: ordered,
+      bullet,
       text: lineText(ordered),
       baseline: median(ordered.map(char => char.baseline)),
       fontSize: median(ordered.map(char => char.fontSize)),
@@ -413,7 +415,7 @@ var FastKeySentenceExtractor = (() => {
     return null;
   }
 
-  const CAPTION_START = /^\s*(?:figure|fig\.?|table|tab\.?)\s*(?:[A-Z]?\d+|[IVXLC]+)\b/i;
+  const CAPTION_START = /^\s*(?:figure|fig\.?|table|tab\.?)\s*(?:[A-Z]?\d+|[IVXLC]+)\s*(?:[.:]|$)/i;
 
   function isPageNumberLine(text) {
     return /^\s*(?:\d{1,4}|[ivxlcdm]{1,7})\s*$/i.test(text);
@@ -444,8 +446,7 @@ var FastKeySentenceExtractor = (() => {
   function buildStructuredPage(pageIndex, chars, pageWidth, hints = {}) {
     const numbered = stripMarginNumbers(chars, pageWidth);
     const bodySize = bodyFontSize(numbered);
-    const bodyChars = numbered.filter(char => char.fontSize >= bodySize * 0.75);
-    const lines = visualLines(bodyChars, pageWidth);
+    const lines = visualLines(numbered, pageWidth);
     const title = normalized(hints.title || "");
     const creators = (hints.creators || []).map(normalized).filter(creator => creator.length >= 4);
     const columns = detectColumnStarts(lines, pageWidth);
@@ -505,9 +506,32 @@ var FastKeySentenceExtractor = (() => {
       }
     }
 
+    const bulletProse = new Map();
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      const line = lines[lineIndex];
+      if (!line.bullet) continue;
+      const column = lineColumn(line);
+      let combined = line.text;
+      let lastBaseline = line.baseline;
+      for (let cursor = lineIndex + 1; cursor < lines.length; cursor++) {
+        const next = lines[cursor];
+        if (lineColumn(next) !== column) continue;
+        if (next.bullet) break;
+        const gap = lastBaseline - next.baseline;
+        if (gap > lineHeight * 1.5) break;
+        combined = `${combined} ${next.text}`;
+        lastBaseline = next.baseline;
+        if (/[.!?]\s*$/.test(combined)) break;
+      }
+      const withoutEllipsis = combined.replace(/\.{3,}/g, "");
+      bulletProse.set(line, /[.!?]/.test(withoutEllipsis)
+        && combined.split(/\s+/).length >= 4);
+    }
+
     let heading = null;
     let keywordColumn = null;
     const suppressed = { left: false, right: false, single: false };
+    const suppressedBullet = { left: false, right: false, single: false };
     let references = false;
     const eligible = [];
 
@@ -523,7 +547,17 @@ var FastKeySentenceExtractor = (() => {
       const textHeading = looksLikeHeading(text);
       const headingLike = !tooSmall && (textHeading || largeHeading || line.fontSize >= bodySize * 1.15);
       const section = headingLike ? sectionFromText(text) : null;
-
+      const sentenceEnd = /[.!?](?:\s|$)/.test(text.replace(/\.{3,}/g, ""));
+      if (line.bullet) {
+        const proseItem = bulletProse.get(line) === true;
+        suppressedBullet[column] = !proseItem;
+        if (!proseItem) continue;
+      }
+      else if (suppressedBullet[column]) {
+        if (/^[A-Z0-9]/.test(text)) suppressedBullet[column] = false;
+        else continue;
+      }
+      if (text.split(/\s+/).length <= 3 && /:\s*$/.test(text) && !line.bullet) continue;
       if (!heading && lineIndex < 3 && headingLike) heading = section;
 
       if (/^(?:keywords?|keyterms?)$/i.test(key)) {
@@ -537,6 +571,7 @@ var FastKeySentenceExtractor = (() => {
       if (section === "abstract") suppressed[sectionColumn] = true;
       else if (section === "references") references = true;
       else if (section || largeHeading) suppressed[sectionColumn] = false;
+      if (!line.bullet && !sentenceEnd && /^[A-Z]/.test(text) && text.length < 45) continue;
 
       const titleMatch = pageIndex === 0 && key.length >= 6 && title.length >= 6
         && (title.includes(key) || key.includes(title));
@@ -641,7 +676,7 @@ var FastKeySentenceExtractor = (() => {
       if (pageHeight > 0) {
         const y = yMid(char);
         if (y > pageHeight * 0.945 || y < pageHeight * 0.055) continue;
-        if (y < pageHeight * 0.18 && (char.fontSize ?? 10) < medianSize * 0.82) continue;
+        if (y > pageHeight * 0.82 && (char.fontSize ?? 10) < medianSize * 0.82) continue;
       }
       chars.push({
         c: String(normalizedGlyph(String(char.u ?? char.c ?? ""))),
@@ -811,6 +846,16 @@ var FastKeySentenceExtractor = (() => {
 
   const LEADING_HEADING = /^(?:Phase\s*\d+\s*[:.]?|(?:Results?|Methods?|Methodology|Findings?|Discussion|Conclusions?|Introduction|Background|Abstract|Limitations?)(?:\s+(?:for|of|to|in)\s+(?:the\s+)?[A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,2})?)\s*[:.]?\s+(?=[A-Z])/;
 
+  const LIST_LABEL = /^([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,2}):\s+(?=\S)/;
+
+  function listLabelTrimOffset(text) {
+    const match = LIST_LABEL.exec(text);
+    if (!match || /[0-9]/.test(match[1])) return 0;
+    const rest = text.slice(match[0].length);
+    if (rest.length < MIN_LEN || !/^[A-Z]/.test(rest)) return 0;
+    return match[0].length;
+  }
+
   function headingTrimOffset(text) {
     const match = LEADING_HEADING.exec(text);
     if (!match) return 0;
@@ -862,6 +907,14 @@ var FastKeySentenceExtractor = (() => {
       if (skip > 0) {
         const kept = text.slice(skip).trimStart();
         if (kept.length < MIN_LEN) return;
+        removedFront += text.length - kept.length;
+        text = kept;
+      }
+    }
+    const labelSkip = listLabelTrimOffset(text);
+    if (labelSkip > 0) {
+      const kept = text.slice(labelSkip).trimStart();
+      if (kept.length >= MIN_LEN) {
         removedFront += text.length - kept.length;
         text = kept;
       }

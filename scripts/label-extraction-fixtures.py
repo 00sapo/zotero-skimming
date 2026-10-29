@@ -111,13 +111,16 @@ def item_position(stream, text, cursor):
     return len(stream)
 
 
-def align_same_page(item, page, positive, cursor):
-    for start, end, indices in occurrences(page["stream"], item["text"]):
-        if start < cursor:
-            continue
-        positive.update(indices)
-        return end
-    raise RuntimeError(f"Cannot align authored text {item['text']!r} on page {item['pageIndex']}")
+def align_same_page(item, page, positive, cursor, before=None):
+    candidates = [match for match in occurrences(page["stream"], item["text"])
+                  if match[0] >= cursor and (before is None or match[0] < before)]
+    if not candidates:
+        raise RuntimeError(f"Cannot align authored text {item['text']!r} on page {item['pageIndex']}")
+    # A page-start fragment can repeat inside a table note that appears earlier
+    # in raw PDF order. Pick the occurrence closest to the first body sentence.
+    start, end, indices = max(candidates, key=lambda match: match[0]) if before is not None else min(candidates, key=lambda match: match[0])
+    positive.update(indices)
+    return end
 
 
 def align_cross_page(item, pages, positives, cursors):
@@ -186,7 +189,8 @@ def label_case(case):
             last_page = item.get("endPageIndex", page_index)
             if last_page == page_index:
                 cursor_by_page[page_index] = align_same_page(
-                    item, pages[page_index], positive_by_page[page_index], cursor_by_page[page_index])
+                    item, pages[page_index], positive_by_page[page_index], cursor_by_page[page_index],
+                    first_sentence if item in leading_items else None)
             else:
                 align_cross_page(item, pages, positive_by_page, cursor_by_page)
 

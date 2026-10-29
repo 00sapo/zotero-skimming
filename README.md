@@ -66,9 +66,9 @@ Map-reduce (split, summarize, then combine) is optional. The add-on splits long 
 
 The add-on reads the character geometry that the Zotero reader already has. It groups characters into visual lines and separates wide gaps into columns, cells, and labels.
 
-The extractor removes material that is not body prose. It removes printed line numbers, running headers and footers, page numbers, bullet markers, superscripts, footnotes, captions, table cells, titles, authors, headings, abstract text, and reference entries.
+The extractor removes material that is not body prose. It removes printed line numbers, running headers and footers, page numbers, bullet markers, superscripts, footnotes, captions, table cells, and run-in list labels. It also removes titles, authors, headings, abstract text, and reference entries.
 
-Column regions are read in order. Paragraph blocks keep their boundaries, so sentences do not join across columns, captions, or tables. Short sentences remain when they are complete prose.
+Column regions are read in order. Paragraph blocks keep their boundaries, so sentences do not join across columns, captions, or tables. Short sentences remain when they are complete prose. List items remain only when they form complete sentences. Small capitals inside logotypes, such as the LaTeX mark, stay in the text.
 
 The sentence segmenter then divides each block, so each highlight rectangle matches the printed text. The committed corpus in `test/fixtures/pdf-extraction` measures this behavior.
 
