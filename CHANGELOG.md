@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Align highlights with the summary concept order. The ranker now selects the highlights in summary order and spreads them across the paper.
 - Improve PDF extraction. Remove printed line numbers, table cells, captions, bullets, run-in list labels, superscripts, footnotes, abstract text, and reference entries. Keep column order, paragraph boundaries, complete list sentences, short prose, and logotype small capitals. The committed corpus reaches 99.97 percent balanced accuracy.
 - Use model-free ranking by default. Limit diversity selection to a shortlist that keeps section and uncommon-term coverage.
 - Reuse sparse sentence features and embed only shortlisted sentences for semantic relevance.

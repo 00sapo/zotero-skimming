@@ -76,6 +76,8 @@ The sentence segmenter then divides each block, so each highlight rectangle matc
 
 The ranker scores all eligible sentences from 0 to 1. It gives priority to diverse candidates from its shortlist. The threshold then hides sentences below its value.
 
+Highlights follow the summary sentence order. A position weight keeps the selected sentences spread across the paper. The highlight sequence then explains the same concepts in the same order as the summary. Selected sentences score 1. Other candidates score up to 0.5, so the default threshold shows only the aligned sequence.
+
 `Semantic relevance` uses embeddings, which are number lists that represent meaning. This option needs a summary and model inference. Labeled highlights also need a summary. With `Local Ollama` selected and both options off, the add-on selects highlights without models.
 
 The add-on paints the selected sentences as temporary overlays. Nothing is written to the library until you click `Save as Zotero annotations…`. A second save skips sentences that already have an annotation, so repeated clicks do not create duplicates. Each saved highlight receives the `autoskim-key-sentence` tag.

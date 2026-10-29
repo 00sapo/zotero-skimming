@@ -12,6 +12,10 @@ const prose = [
   "We conclude that the proposed pipeline is effective and reliable."
 ];
 
+function vectorNorm(vector) {
+  return Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+}
+
 function nlp(models) {
   const ctx = {};
   if (models) ctx.FastKeySentenceModels = models;
@@ -88,6 +92,129 @@ describe("FastKeySentenceNLP", () => {
     expect(selected).toEqual([...selected].sort((a, b) => a.order - b.order));
     expect(selected.every(item => item.importance >= 0 && item.role === undefined)).toBe(true);
   });
+  it("aligns the selected sequence with the summary order", () => {
+    const api = nlp();
+    const input = [
+      { ...sentence("Alpha introduction.", 0), position: 0 },
+      { ...sentence("Background detail.", 1), position: 0.2 },
+      { ...sentence("Supporting context.", 2), position: 0.4 },
+      { ...sentence("Beta result.", 3), position: 0.6 },
+      { ...sentence("Gamma conclusion.", 4), position: 0.8 },
+      { ...sentence("Alpha conclusion.", 5), position: 1 }
+    ];
+    const vectors = [
+      [0.9, 0.1, 0, 0],
+      [0.1, 0, 0.9, 0],
+      [0.1, 0.9, 0, 0],
+      [0, 1, 0, 0],
+      [0, 0, 0, 1],
+      [1, 0, 0, 0]
+    ];
+    const summaryParts = [
+      { vector: [1, 0, 0, 0], norm: 1, text: "Alpha." },
+      { vector: [0, 1, 0, 0], norm: 1, text: "Beta." },
+      { vector: [0, 0, 0, 1], norm: 1, text: "Gamma." }
+    ];
+    const selected = api.selectSequence(input, vectors, vectors.map(vectorNorm), 3, summaryParts);
+    expect(selected.map(item => item.order)).toEqual([0, 3, 4]);
+  });
+
+  it("skips summary sentences when the highlight budget is smaller", () => {
+    const api = nlp();
+    const input = [
+      { ...sentence("Alpha early.", 0), position: 0 },
+      { ...sentence("Beta middle.", 1), position: 0.5 },
+      { ...sentence("Gamma late.", 2), position: 1 }
+    ];
+    const vectors = [
+      [0.8, 0.6, 0],
+      [0, 1, 0],
+      [0, 0.6, 0.8]
+    ];
+    const summaryParts = [
+      { vector: [0, 1, 0], norm: 1, text: "Beta." },
+      { vector: [1, 0, 0], norm: 1, text: "Alpha." },
+      { vector: [0, 0, 1], norm: 1, text: "Gamma." }
+    ];
+    const selected = api.selectSequence(input, vectors, vectors.map(vectorNorm), 1, summaryParts);
+    expect(selected.map(item => item.order)).toEqual([1]);
+  });
+
+  it("skips unmatched summary sentences while preserving sequence order", () => {
+    const api = nlp();
+    const input = [0, 1, 2, 3].map(index => ({
+      ...sentence(`Sentence ${index} with enough words to pass noise.`, index),
+      position: index / 3
+    }));
+    const vectors = [
+      [1, 0, 0],
+      [0, 1, 0],
+      [1, 0, 0],
+      [0, 0, 1]
+    ];
+    const summaryParts = [
+      { vector: [0, 0, 0], norm: 0, text: "Unmatched first." },
+      { vector: [0, 1, 0], norm: 1, text: "Matched second." },
+      { vector: [0, 0, 0], norm: 0, text: "Unmatched third." },
+      { vector: [0, 0, 1], norm: 1, text: "Matched fourth." }
+    ];
+    const selected = api.selectSequence(input, vectors, vectors.map(vectorNorm), 2, summaryParts);
+    expect(selected.map(item => item.order)).toEqual([1, 3]);
+  });
+
+  it("uses position to spread matches across the paper", () => {
+    const api = nlp();
+    const input = [
+      { ...sentence("Alpha early.", 0), position: 0 },
+      { ...sentence("Beta middle.", 1), position: 0.5 },
+      { ...sentence("Alpha late.", 2), position: 0.9 },
+      { ...sentence("Beta late.", 3), position: 0.95 },
+      { ...sentence("Gamma late.", 4), position: 1 }
+    ];
+    const vectors = [
+      [0.99, 0.141, 0],
+      [0, 1, 0],
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1]
+    ];
+    const summaryParts = [
+      { vector: [1, 0, 0], norm: 1, text: "Alpha." },
+      { vector: [0, 1, 0], norm: 1, text: "Beta." },
+      { vector: [0, 0, 1], norm: 1, text: "Gamma." }
+    ];
+    const selected = api.selectSequence(input, vectors, vectors.map(vectorNorm), 3, summaryParts);
+    expect(selected.map(item => item.order)).toEqual([0, 1, 4]);
+  });
+
+  it("runs the sequence selector through the asynchronous pipeline", async () => {
+    const embed = vi.fn(async texts => texts.map(raw => {
+      const text = String(raw).toLowerCase();
+      if (text.includes("alpha concept") && text.includes("beta concept")) return [1, 1, 1];
+      if (text.includes("alpha")) return [1, 0, 0];
+      if (text.includes("beta")) return [0, 1, 0];
+      if (text.includes("gamma")) return [0, 0, 1];
+      return [1, -1, 0];
+    }));
+    const input = [
+      sentence("Alpha introduction explains the main goal.", 0),
+      sentence("Background detail provides supporting context here.", 1),
+      sentence("Supporting context describes the broader setting.", 2),
+      sentence("Beta result reports the measured outcome.", 3),
+      sentence("Gamma conclusion summarizes the final takeaway.", 4),
+      sentence("Alpha conclusion restates the main goal.", 5)
+    ];
+    const selected = await nlp({
+      supportsInference: () => true,
+      summarize: async () => "Alpha concept. Beta concept. Gamma concept.",
+      embeddings: embed
+    }).analyzeAsync(input, 3, { summarySource: "local", localRelevance: true });
+    expect(selected.filter(item => item._selected).map(item => item.order)).toEqual([0, 3, 4]);
+    expect(selected.filter(item => item._selected).every(item => item.importance === 1)).toBe(true);
+    expect(selected.filter(item => !item._selected).every(item => item.importance <= 0.5)).toBe(true);
+    expect(embed).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps section coverage when the candidate list exceeds the shortlist", async () => {
     const api = nlp();
     const input = Array.from({ length: 120 }, (_, order) => {

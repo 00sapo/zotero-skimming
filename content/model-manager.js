@@ -152,7 +152,7 @@ var FastKeySentenceModels = (() => {
     const result = await ollamaRequest("/api/generate", {
       model: SUMMARY_MODEL,
       prompt,
-      system: "Return the summary directly without \"Here is...\" nor comments. Return just the summary. The summaries are made of one sentence per line, without blank lines, nor sections or titles. Number the lines starting from 1.",
+      system: "Return the summary directly without \"Here is...\" nor comments. Return just the summary. The summaries are made of one sentence per line, without blank lines, nor sections or titles. Number the lines starting from 1. Order the lines to follow the order of the source text.",
       stream: false,
       keep_alive: "5m",
       think: false,

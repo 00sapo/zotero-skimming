@@ -16,7 +16,7 @@ export function loadScript(file, globals = {}) {
     Intl,
     FastKeySentenceScoringConfig: {
       initial: { summarySimilarity: 0.85, sentenceLength: 0.15 },
-      selection: { importance: 0.65, redundancy: 0.35, sectionPenalty: 0.06 }
+      selection: { importance: 0.65, redundancy: 0.35, sectionPenalty: 0.06, position: 0.12 }
     },
     FastKeySentenceModelIdentifiers: {
       embeddings: { repository: "Qwen/Qwen3-Embedding-0.6B-GGUF", model: "zotero-skimming-embedding" },

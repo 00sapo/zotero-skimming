@@ -151,7 +151,8 @@ var FastKeySentenceRemote = (() => {
     "Return the summary directly without \"Here is...\" nor comments.",
     "Return just the summary.",
     "The summaries are made of one sentence per line, without blank lines, nor sections or titles.",
-    "Number the lines starting from 1."
+    "Number the lines starting from 1.",
+    "Order the lines to follow the order of the source text."
   ].join(" ");
 
   function labelsBlock(labels = []) {

@@ -7,6 +7,8 @@ var FastKeySentenceNLP = (() => {
   // ── keyword section descriptions (fallback when scoring-config is unavailable) ──
 
   const SCORING = Object.freeze(FastKeySentenceScoringConfig);
+  // Keep unselected candidates below the default threshold so the aligned sequence is the visible default.
+  const SECONDARY_IMPORTANCE_CEILING = 0.5;
 
   function normalizeText(text) {
     return String(text || "")
@@ -136,6 +138,10 @@ var FastKeySentenceNLP = (() => {
       .slice(0, 16000)
       .map(([term]) => term);
     allowed.forEach((term, i) => vocab.set(term, i));
+    const idf = new Float64Array(allowed.length);
+    allowed.forEach((term, i) => {
+      idf[i] = Math.log((n + 1) / ((df.get(term) || 0) + 1)) + 1;
+    });
 
     const vectors = [];
     const norms = [];
@@ -146,8 +152,7 @@ var FastKeySentenceNLP = (() => {
       for (const [term, tf] of counts) {
         const idx = vocab.get(term);
         if (idx === undefined) continue;
-        const idf = Math.log((n + 1) / ((df.get(term) || 0) + 1)) + 1;
-        const value = (1 + Math.log(tf)) * idf;
+        const value = (1 + Math.log(tf)) * idf[idx];
         vector.set(idx, value);
         centroid.set(idx, (centroid.get(idx) || 0) + value / n);
         norm2 += value * value;
@@ -160,9 +165,29 @@ var FastKeySentenceNLP = (() => {
       norms,
       centroid,
       centroidNorm: sparseNorm(centroid),
-      documentFrequencies: allowed.map(term => df.get(term) || 1)
+      documentFrequencies: allowed.map(term => df.get(term) || 1),
+      vocabulary: vocab,
+      idf
     };
   }
+
+  function vectorizeText(text, vocabulary, idf) {
+    const tokens = tokenize(text);
+    const terms = tokens.concat(tokens.slice(0, -1).map((t, i) => `${t}__${tokens[i + 1]}`));
+    const counts = new Map();
+    for (const term of terms) counts.set(term, (counts.get(term) || 0) + 1);
+    const vector = new Map();
+    let norm2 = 0;
+    for (const [term, tf] of counts) {
+      const idx = vocabulary.get(term);
+      if (idx === undefined) continue;
+      const value = (1 + Math.log(tf)) * (idf[idx] || 1);
+      vector.set(idx, value);
+      norm2 += value * value;
+    }
+    return { vector, norm: Math.sqrt(norm2) };
+  }
+
   function sparseNorm(v) {
     let sum = 0;
     for (const x of v.values()) sum += x * x;
@@ -272,57 +297,20 @@ var FastKeySentenceNLP = (() => {
     return { vectors, norms };
   }
 
-  function selectMMR(sentences, vectors, norms, count, summarySentences = null) {
+  function selectMMR(sentences, vectors, norms, count) {
     const selected = [];
     const remaining = new Set(sentences.map((_, i) => i));
     const sectionCounts = new Map();
 
-    const summaryVecs = summarySentences ? summarySentences.map(s => s.vector) : null;
-    const summaryNorms = summarySentences ? summarySentences.map(s => s.norm) : null;
-    const m = summaryVecs ? summaryVecs.length : 0;
-    const n = sentences.length;
-
-    const M = m ? Array.from({ length: n }, () => new Array(m).fill(0)) : null;
-    if (M) {
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < m; j++) {
-          M[i][j] = vectorCosine(vectors[i], summaryVecs[j], norms[i], summaryNorms[j]);
-        }
-      }
-    }
-
     while (selected.length < count && remaining.size) {
-      let penalty = 0;
-      if (M) {
-        let sum = 0, sumSq = 0, vals = 0;
-        for (const i of remaining) {
-          for (let j = 0; j < m; j++) {
-            const v = M[i][j];
-            sum += v;
-            sumSq += v * v;
-            vals++;
-          }
-        }
-        const mean = sum / vals;
-        const sd = Math.sqrt(Math.max(0, sumSq / vals - mean * mean));
-        penalty = 0.1 * sd;
-      }
-
       let best = -1, bestScore = -Infinity;
       for (const i of remaining) {
         let redundancy = 0;
         for (const j of selected) {
           redundancy = Math.max(redundancy, vectorCosine(vectors[i], vectors[j], norms[i], norms[j]));
         }
-        let coverageBonus = 0;
-        if (M) {
-          for (let j = 0; j < m; j++) {
-            if (M[i][j] > coverageBonus) coverageBonus = M[i][j];
-          }
-        }
         const sectionPenalty = SCORING.selection.sectionPenalty * (sectionCounts.get(sentences[i].section || "") || 0);
         const value = SCORING.selection.importance * sentences[i].importance
-          + SCORING.selection.importance * coverageBonus
           - SCORING.selection.redundancy * redundancy - sectionPenalty;
         if (value > bestScore) {
           bestScore = value;
@@ -335,18 +323,134 @@ var FastKeySentenceNLP = (() => {
       remaining.delete(best);
       const section = sentences[best].section || "";
       sectionCounts.set(section, (sectionCounts.get(section) || 0) + 1);
+    }
+    return selected.map(i => sentences[i]).sort((a, b) => a.order - b.order);
+  }
 
-      if (M) {
-        let bestJ = 0;
-        for (let j = 0; j < m; j++) {
-          if (M[best][j] > M[best][bestJ]) bestJ = j;
+  function selectSequence(sentences, vectors, norms, count, summaryParts) {
+    const n = sentences.length;
+    const m = summaryParts ? summaryParts.length : 0;
+    if (!n || !m || count <= 0) return [];
+    const target = Math.min(count, n, m);
+    if (target <= 0) return [];
+
+    const summaryPositions = summaryParts.map((_, index) => m > 1 ? index / (m - 1) : 0.5);
+    const articlePositions = sentences.map((sentence, index) => {
+      const value = Number(sentence.position);
+      if (Number.isFinite(value)) return Math.max(0, Math.min(1, value));
+      return n > 1 ? index / (n - 1) : 0.5;
+    });
+    const importanceWeight = Number(SCORING.selection.importance) || 0;
+    const positionWeight = Number(SCORING.selection.position) || 0;
+    const redundancyWeight = Number(SCORING.selection.redundancy) || 0;
+    const sectionPenalty = Number(SCORING.selection.sectionPenalty) || 0;
+
+    const similarity = [];
+    for (let i = 0; i < n; i++) {
+      const row = new Float64Array(m);
+      for (let j = 0; j < m; j++) {
+        row[j] = Math.max(0, vectorCosine(vectors[i], summaryParts[j].vector, norms[i], summaryParts[j].norm));
+      }
+      similarity.push(row);
+    }
+
+    const redundancy = [];
+    for (let i = 0; i < n; i++) redundancy.push(new Float64Array(n));
+    for (let i = 0; i < n; i++) {
+      for (let k = i + 1; k < n; k++) {
+        const value = Math.max(0, vectorCosine(vectors[i], vectors[k], norms[i], norms[k]));
+        redundancy[i][k] = value;
+        redundancy[k][i] = value;
+      }
+    }
+
+    const sections = sentences.map(sentence => sentence.section || "");
+    const dp = new Float64Array(target * m * n);
+    const prev = new Int32Array(target * m * n);
+    dp.fill(-Infinity);
+    prev.fill(-1);
+    const stateIndex = (t, j, i) => ((t - 1) * m + j) * n + i;
+
+    for (let j = 0; j < m; j++) {
+      for (let i = 0; i < n; i++) {
+        dp[stateIndex(1, j, i)] = importanceWeight * ((Number(sentences[i].importance) || 0) + similarity[i][j])
+          - positionWeight * Math.abs(articlePositions[i] - summaryPositions[j]);
+      }
+    }
+
+    const bestPrev = new Float64Array(n);
+    const bestPrevJ = new Int32Array(n);
+    for (let t = 2; t <= target; t++) {
+      for (let j = 1; j < m; j++) {
+        if (j === 1) {
+          for (let i = 0; i < n; i++) {
+            bestPrev[i] = dp[stateIndex(t - 1, 0, i)];
+            bestPrevJ[i] = 0;
+          }
         }
-        for (const i of remaining) {
-          M[i][bestJ] = Math.max(0, M[i][bestJ] - penalty);
+        else {
+          const previousJ = j - 1;
+          for (let i = 0; i < n; i++) {
+            const value = dp[stateIndex(t - 1, previousJ, i)];
+            if (value > bestPrev[i]) {
+              bestPrev[i] = value;
+              bestPrevJ[i] = previousJ;
+            }
+          }
+        }
+        for (let i = 0; i < n; i++) {
+          let best = -Infinity;
+          let bestI = -1;
+          let bestJ = -1;
+          for (let k = 0; k < i; k++) {
+            const value = bestPrev[k];
+            if (value === -Infinity) continue;
+            const score = value - redundancyWeight * redundancy[i][k]
+              - (sections[i] === sections[k] ? sectionPenalty : 0);
+            if (score > best) {
+              best = score;
+              bestI = k;
+              bestJ = bestPrevJ[k];
+            }
+          }
+          if (bestI < 0) continue;
+          const index = stateIndex(t, j, i);
+          dp[index] = best + importanceWeight * ((Number(sentences[i].importance) || 0) + similarity[i][j])
+            - positionWeight * Math.abs(articlePositions[i] - summaryPositions[j]);
+          prev[index] = bestJ * n + bestI;
         }
       }
     }
-    return selected.map(i => sentences[i]).sort((a, b) => a.order - b.order);
+
+    let bestScore = -Infinity;
+    let bestJ = -1;
+    let bestI = -1;
+    for (let j = 0; j < m; j++) {
+      for (let i = 0; i < n; i++) {
+        const value = dp[stateIndex(target, j, i)];
+        if (value > bestScore) {
+          bestScore = value;
+          bestJ = j;
+          bestI = i;
+        }
+      }
+    }
+    if (bestI < 0) return [];
+
+    const selected = [];
+    let t = target;
+    let j = bestJ;
+    let i = bestI;
+    while (t >= 1 && j >= 0 && i >= 0) {
+      selected.push(i);
+      const previous = prev[stateIndex(t, j, i)];
+      if (previous < 0) break;
+      j = Math.floor(previous / n);
+      i = previous % n;
+      t--;
+    }
+    selected.reverse();
+    return selected.map(index => sentences[index]);
   }
 
 
@@ -400,8 +504,13 @@ var FastKeySentenceNLP = (() => {
   }
 
   async function analyzeAsync(sentences, count, options = {}) {
-    const filtered = sentences.filter(sentence => !isNoise(sentence));
+    const filtered = sentences.filter(sentence => !isNoise(sentence)).sort((a, b) => a.order - b.order);
     if (!filtered.length) return [];
+
+    const positionDenominator = filtered.length > 1 ? filtered.length - 1 : 0;
+    filtered.forEach((sentence, index) => {
+      sentence.position = positionDenominator ? index / positionDenominator : 0.5;
+    });
 
     const labelsEnabled = options.summaryLabels === true;
     const useLocalRelevance = options.localRelevance === true;
@@ -476,11 +585,25 @@ var FastKeySentenceNLP = (() => {
       : new Array(filtered.length).fill(0);
     scoreWithVectors(filtered, sentenceVectors, sentenceNorms, count, summaryScores);
 
+    const summarySentences = summary
+      ? sentenceRanges(summary).map(([start, end]) => cleanSummarySentence(summary.slice(start, end))).filter(Boolean)
+      : [];
+    let summaryParts = summarySentences.map(text => {
+      const { vector, norm } = vectorizeText(text, features.vocabulary, features.idf);
+      return { vector, norm, text };
+    });
+    if (!summaryParts.length) summaryParts = null;
+
     const shortlistSize = Math.min(filtered.length, Math.max(count * 4, 60), 160);
     const shortlistIndices = buildShortlist(filtered, sentenceVectors, features.documentFrequencies, shortlistSize);
+    shortlistIndices.sort((a, b) => a - b);
     const shortlist = shortlistIndices.map(index => filtered[index]);
     const shortlistVectors = shortlistIndices.map(index => sentenceVectors[index]);
     const shortlistNorms = shortlistIndices.map(index => sentenceNorms[index]);
+    let sequenceVectors = shortlistVectors;
+    let sequenceNorms = shortlistNorms;
+    let denseShortlistVectors = null;
+    let denseShortlistNorms = null;
     const useRemoteEmbed = !localSummaryFailed && summary && typeof FastKeySentenceRemote?.embeddings === "function";
     const useLocalEmbed = inferenceAvailable && !localSummaryFailed && summary;
     if (useLocalRelevance && (useRemoteEmbed || useLocalEmbed)) {
@@ -495,6 +618,8 @@ var FastKeySentenceNLP = (() => {
           event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
         );
         const sentenceEmbeddingNorms = sentenceEmbeddings.map(denseNorm);
+        denseShortlistVectors = sentenceEmbeddings.map(vector => Array.from(vector, Number));
+        denseShortlistNorms = denseShortlistVectors.map(denseNorm);
         const denseRelevance = summarySimilarityDense(sentenceEmbeddings, sentenceEmbeddingNorms, summaryEmbedding);
         const lengths = shortlist.map(sentence => Math.exp(-Math.pow(sentence.text.split(/\s+/).length - 18, 2) / (2 * Math.pow(12, 2))));
         const S = minMax(denseRelevance);
@@ -514,32 +639,29 @@ var FastKeySentenceNLP = (() => {
       }
     }
 
-    let summaryParts = null;
-    if (summary && useLocalRelevance) {
+    if (summary && useLocalRelevance && denseShortlistVectors && summarySentences.length > 1) {
       try {
-        const summarySentences = sentenceRanges(summary).map(([start, end]) => summary.slice(start, end)).filter(Boolean);
-        if (summarySentences.length > 1) {
-          const embedFn = options.summarySource === "remote" && typeof FastKeySentenceRemote?.embeddings === "function"
-            ? FastKeySentenceRemote.embeddings
-            : FastKeySentenceModels.embeddings;
-          const vectors = await embedFn(
-            summarySentences,
-            event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
-          );
-          summaryParts = vectors.map((vector, index) => ({ vector: vector.map(Number), norm: denseNorm(vector), text: summarySentences[index] }));
-        }
+        const embedFn = options.summarySource === "remote" && typeof FastKeySentenceRemote?.embeddings === "function"
+          ? FastKeySentenceRemote.embeddings
+          : FastKeySentenceModels.embeddings;
+        const vectors = await embedFn(
+          summarySentences,
+          event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
+        );
+        summaryParts = vectors.map((vector, index) => {
+          const values = Array.from(vector, Number);
+          return { vector: values, norm: denseNorm(values), text: summarySentences[index] };
+        });
+        sequenceVectors = denseShortlistVectors;
+        sequenceNorms = denseShortlistNorms;
       }
       catch (_) {}
     }
 
-    const mmrSelected = selectMMR(
-      shortlist,
-      shortlistVectors,
-      shortlistNorms,
-      Math.min(count, shortlist.length),
-      summaryParts
-    );
-    const diverseSentences = new Set(mmrSelected);
+    const selectedSentences = summaryParts && summaryParts.length > 1
+      ? selectSequence(shortlist, sequenceVectors, sequenceNorms, Math.min(count, shortlist.length), summaryParts)
+      : selectMMR(shortlist, shortlistVectors, shortlistNorms, Math.min(count, shortlist.length));
+    const selectedSet = new Set(selectedSentences);
     let minImportance = Infinity;
     let maxImportance = -Infinity;
     for (const sentence of filtered) {
@@ -550,9 +672,12 @@ var FastKeySentenceNLP = (() => {
     const importanceRange = maxImportance - minImportance;
     for (const sentence of filtered) {
       const importance = Number(sentence.importance) || 0;
-      sentence.importance = diverseSentences.has(sentence)
+      sentence._selected = selectedSet.has(sentence);
+      sentence.importance = sentence._selected
         ? 1
-        : importanceRange > 0 ? (importance - minImportance) / importanceRange : 1;
+        : importanceRange > 0
+          ? (importance - minImportance) / importanceRange * SECONDARY_IMPORTANCE_CEILING
+          : SECONDARY_IMPORTANCE_CEILING;
     }
 
     if (labelsEnabled && filtered.length) {
@@ -611,7 +736,7 @@ var FastKeySentenceNLP = (() => {
     }
 
     filtered.forEach(sentence => { sentence._paperSummary = summary; });
-    return filtered.sort((a, b) => a.order - b.order);
+    return filtered;
   }
 
   return {
@@ -623,6 +748,7 @@ var FastKeySentenceNLP = (() => {
     isNoise,
     paperTextForSummary,
     parseLabeledSummary,
+    selectSequence,
 
     analyze,
     analyzeAsync
