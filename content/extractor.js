@@ -1081,6 +1081,21 @@ var FastKeySentenceExtractor = (() => {
     return out;
   }
 
+  function splitRunInLabels(segment) {
+    const parts = [];
+    const pattern = /:\s+(?=[A-Z][A-Za-z0-9'’-]*(?:\s+[A-Za-z0-9'’-]+){0,3}:\s)/g;
+    let start = 0;
+    let match;
+    while ((match = pattern.exec(segment))) {
+      const end = match.index + 1;
+      if (end - start >= MIN_LEN) parts.push({ index: start, segment: segment.slice(start, end) });
+      start = end;
+      while (start < segment.length && segment[start] === " ") start++;
+    }
+    if (segment.length - start >= MIN_LEN) parts.push({ index: start, segment: segment.slice(start) });
+    return parts.length ? parts : [{ index: 0, segment }];
+  }
+
   function segmentSentences(page) {
     const out = [];
     if (!page.text) return out;
@@ -1088,12 +1103,14 @@ var FastKeySentenceExtractor = (() => {
     for (const [start, end] of ranges) {
       const text = page.text.slice(start, end);
       for (const item of sentenceSegments(text)) {
-        const raw = item.segment;
-        const trimmed = raw.trim();
-        if (trimmed.length < MIN_LEN || !/[a-zA-Z]{3}/.test(trimmed)) continue;
-        const base = start + item.index + (raw.length - raw.trimStart().length);
-        if (trimmed.length <= MAX_LEN) pushSpan(page, out, base, base + trimmed.length);
-        else splitLongSegment(page, out, base, trimmed);
+        for (const piece of splitRunInLabels(item.segment)) {
+          const raw = piece.segment;
+          const trimmed = raw.trim();
+          if (trimmed.length < MIN_LEN || !/[a-zA-Z]{3}/.test(trimmed)) continue;
+          const base = start + item.index + piece.index + (raw.length - raw.trimStart().length);
+          if (trimmed.length <= MAX_LEN) pushSpan(page, out, base, base + trimmed.length);
+          else splitLongSegment(page, out, base, trimmed);
+        }
       }
     }
     return out;
