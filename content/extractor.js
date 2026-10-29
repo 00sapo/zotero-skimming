@@ -651,6 +651,7 @@ var FastKeySentenceExtractor = (() => {
     const suppressedBullet = { left: false, right: false, single: false };
     const lastColumnLine = { left: null, right: null, single: null };
     let references = false;
+    let referenceHeading = null;
     const eligible = [];
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -700,7 +701,10 @@ var FastKeySentenceExtractor = (() => {
       }
 
       if (section === "abstract") suppressed[sectionColumn] = true;
-      else if (section === "references") references = true;
+      else if (section === "references") {
+        references = true;
+        if (!referenceHeading) referenceHeading = { baseline: line.baseline, x1: line.x1 };
+      }
       else if (section || largeHeading) suppressed[sectionColumn] = false;
       if (/^(?:https?:\/\/|www\.)\S+$/i.test(text)) continue;
       if (/[^\s@]+@[^\s@]+/.test(text)) continue;
@@ -807,7 +811,7 @@ var FastKeySentenceExtractor = (() => {
       previousLine = line;
     }
     if (text.length > blockStart) blockRanges.push([blockStart, text.length]);
-    return { pageIndex, text, charMap, chars: orderedChars, width: pageWidth, heading, blockRanges };
+    return { pageIndex, text, charMap, chars: orderedChars, width: pageWidth, heading, blockRanges, referenceHeading };
   }
 
   async function readPageData(reader, pageIndex) {
@@ -994,6 +998,15 @@ var FastKeySentenceExtractor = (() => {
         }
       }
       break;
+    }
+    const headingPage = paged.find(page => page.referenceHeading);
+    if (headingPage) {
+      zones.referenceStart = {
+        pageIndex: headingPage.pageIndex,
+        startChar: 0,
+        baseline: headingPage.referenceHeading.baseline,
+        x1: headingPage.referenceHeading.x1
+      };
     }
     return zones;
   }
@@ -1310,24 +1323,26 @@ var FastKeySentenceExtractor = (() => {
     const referenceStartPoint = reference
       ?? (zones.referenceStartPage >= 0 ? { pageIndex: zones.referenceStartPage, startChar: 0 } : null);
     const lastReferencePage = referenceEndPage >= 0 ? referenceEndPage : (reference?.pageIndex ?? Number.POSITIVE_INFINITY);
-    const afterReferenceHeading = (pageIndex, startChar) => {
+    const afterReferenceHeading = sentence => {
       if (!referenceStartPoint) return false;
-      const afterStart = pageIndex > referenceStartPoint.pageIndex
-        || (pageIndex === referenceStartPoint.pageIndex && startChar >= referenceStartPoint.startChar);
-      if (!afterStart) return false;
-      if (!referenceEnd) return pageIndex <= lastReferencePage;
-      return pageIndex < referenceEnd.pageIndex
-        || (pageIndex === referenceEnd.pageIndex && startChar < referenceEnd.startChar);
+      const endPage = referenceEndPage >= 0 ? referenceEndPage : referenceStartPoint.pageIndex;
+      if (sentence.pageIndex > referenceStartPoint.pageIndex) return sentence.pageIndex <= endPage;
+      if (sentence.pageIndex < referenceStartPoint.pageIndex) return false;
+      const rect = sentence.rects[0];
+      const sameColumn = rect[0] >= (referenceStartPoint.x1 ?? 0) - 8;
+      const baseline = referenceStartPoint.baseline;
+      if (baseline === undefined) return true;
+      return sameColumn && (rect[1] + rect[3]) / 2 <= baseline + 1;
     };
     const sentences = [];
     let order = 0;
     for (const page of pages) {
       if (isMaterialPage(page)) continue;
       for (const sentence of segmentSentences(page)) {
-        if (afterReferenceHeading(page.pageIndex, sentence.startChar)) continue;
-        if (overlapsFurniture(zones, page.pageIndex, sentence.startChar, sentence.endChar)) continue;
         const rects = rangeToLineRects(page, sentence.startChar, sentence.endChar);
         if (!rects.length) continue;
+        if (afterReferenceHeading({ ...sentence, pageIndex: page.pageIndex, rects })) continue;
+        if (overlapsFurniture(zones, page.pageIndex, sentence.startChar, sentence.endChar)) continue;
         sentences.push({
           pageIndex: page.pageIndex,
           pageHeight: page.height,
