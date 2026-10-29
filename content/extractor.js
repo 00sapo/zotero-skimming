@@ -715,9 +715,10 @@ var FastKeySentenceExtractor = (() => {
       const visible = text.replace(/\s/g, "");
       const letters = (text.match(/[A-Za-z]/g) || []).length;
       const wordCount = (text.match(/[A-Za-z][A-Za-z'’-]*/g) || []).length;
-      if (visible.length >= 4 && letters < visible.length * 0.4) continue;
+      const operators = (text.match(/[=+×÷⋅↔≤≥≠∑∫√∞±/]/g) || []).length;
+      if (visible.length >= 4 && letters < visible.length * 0.35 && operators) continue;
       const mathSymbols = (text.match(/[=+×÷⋅→←↔≤≥≠∑∫√∞±τλσμ]/g) || []).length;
-      if (mathSymbols >= 2 && mathSymbols / visible.length > 0.12) continue;
+      if (!/^[→←]/.test(text) && mathSymbols >= 2 && mathSymbols / visible.length > 0.12) continue;
       const colonTail = /:\s*$/.test(text);
       const colonContinuation = wordCount === 1 && colonTail && previousColumnLine
         && !/[.!?]["'’)]?$/.test(previousColumnLine.text)
@@ -726,7 +727,9 @@ var FastKeySentenceExtractor = (() => {
           && Math.abs(other.baseline - line.baseline) <= line.fontSize * 0.3
           && other.x2 <= line.x1);
       if (wordCount < 4 && !line.bullet && !/[.!?]\s*$/.test(text)
+        && !(/\d/.test(text) && /\([A-Z]/.test(text))
         && !/^(?:Fig|Table|Sec|Eq|Ref)\./i.test(text)
+        && !(/\w-\w/.test(text) && text.replace(/[^A-Za-z]/g, "").length >= 25)
         && !(wordCount >= 2 && colonTail) && !colonContinuation) continue;
       if (nounListLines.has(line)) continue;
 
@@ -860,13 +863,20 @@ var FastKeySentenceExtractor = (() => {
     const medianSize = sizes.length ? sizes[Math.floor(sizes.length / 2)] : 10;
 
     const chars = [];
+    let previous = null;
     for (const char of rawChars) {
       if (char.rotation || char.diagonal) continue;
       if (pageHeight > 0) {
         const y = yMid(char);
         if (y > pageHeight * 0.945 || y < pageHeight * 0.055) continue;
-        if (y > pageHeight * 0.82 && (char.fontSize ?? 10) < medianSize * 0.82) continue;
+        const small = (char.fontSize ?? 10) < medianSize * 0.82;
+        const inlineSuffix = small && previous
+          && Math.abs((previous.baseline ?? previous.rect[1]) - (char.baseline ?? char.rect[1])) <= 3
+          && (previous.fontSize ?? 10) >= medianSize * 0.82
+          && char.rect[0] - previous.rect[2] <= (char.fontSize ?? 10) * 2;
+        if (y > pageHeight * 0.82 && small && !inlineSuffix) continue;
       }
+      previous = char;
       chars.push({
         c: String(normalizedGlyph(String(char.u ?? char.c ?? ""))),
         rect: [char.rect[0], char.rect[1], char.rect[2], char.rect[3]],
@@ -1117,8 +1127,10 @@ var FastKeySentenceExtractor = (() => {
       .match(/[A-Za-z][A-Za-z'’-]*/g);
     if (!words?.length || words.length > 16) return false;
     const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i.test(text);
+    const afterNumber = (text.replace(/^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i, "").match(/^[A-Za-z]+/) || [""])[0];
+    if (/^(?:While|This|These|In|We|It|However|As|For|Both|Our|Such|If|When|By)$/i.test(afterNumber)) return false;
     const capitals = words.filter(word => /^[A-Z]{2,}$/.test(word) || /^[A-Z]/.test(word)).length;
-    const titleLike = capitals / words.length >= 0.65;
+    const titleLike = capitals / words.length >= 0.65 && !/[()]/.test(text);
     const allCaps = words.every(word => word === word.toUpperCase());
     const lineSize = medianFontSize(page, line.startChar, line.endChar);
     const bodySize = medianFontSize(page, 0, page.chars.length);
@@ -1225,12 +1237,16 @@ var FastKeySentenceExtractor = (() => {
   function splitRunInLabels(segment) {
     const parts = [];
     const pattern = /:\s+(?=[A-Z][A-Za-z0-9'’-]*(?:\s+[A-Za-z0-9'’-]+){0,3}:\s)/g;
+    const lowercaseStart = /(?<![.!?])[.!?](?!\.)["'’)]?\s+(?=[a-zà-öø-ÿ])/g;
+    const cuts = [];
     let start = 0;
     let match;
-    while ((match = pattern.exec(segment))) {
-      const end = match.index + 1;
-      if (end - start >= MIN_LEN) parts.push({ index: start, segment: segment.slice(start, end) });
-      start = end;
+    while ((match = pattern.exec(segment))) cuts.push(match.index + 1);
+    while ((match = lowercaseStart.exec(segment))) cuts.push(match.index + match[0].length);
+    cuts.sort((a, b) => a - b);
+    for (const cut of cuts) {
+      if (cut - start >= MIN_LEN) parts.push({ index: start, segment: segment.slice(start, cut) });
+      start = cut;
       while (start < segment.length && segment[start] === " ") start++;
     }
     if (segment.length - start >= MIN_LEN) parts.push({ index: start, segment: segment.slice(start) });
