@@ -308,6 +308,7 @@ var FastKeySentenceExtractor = (() => {
   }
 
   function looksLikeHeading(text) {
+    if (!/^[A-Z0-9“‘]/.test(text.trim())) return false;
     const words = text.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
     if (!words.length || words.length > 16 || /[.!?]\s*$/.test(text)) return false;
     const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+(?=[A-Z])/.test(text);
@@ -418,7 +419,7 @@ var FastKeySentenceExtractor = (() => {
     return null;
   }
 
-  const CAPTION_START = /^\s*(?:figure|fig\.?|table|tab\.?)\s*(?:[A-Z]?\d+|[IVXLC]+)\s*(?:[.:]|$)/i;
+  const CAPTION_START = /^\s*(?:(?:figure|table|tab\.?)\s*(?:[A-Z]?\d+|[IVXLC]+)\s*[.:]|fig\.\s*(?:[A-Z]?\d+|[IVXLC]+)\s*:)/i;
 
   function isPageNumberLine(text) {
     return /^\s*(?:\d{1,4}|[ivxlcdm]{1,7})\s*$/i.test(text);
