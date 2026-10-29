@@ -523,10 +523,12 @@ var FastKeySentenceExtractor = (() => {
     const title = normalized(hints.title || "");
     const creators = (hints.creators || []).map(normalized).filter(creator => creator.length >= 4);
     const columns = detectColumnStarts(lines, pageWidth);
+    const gutter = columns ? (columns.left.center + columns.right.center) / 2 : 0;
     const lineColumn = line => !columns
       ? "single"
-      : line.x2 <= columns.right.center - columns.tolerance * 0.4 ? "left"
-        : Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center) ? "left" : "right";
+      : line.x1 < gutter
+        && (line.x2 <= columns.right.center - columns.tolerance * 0.4
+          || Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center)) ? "left" : "right";
     let columnRanges = null;
     if (columns) {
       const ranges = { left: { x1: Infinity, x2: -Infinity }, right: { x1: Infinity, x2: -Infinity } };
@@ -702,7 +704,6 @@ var FastKeySentenceExtractor = (() => {
 
       if (section === "abstract") suppressed[sectionColumn] = true;
       else if (section === "references") {
-        references = true;
         if (!referenceHeading) referenceHeading = { baseline: line.baseline, x1: line.x1 };
       }
       else if (section || largeHeading) suppressed[sectionColumn] = false;
