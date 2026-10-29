@@ -458,7 +458,9 @@ var FastKeySentenceExtractor = (() => {
     const spanning = lines.filter(line => line.x2 - line.x1 >= pageWidth * 0.6 || crossesBothColumns(line));
     const columnLines = lines.filter(line => !spanning.includes(line));
     const left = columnLines.filter(line =>
-      Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center)
+      line.x2 <= columns.right.center - columns.tolerance * 0.4
+      || (line.x1 >= columns.left.center - columns.tolerance
+        && Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center))
     );
     const right = columnLines.filter(line => !left.includes(line));
     if (left.length < 3 || right.length < 3) return lines.slice().sort(topDown);
@@ -522,7 +524,8 @@ var FastKeySentenceExtractor = (() => {
     const columns = detectColumnStarts(lines, pageWidth);
     const lineColumn = line => !columns
       ? "single"
-      : Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center) ? "left" : "right";
+      : line.x2 <= columns.right.center - columns.tolerance * 0.4 ? "left"
+        : Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center) ? "left" : "right";
     let columnRanges = null;
     if (columns) {
       const ranges = { left: { x1: Infinity, x2: -Infinity }, right: { x1: Infinity, x2: -Infinity } };
