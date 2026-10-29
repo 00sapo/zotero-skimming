@@ -569,7 +569,8 @@ var FastKeySentenceExtractor = (() => {
         const other = lines[sibling];
         if (Math.abs(other.baseline - caption.baseline) > lineHeight * 0.5) continue;
         if (lineColumn(other) !== lineColumn(caption)) continue;
-        captionLines.add(sibling);
+        const near = other.x2 >= caption.x1 - bodySize * 1.2 && other.x1 <= caption.x2 + bodySize * 1.2;
+        if (near) captionLines.add(sibling);
       }
       let lastBaseline = caption.baseline;
       let lastText = caption.text;
@@ -764,7 +765,8 @@ var FastKeySentenceExtractor = (() => {
         && /^[a-zà-öø-ÿ→←]/.test(line.chars[0].c);
       const newBlock = previousLine && (
         (lineColumn(line) !== lineColumn(previousLine) && !continues)
-        || previousLine.baseline - line.baseline > lineHeight * 1.45
+        || (previousLine.baseline - line.baseline > lineHeight * 1.45
+          && !(/-$/.test(previousLine.text) && /^[a-zà-öø-ÿ]/.test(line.chars[0].c)))
 
       );
       if (!previousLine) {
