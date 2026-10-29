@@ -1032,6 +1032,11 @@ var FastKeySentenceExtractor = (() => {
   const LIST_LABEL = /^(?:(?:Stage|Step|Phase|Checkpoint|Setting|Setup)\s*\d+|(?:[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,2})):\s+(?=\S)/;
 
   function listLabelTrimOffset(text) {
+    const model = /^([A-Z][A-Za-z]*(?:\s+[A-Za-z0-9._-]+){0,2}):\s+(?=\S)/.exec(text);
+    if (model && model[1].split(/\s+/).some(token => /[A-Za-z]/.test(token) && /\d/.test(token))) {
+      const rest = text.slice(model[0].length);
+      if (rest.length >= MIN_LEN && /^[A-Z]/.test(rest)) return model[0].length;
+    }
     const match = LIST_LABEL.exec(text);
     if (!match) return 0;
     const rest = text.slice(match[0].length);
