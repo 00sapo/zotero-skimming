@@ -155,9 +155,14 @@ var FastKeySentenceNLP = (() => {
       vectors.push(vector);
       norms.push(Math.sqrt(norm2));
     }
-    return { vectors, norms, centroid, centroidNorm: sparseNorm(centroid) };
+    return {
+      vectors,
+      norms,
+      centroid,
+      centroidNorm: sparseNorm(centroid),
+      documentFrequencies: allowed.map(term => df.get(term) || 1)
+    };
   }
-
   function sparseNorm(v) {
     let sum = 0;
     for (const x of v.values()) sum += x * x;
@@ -198,6 +203,43 @@ var FastKeySentenceNLP = (() => {
   }
 
 
+
+  function buildShortlist(sentences, vectors, documentFrequencies, size) {
+    const ranked = sentences.map((sentence, index) => ({ index, importance: sentence.importance || 0 }))
+      .sort((a, b) => b.importance - a.importance);
+    if (ranked.length <= size) return ranked.map(entry => entry.index);
+
+    const selected = new Set(ranked.slice(0, Math.max(1, Math.floor(size * 0.7))).map(entry => entry.index));
+    const sectionLimit = Math.max(1, Math.floor(size * 0.15));
+    let sectionCount = 0;
+    const sectionBest = new Map();
+    for (const entry of ranked) {
+      const section = sentences[entry.index].section || "";
+      if (!sectionBest.has(section)) sectionBest.set(section, entry.index);
+    }
+    for (const index of sectionBest.values()) {
+      if (selected.size >= size || sectionCount >= sectionLimit) break;
+      if (!selected.has(index)) {
+        selected.add(index);
+        sectionCount++;
+      }
+    }
+
+    const rarity = sentences.map(() => 0);
+    for (let i = 0; i < vectors.length; i++) {
+      for (const termIndex of vectors[i].keys()) {
+        const df = documentFrequencies[termIndex] || 1;
+        rarity[i] = Math.max(rarity[i], Math.log((sentences.length + 1) / (df + 1)));
+      }
+    }
+    const rareCandidates = rarity.map((value, index) => ({ index, value }))
+      .sort((a, b) => b.value - a.value);
+    for (const entry of rareCandidates) {
+      if (selected.size >= size) break;
+      selected.add(entry.index);
+    }
+    return [...selected];
+  }
 
   function minMax(values) {
     if (!values.length) return [];
@@ -308,14 +350,14 @@ var FastKeySentenceNLP = (() => {
   }
 
 
-  function summarySimilaritySpares(sentences, summaryText) {
-    if (!summaryText || !sentences.length) return new Array(sentences.length).fill(0);
-    const { vectors: sentenceVectors, norms: sentenceNorms } = buildFeatures(sentences);
-    const { vectors: [summaryVec] } = buildFeatures([{ text: summaryText }]);
-    const summaryNorm = sparseNorm(summaryVec);
-    if (!summaryNorm) return new Array(sentences.length).fill(0);
-    return sentenceVectors.map((vec, i) => vectorCosine(vec, summaryVec, sentenceNorms[i], summaryNorm));
+  function summarySimilaritySparse(sentenceVectors, sentenceNorms, summaryVector) {
+    const summaryNorm = sparseNorm(summaryVector);
+    if (!summaryNorm) return new Array(sentenceVectors.length).fill(0);
+    return sentenceVectors.map((vector, index) =>
+      vectorCosine(vector, summaryVector, sentenceNorms[index], summaryNorm)
+    );
   }
+
 
   function summarySimilarityDense(vectors, norms, summaryEmbedding) {
     if (!summaryEmbedding || !summaryEmbedding.length) return new Array(vectors.length).fill(0);
@@ -362,8 +404,9 @@ var FastKeySentenceNLP = (() => {
     if (!filtered.length) return [];
 
     const labelsEnabled = options.summaryLabels === true;
-    const useLocalSummary = options.summarySource === "local";
     const useLocalRelevance = options.localRelevance === true;
+    const useLocalSummary = options.summarySource !== "remote" && (useLocalRelevance || labelsEnabled);
+    const useRemoteSummary = options.summarySource === "remote";
     const useLocalModels = useLocalSummary || useLocalRelevance || labelsEnabled;
     if (useLocalModels && typeof FastKeySentenceModels === "undefined") {
       throw new Error("The transformer model manager was not loaded.");
@@ -379,14 +422,13 @@ var FastKeySentenceNLP = (() => {
     }
 
     const labels = labelsEnabled ? FastKeySentenceSummaryLabels.parseConfig(options.summaryLabelConfigV2 || FastKeySentenceSummaryLabels.DEFAULT_CONFIG) : [];
-
-    // 1. Summarize via the selected source
-    options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
-    const paperText = paperTextForSummary(filtered);
+    const shouldSummarize = useLocalSummary || useRemoteSummary;
     let summary = "";
     let localSummaryFailed = false;
-    if (useLocalSummary) {
-      if (inferenceAvailable) {
+    if (shouldSummarize) {
+      options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
+      const paperText = paperTextForSummary(filtered);
+      if (useLocalSummary && inferenceAvailable) {
         try {
           summary = await FastKeySentenceModels.summarize(
             paperText,
@@ -408,15 +450,15 @@ var FastKeySentenceNLP = (() => {
           });
         }
       }
-    }
-    else {
-      summary = await FastKeySentenceRemote.summarize(
-        paperText,
-        options.documentTitle || "",
-        count,
-        event => options.onModelProgress?.({ ...event, operation: "summarization" }),
-        labels
-      );
+      else if (useRemoteSummary) {
+        summary = await FastKeySentenceRemote.summarize(
+          paperText,
+          options.documentTitle || "",
+          count,
+          event => options.onModelProgress?.({ ...event, operation: "summarization" }),
+          labels
+        );
+      }
     }
 
     const summaryEntries = labelsEnabled ? parseLabeledSummary(summary, labels) : [];
@@ -425,9 +467,20 @@ var FastKeySentenceNLP = (() => {
       : labels.map(label => ({ text: label.description, label }));
     if (summaryEntries.length) summary = summaryEntries.map(entry => entry.sentence).join("\n");
 
-    // 2. Score sparse baseline, then apply dense summary relevance if embeddings are available.
-    const summaryScores = summarySimilaritySpares(filtered, summary);
-    const scored = scoreSparse(filtered, count, summaryScores);
+    const featureInput = summary ? [...filtered, { text: summary }] : filtered;
+    const features = buildFeatures(featureInput);
+    const sentenceVectors = features.vectors.slice(0, filtered.length);
+    const sentenceNorms = features.norms.slice(0, filtered.length);
+    const summaryScores = summary
+      ? summarySimilaritySparse(sentenceVectors, sentenceNorms, features.vectors[filtered.length])
+      : new Array(filtered.length).fill(0);
+    scoreWithVectors(filtered, sentenceVectors, sentenceNorms, count, summaryScores);
+
+    const shortlistSize = Math.min(filtered.length, Math.max(count * 4, 60), 160);
+    const shortlistIndices = buildShortlist(filtered, sentenceVectors, features.documentFrequencies, shortlistSize);
+    const shortlist = shortlistIndices.map(index => filtered[index]);
+    const shortlistVectors = shortlistIndices.map(index => sentenceVectors[index]);
+    const shortlistNorms = shortlistIndices.map(index => sentenceNorms[index]);
     const useRemoteEmbed = !localSummaryFailed && summary && typeof FastKeySentenceRemote?.embeddings === "function";
     const useLocalEmbed = inferenceAvailable && !localSummaryFailed && summary;
     if (useLocalRelevance && (useRemoteEmbed || useLocalEmbed)) {
@@ -436,17 +489,17 @@ var FastKeySentenceNLP = (() => {
         : FastKeySentenceRemote.embeddings;
       try {
         options.onModelProgress?.({ stage: "preparing", operation: "summary-relevance" });
-        const texts = filtered.map(sentence => sentence.text);
+        const texts = shortlist.map(sentence => sentence.text);
         const [summaryEmbedding, ...sentenceEmbeddings] = await embedFn(
           [summary, ...texts],
           event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
         );
-        const sentenceNorms = sentenceEmbeddings.map(denseNorm);
-        const denseRelevance = summarySimilarityDense(sentenceEmbeddings, sentenceNorms, summaryEmbedding);
-        const lengths = filtered.map(s => Math.exp(-Math.pow(s.text.split(/\s+/).length - 18, 2) / (2 * Math.pow(12, 2))));
+        const sentenceEmbeddingNorms = sentenceEmbeddings.map(denseNorm);
+        const denseRelevance = summarySimilarityDense(sentenceEmbeddings, sentenceEmbeddingNorms, summaryEmbedding);
+        const lengths = shortlist.map(sentence => Math.exp(-Math.pow(sentence.text.split(/\s+/).length - 18, 2) / (2 * Math.pow(12, 2))));
         const S = minMax(denseRelevance);
         const L = minMax(lengths);
-        filtered.forEach((sentence, index) => {
+        shortlist.forEach((sentence, index) => {
           sentence.summaryRelevance = denseRelevance[index] || 0;
           sentence.importance = SCORING.initial.summarySimilarity * S[index]
             + SCORING.initial.sentenceLength * L[index];
@@ -461,36 +514,48 @@ var FastKeySentenceNLP = (() => {
       }
     }
 
-    const shortlistSize = Math.min(filtered.length, Math.max(count * 4, 60), 160);
-    const shortlist = filtered
-      .map((sentence, index) => ({ index, importance: sentence.importance || 0 }))
-      .sort((a, b) => b.importance - a.importance)
-      .slice(0, shortlistSize)
-      .map(entry => entry.index);
-
-    // Embed summary sentences for MMR coverage encouragement
     let summaryParts = null;
-    if (summary && (useLocalRelevance || options.summarySource === "remote")) {
+    if (summary && useLocalRelevance) {
       try {
-        const summarySentences = sentenceRanges(summary).map(([s, e]) => summary.slice(s, e)).filter(Boolean);
+        const summarySentences = sentenceRanges(summary).map(([start, end]) => summary.slice(start, end)).filter(Boolean);
         if (summarySentences.length > 1) {
-          const remoteAvailable = typeof FastKeySentenceRemote?.embeddings === "function";
-          const embedFn = options.summarySource === "remote" && remoteAvailable
+          const embedFn = options.summarySource === "remote" && typeof FastKeySentenceRemote?.embeddings === "function"
             ? FastKeySentenceRemote.embeddings
             : FastKeySentenceModels.embeddings;
           const vectors = await embedFn(
             summarySentences,
             event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
           );
-          summaryParts = vectors.map((vec, index) => ({ vector: vec.map(Number), norm: denseNorm(vec), text: summarySentences[index] }));
+          summaryParts = vectors.map((vector, index) => ({ vector: vector.map(Number), norm: denseNorm(vector), text: summarySentences[index] }));
         }
       }
       catch (_) {}
     }
 
-    const selected = selectMMR(filtered, scored.vectors, scored.norms, Math.min(count, filtered.length), summaryParts);
+    const mmrSelected = selectMMR(
+      shortlist,
+      shortlistVectors,
+      shortlistNorms,
+      Math.min(count, shortlist.length),
+      summaryParts
+    );
+    const diverseSentences = new Set(mmrSelected);
+    let minImportance = Infinity;
+    let maxImportance = -Infinity;
+    for (const sentence of filtered) {
+      const importance = Number(sentence.importance) || 0;
+      minImportance = Math.min(minImportance, importance);
+      maxImportance = Math.max(maxImportance, importance);
+    }
+    const importanceRange = maxImportance - minImportance;
+    for (const sentence of filtered) {
+      const importance = Number(sentence.importance) || 0;
+      sentence.importance = diverseSentences.has(sentence)
+        ? 1
+        : importanceRange > 0 ? (importance - minImportance) / importanceRange : 1;
+    }
 
-    if (labelsEnabled && selected.length) {
+    if (labelsEnabled && filtered.length) {
       try {
         options.onModelProgress?.({ stage: "preparing", operation: "tag-classification" });
         if (!classificationEntries.length) throw new Error("No summary labels are configured.");
@@ -498,7 +563,7 @@ var FastKeySentenceNLP = (() => {
         const useRemoteClassify = options.summarySource === "remote" && remoteAvailable;
         const primaryEmbed = useRemoteClassify ? FastKeySentenceRemote.embeddings : FastKeySentenceModels.embeddings;
         const fallbackEmbed = useRemoteClassify ? FastKeySentenceModels.embeddings : (remoteAvailable ? FastKeySentenceRemote.embeddings : null);
-        const texts = [...classificationEntries.map(entry => entry.text), ...selected.map(sentence => sentence.text)];
+        const texts = [...classificationEntries.map(entry => entry.text), ...filtered.map(sentence => sentence.text)];
         let vectors;
         try {
           vectors = await primaryEmbed(texts, event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
@@ -516,7 +581,7 @@ var FastKeySentenceNLP = (() => {
         const sourceVectors = vectors.slice(classificationEntries.length);
         const summaryNorms = summaryVectors.map(denseNorm);
         const sourceNorms = sourceVectors.map(denseNorm);
-        for (let i = 0; i < selected.length; i++) {
+        for (let i = 0; i < filtered.length; i++) {
           let bestIndex = 0;
           let bestScore = -1;
           for (let j = 0; j < classificationEntries.length; j++) {
@@ -527,11 +592,11 @@ var FastKeySentenceNLP = (() => {
             }
           }
           const label = classificationEntries[bestIndex].label;
-          selected[i].tag = label.name.replace(/^\[|\]$/g, "");
-          selected[i].tagDescription = label.description || "";
-          selected[i].tagColor = label.color || null;
-          selected[i].tagIndex = labels.indexOf(label);
-          selected[i].tagScore = bestScore;
+          filtered[i].tag = label.name.replace(/^\[|\]$/g, "");
+          filtered[i].tagDescription = label.description || "";
+          filtered[i].tagColor = label.color || null;
+          filtered[i].tagIndex = labels.indexOf(label);
+          filtered[i].tagScore = bestScore;
         }
       }
       catch (error) {
@@ -545,8 +610,8 @@ var FastKeySentenceNLP = (() => {
       }
     }
 
-    selected.forEach(s => { s._paperSummary = summary; });
-    return selected;
+    filtered.forEach(sentence => { sentence._paperSummary = summary; });
+    return filtered.sort((a, b) => a.order - b.order);
   }
 
   return {

@@ -35,14 +35,14 @@ Ollama runs the models on your computer. If your computer cannot run the models,
 1. Open the PDF in the Zotero reader.
 2. Open the `Paper skim` section in the right pane.
 3. Click `Generate highlights`. The status line shows extraction, ranking, and model progress.
-4. Move the `Highlight threshold` slider. The slider hides selected sentences with a low importance score. The preview changes immediately and does not call the model again.
+4. Move the `Highlight threshold` slider to filter eligible sentences by normalized importance. Zero shows all eligible sentences. 100 hides all eligible sentences. The preview updates without another model run.
 5. Click `Save as Zotero annotations…` to keep the visible highlights in your library. Click `Clear` to remove the preview.
 
 All other settings live in `Settings → Zotero Skimming`:
 
 - The summary source. Choose `Local Ollama` or `Remote API`.
-- The compression ratio. A value of 2 selects about half of the body sentences. The minimum is 1.5.
-- The highlight threshold. The reader slider changes the same value.
+- The compression ratio controls how many diverse candidates receive priority.
+- The highlight threshold. Zero shows all eligible sentences. 100 hides all eligible sentences. The default is 75%.
 - `Semantic relevance`. The add-on then ranks sentences by meaning.
 - `Classify highlights from labeled summary` and the TOML label definitions.
 - The endpoint, API key, and model names for remote use.
@@ -54,9 +54,9 @@ The `Test Ollama` button reports its result on the settings page. In remote mode
 
 ### Summary
 
-The add-on sends only the body text to the summary model. It removes front matter, the abstract, and references. It filters table captions and other noise. The requested summary length is about 1.5 sentences for each requested highlight.
+The add-on uses a local, model-free ranker by default. It does not start Ollama or send text to a remote service for this step.
 
-`Local Ollama` sends the text to the local Ollama server. The add-on starts `ollama serve` when the configured command is available. `Remote API` sends the text to the configured OpenAI-compatible endpoint. The add-on hides the remote fields in local mode.
+When you enable `Semantic relevance` or labeled highlights, the add-on uses the selected summary source. The add-on also uses a remote source when you select `Remote API`.
 
 ### Map-reduce
 
@@ -68,7 +68,9 @@ The add-on reads the character geometry that the Zotero reader already has. It g
 
 ### Ranking and highlights
 
-When a summary is available, the add-on scores each sentence by its similarity to the summary and by its length. It penalizes similar sentences and extra picks from one section. `Semantic relevance` uses embeddings (numeric vectors that represent meaning) for the summary similarity. Without it, the add-on uses TF-IDF (word frequency) and sentence length.
+The ranker scores all eligible sentences from 0 to 1. It gives priority to diverse candidates from its shortlist. The threshold then hides sentences below its value.
+
+`Semantic relevance` uses embeddings, which are number lists that represent meaning. This option needs a summary and model inference. Labeled highlights also need a summary. With `Local Ollama` selected and both options off, the add-on selects highlights without models.
 
 The add-on paints the selected sentences as temporary overlays. Nothing is written to the library until you click `Save as Zotero annotations…`. A second save skips sentences that already have an annotation, so repeated clicks do not create duplicates. Each saved highlight receives the `autoskim-key-sentence` tag.
 

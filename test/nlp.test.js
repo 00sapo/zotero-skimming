@@ -88,6 +88,16 @@ describe("FastKeySentenceNLP", () => {
     expect(selected).toEqual([...selected].sort((a, b) => a.order - b.order));
     expect(selected.every(item => item.importance >= 0 && item.role === undefined)).toBe(true);
   });
+  it("keeps section coverage when the candidate list exceeds the shortlist", async () => {
+    const api = nlp();
+    const input = Array.from({ length: 120 }, (_, order) => {
+      const section = order < 100 ? "methods" : order < 110 ? "results" : "discussion";
+      return sentence(`We present a detailed approach for concept${order} that improves analysis across several practical research settings.`, order, section);
+    });
+    const selected = await api.analyzeAsync(input, 20, { summarySource: "local" });
+    expect(selected).toHaveLength(120);
+    expect(new Set(selected.map(item => item.section))).toEqual(new Set(["methods", "results", "discussion"]));
+  });
 
   it("exercises noise filters while retaining prose", () => {
     const api = nlp();
@@ -122,17 +132,19 @@ describe("FastKeySentenceNLP", () => {
     await expect(api.analyzeAsync([], 2)).resolves.toEqual([]);
   });
 
-  it("does not classify when LLM classification is disabled", async () => {
-    const summarize = vi.fn(async () => "1. [method] A concise method sentence.\n2. [result] A concise result sentence.\n3. [contribution] A concise contribution sentence.");
+  it("uses the model-free baseline when model features are disabled", async () => {
+    const summarize = vi.fn(async () => "A paper synopsis.");
     const embeddings = vi.fn(async texts => texts.map(() => [1, 0]));
     const selected = await nlp({
       supportsInference: () => true,
       summarize,
       embeddings
     }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 3, { summarySource: "local" });
-    expect(summarize).toHaveBeenCalled();
+    expect(selected).toHaveLength(prose.length);
+    expect(summarize).not.toHaveBeenCalled();
     expect(embeddings).not.toHaveBeenCalled();
-    expect(selected.every(item => item.tag === undefined)).toBe(true);
+    expect(selected.every(item => item.tag === undefined && item._paperSummary === "")).toBe(true);
+    expect(selected.every(item => item.importance >= 0 && item.importance <= 1)).toBe(true);
   });
 
   it("assigns labels from the closest summary sentence when enabled", async () => {
@@ -206,6 +218,7 @@ describe("FastKeySentenceNLP", () => {
       embeddings
     };
     const selected = await nlp(models).analyzeAsync(prose.map((text, order) => sentence(text, order, order < 2 ? "abstract" : "results")), 3, {
+      summarySource: "remote",
       localRelevance: true, documentTitle: "A study", onModelProgress: progress, summaryLabels: true
     });
     expect(selected.length).toBeGreaterThanOrEqual(1);
@@ -229,16 +242,16 @@ describe("FastKeySentenceNLP", () => {
   it("falls back to baseline ranking after local Qwen summarization fails", async () => {
     const progress = vi.fn();
     const selected = await nlp({ supportsInference: () => true, summarize: async () => { throw new Error("model unavailable"); }, remote: { summarize: vi.fn() } }).analyzeAsync(
-      prose.map((text, order) => sentence(text, order)), 2, { summarySource: "local", onModelProgress: progress }
+      prose.map((text, order) => sentence(text, order)), 2, { summarySource: "local", localRelevance: true, onModelProgress: progress }
     );
-    expect(selected).toHaveLength(2);
+    expect(selected).toHaveLength(prose.length);
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "unavailable", operation: "summarization" }));
   });
 
   it("falls back cleanly when local Ollama relevance is unavailable", async () => {
     const unavailable = nlp({ supportsInference: () => false, remote: { summarize: async () => "A synopsis." } });
     const progress = vi.fn();
-    await expect(unavailable.analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, { localRelevance: true, onModelProgress: progress })).resolves.toHaveLength(2);
+    await expect(unavailable.analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, { localRelevance: true, onModelProgress: progress })).resolves.toHaveLength(prose.length);
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "unavailable" }));
   });
 

@@ -101,7 +101,7 @@ FastOfflineKeySentenceAnnotator = {
 
   settingsDefaults: Object.freeze({
     compressionRatio: 10,
-    selectionThreshold: 0,
+    selectionThreshold: 0.75,
     localRelevance: false,
     summaryLabels: false,
     ollamaCommand: "/usr/bin/ollama",
@@ -118,7 +118,8 @@ FastOfflineKeySentenceAnnotator = {
   getConfiguredSettings() {
     const defaults = this.settingsDefaults;
     const compressionRatio = Number(Zotero.Prefs.get(this.prefBranch + "compressionRatio", true));
-    const thresholdPercent = Number(Zotero.Prefs.get(this.prefBranch + "selectionThreshold", true));
+    const storedThreshold = Zotero.Prefs.get(this.prefBranch + "selectionThreshold", true);
+    const thresholdPercent = storedThreshold === null || storedThreshold === undefined ? NaN : Number(storedThreshold);
     const settings = {
       compressionRatio: Number.isFinite(compressionRatio) && compressionRatio >= 1.5 ? compressionRatio : defaults.compressionRatio,
       selectionThreshold: Number.isFinite(thresholdPercent)
@@ -193,8 +194,11 @@ FastOfflineKeySentenceAnnotator = {
   },
 
   getSelectionThreshold() {
-    const percent = Number(Zotero.Prefs.get(this.prefBranch + "selectionThreshold", true));
-    return Number.isFinite(percent) ? Math.min(1, Math.max(0, percent / 100)) : 0;
+    const storedThreshold = Zotero.Prefs.get(this.prefBranch + "selectionThreshold", true);
+    const percent = storedThreshold === null || storedThreshold === undefined ? NaN : Number(storedThreshold);
+    return Number.isFinite(percent)
+      ? Math.min(1, Math.max(0, percent / 100))
+      : this.settingsDefaults.selectionThreshold;
   },
 
   setSelectionThreshold(value) {
@@ -631,7 +635,7 @@ FastOfflineKeySentenceAnnotator = {
       if (!candidates.length) throw new Error("No usable candidate sentences were found.");
       const count = this.calculateAnnotationTarget(candidates.length, settings);
       FastKeySentenceModels.setModelOverrides(settings);
-      this.setPanelStatus(body, `Selecting ${count} sentences from ${candidates.length} candidates…`);
+      this.setPanelStatus(body, `Ranking ${candidates.length} candidate sentences…`);
       this.setPanelProgress(body, 45);
       const selected = await FastKeySentenceNLP.analyzeAsync(candidates, count, {
         localRelevance: settings.localRelevance,
@@ -681,9 +685,10 @@ FastOfflineKeySentenceAnnotator = {
 
   applyThreshold(preview) {
     const threshold = this.getSelectionThreshold();
-    preview.visible = (preview.sentences || []).filter(sentence =>
-      Number(sentence.importance) >= threshold
-    );
+    const sentences = preview.sentences || [];
+    if (threshold <= 0) preview.visible = sentences.slice();
+    else if (threshold >= 1) preview.visible = [];
+    else preview.visible = sentences.filter(sentence => Number(sentence.importance) >= threshold);
     preview.overlays?.update?.(preview.visible);
     return preview.visible;
   },

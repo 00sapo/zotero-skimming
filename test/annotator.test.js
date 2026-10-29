@@ -148,6 +148,9 @@ describe("FastOfflineKeySentenceAnnotator settings", () => {
     const api = annotator();
     api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
     expect(api.getConfiguredSettings()).toEqual(api.settingsDefaults);
+    api.__prefs.set("extensions.zotero-skimming.selectionThreshold", null);
+    expect(api.getConfiguredSettings().selectionThreshold).toBe(0.75);
+    expect(api.getSelectionThreshold()).toBe(0.75);
 
     const settings = { ...api.settingsDefaults, compressionRatio: 3, selectionThreshold: 0.25, localRelevance: true };
     expect(api.saveSettings(settings)).toBe(true);
@@ -206,7 +209,7 @@ describe("FastOfflineKeySentenceAnnotator settings", () => {
     api.onPrefsLoad(window);
     const $ = name => doc.getElementById(`zotero-skimming-pref-${name}`);
     expect($("compressionRatio").value).toBe("10");
-    expect($("selectionThreshold").value).toBe("0");
+    expect($("selectionThreshold").value).toBe("75");
     expect($("summarySource").value).toBe("local");
     expect($("remoteOptions").hidden).toBe(true);
 
@@ -277,14 +280,28 @@ describe("FastOfflineKeySentenceAnnotator sidebar", () => {
     const refs = api.panelRefs.get(body);
     expect(refs).toBeTruthy();
     await api.generateForItem(attachmentItem, body);
+    expect(api.previews.get(attachmentItem.id).visible).toHaveLength(1);
+    expect(refs.status.textContent).toContain("Generated 1");
+
+    refs.threshold.value = "0";
+    refs.threshold.dispatch("input");
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(api.previews.get(attachmentItem.id).visible).toHaveLength(2);
-    expect(refs.status.textContent).toContain("Generated 2");
 
     refs.threshold.value = "50";
     refs.threshold.dispatch("input");
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(api.previews.get(attachmentItem.id).visible).toHaveLength(1);
     expect(refs.status.textContent).toContain("1 highlight");
+
+    refs.threshold.value = "100";
+    refs.threshold.dispatch("input");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(api.previews.get(attachmentItem.id).visible).toHaveLength(0);
+
+    refs.threshold.value = "50";
+    refs.threshold.dispatch("input");
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     api.__zotero.Annotations.saveFromJSON = vi.fn(async (_attachment, annotation) => {
       saved.push(annotation);
