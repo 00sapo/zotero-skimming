@@ -310,7 +310,7 @@ var FastKeySentenceExtractor = (() => {
   function looksLikeHeading(text) {
     const words = text.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
     if (!words.length || words.length > 16 || /[.!?]\s*$/.test(text)) return false;
-    const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i.test(text);
+    const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+(?=[A-Z])/.test(text);
     const appendix = /^\s*[A-F](?:\.\d+)*\s+[A-Z][A-Za-z]/.test(text);
     if (appendix && words.length <= 12) return true;
     const known = SECTION_MARKERS.some(([marker]) => {
