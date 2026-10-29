@@ -122,8 +122,14 @@ var FastKeySentenceExtractor = (() => {
       (a.rect[0] + a.rect[2]) / 2 - (b.rect[0] + b.rect[2]) / 2);
     const baseline = median(ordered.map(char => char.baseline));
     const fontSize = median(ordered.map(char => char.fontSize));
-    ordered = ordered.filter(char => !(char.fontSize < fontSize * 0.92
-      && Math.abs(char.baseline - baseline) > char.fontSize * 0.35));
+    ordered = ordered.filter((char, index) => {
+      if (!(char.fontSize < fontSize * 0.92 && Math.abs(char.baseline - baseline) > char.fontSize * 0.35)) return true;
+      // Keep superscript and subscript suffixes such as CLaMP 3c2sa, but drop
+      // footnote markers that follow an ordinary letter.
+      const previous = ordered[index - 1];
+      return Boolean(previous && /[0-9]/.test(previous.c)
+        && char.rect[0] - previous.rect[2] <= fontSize * 0.2);
+    });
     const bullet = ordered.length > 0 && /^[•·◦▪▫‣]$/.test(ordered[0].c);
     while (ordered.length && /^[\s•·◦▪▫‣]$/.test(ordered[0].c)) ordered = ordered.slice(1);
     return {
@@ -179,7 +185,27 @@ var FastKeySentenceExtractor = (() => {
       const segment = describeVisualLine(row.chars.slice(start));
       if (segment.text) segments.push(segment);
     }
-    return segments;
+    // Raised or lowered suffixes (CLaMP 3c2sa) form their own tiny rows. Attach
+    // them to the neighbouring full-size segment so the suffix stays attached.
+    const bodySize = segments.length ? median(segments.map(segment => segment.fontSize)) : 0;
+    const tiny = segments.filter(segment => segment.fontSize < bodySize * 0.85
+      && segment.text.length <= 6);
+    const merged = new Set();
+    for (const segment of tiny) {
+      const host = segments.find(candidate => candidate !== segment && !merged.has(candidate)
+        && candidate.fontSize >= segment.fontSize * 1.15
+        && Math.abs(candidate.baseline - segment.baseline) <= candidate.fontSize * 0.9
+        && (segment.x1 - candidate.x2 <= candidate.fontSize * 0.2
+          && segment.x1 - candidate.x2 >= -candidate.fontSize
+          || candidate.x1 - segment.x2 <= candidate.fontSize * 0.2
+            && candidate.x1 - segment.x2 >= -candidate.fontSize));
+      if (!host) continue;
+      const chars = [...host.chars, ...segment.chars].sort((a, b) =>
+        (a.rect[0] + a.rect[2]) / 2 - (b.rect[0] + b.rect[2]) / 2);
+      Object.assign(host, describeVisualLine(chars));
+      merged.add(segment);
+    }
+    return segments.filter(segment => !merged.has(segment));
   }
 
   function normalizedGlyph(character) {
