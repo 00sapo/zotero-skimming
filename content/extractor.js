@@ -22,6 +22,7 @@ var FastKeySentenceExtractor = (() => {
   const Y_BAND_PT = 30;
   const REF_DENSITY = 0.4;
   const REF_MIN_HITS = 5;
+  const HYPHEN_FUNCTION_PREFIXES = new Set(["to", "of"]);
 
   const REF_SIGNALS = [
     /\b(?:19|20)\d{2}\b/,
@@ -312,8 +313,9 @@ var FastKeySentenceExtractor = (() => {
     const words = text.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
     if (!words.length || words.length > 16 || /[.!?]\s*$/.test(text)) return false;
     const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+(?=[A-Z])/.test(text);
-    const appendix = /^\s*[A-F](?:\.\d+)*\s+[A-Z][A-Za-z]/.test(text);
-    if (appendix && words.length <= 12) return true;
+    const appendix = /^\s*[A-F](?:\.\d+)*\s+[A-Za-z]/.test(text);
+    const titleWords = words.filter(word => /^[A-Z]/.test(word) || word === word.toUpperCase()).length;
+    if (appendix && words.length <= 12 && titleWords / words.length >= 0.5) return true;
     const known = SECTION_MARKERS.some(([marker]) => {
       marker.lastIndex = 0;
       return marker.test(text);
@@ -686,9 +688,17 @@ var FastKeySentenceExtractor = (() => {
         blockStart = text.length;
         blockFirstX = line.x1;
       }
-      else if (text.endsWith("-") && /^[a-zà-öø-ÿ]/.test(line.chars[0].c)) {
-        text = text.slice(0, -1);
-        charMap.pop();
+      else if (text.endsWith("-") && /^[A-Za-zà-öø-ÿ0-9]/.test(line.chars[0].c)) {
+        const prefix = (text.slice(0, -1).match(/[A-Za-z0-9]+$/) || [""])[0];
+        const nextWord = (line.chars.slice(0, 32).map(char => char.c).join("").match(/^[A-Za-zà-öø-ÿ]+/) || [""])[0];
+        const joined = `${prefix}${nextWord}`.toLowerCase();
+        const known = hints.vocabulary?.has(joined);
+        const compound = /^[A-Z]/.test(line.chars[0].c) || /\d/.test(prefix)
+          || HYPHEN_FUNCTION_PREFIXES.has(prefix.toLowerCase());
+        if (known || !compound) {
+          text = text.slice(0, -1);
+          charMap.pop();
+        }
       }
       else {
         text += " ";
@@ -716,12 +726,30 @@ var FastKeySentenceExtractor = (() => {
     return { pageIndex, text, charMap, chars: orderedChars, width: pageWidth, heading, blockRanges };
   }
 
-  async function extractPage(reader, pageIndex, hints = {}) {
+  async function readPageData(reader, pageIndex) {
     const handle = getHandle(reader);
     if (!handle) return null;
     const { win, app, Cu } = handle;
-    const argument = Cu.cloneInto({ pageIndex }, win);
-    const pageData = await app.pdfDocument.getPageData(argument);
+    return app.pdfDocument.getPageData(Cu.cloneInto({ pageIndex }, win));
+  }
+
+  function addVocabulary(words, pageData) {
+    let run = "";
+    for (const char of pageData?.chars ?? []) {
+      if (char.rotation || char.diagonal) continue;
+      const text = String(char.u ?? char.c ?? "");
+      if (/^[A-Za-zà-öø-ÿ]$/.test(text)) run += text;
+      else {
+        if (run.length >= 3) words.add(run.toLowerCase());
+        run = "";
+      }
+    }
+    if (run.length >= 3) words.add(run.toLowerCase());
+  }
+
+  async function extractPage(reader, pageIndex, hints = {}, pageData = null) {
+    if (!pageData) pageData = await readPageData(reader, pageIndex);
+    if (!pageData) return null;
     const rawChars = pageData?.chars;
     if (!rawChars || !rawChars.length) return { pageIndex, text: "", charMap: [], chars: [], width: 0, height: 0, heading: null };
 
@@ -1169,9 +1197,13 @@ var FastKeySentenceExtractor = (() => {
     const pageCount = getPageCount(reader);
     if (!pageCount) throw new Error("The reader did not report any pages.");
     const hints = hintsForAttachment(attachment);
+    const vocabulary = new Set();
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+      addVocabulary(vocabulary, await readPageData(reader, pageIndex));
+    }
     const pages = [];
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-      const page = await extractPage(reader, pageIndex, hints);
+      const page = await extractPage(reader, pageIndex, { ...hints, vocabulary }, await readPageData(reader, pageIndex));
       if (page?.text) pages.push(page);
       onProgress?.((pageIndex + 1) / pageCount, pageIndex + 1, pageCount);
       await Promise.resolve();
