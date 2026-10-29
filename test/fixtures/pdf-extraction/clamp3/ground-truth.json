@@ -1242,7 +1242,7 @@
       "pageIndex": 20
     },
     {
-      "text": "TTMR++ is the most affected, having been trained on MusicCaps pairs from the training set of AudioSet, exposing it to half the benchmark; CLAP, trained on the full AudioSet, has seen all MusicCaps audio; in contrast, CLaMP 3 has minimal exposure, with only 150 audio recordings appearing in M4-RAG.",
+      "text": "Leakage varies across models: TTMR++ is the most affected, having been trained on MusicCaps pairs from the training set of AudioSet, exposing it to half the benchmark; CLAP, trained on the full AudioSet, has seen all MusicCaps audio; in contrast, CLaMP 3 has minimal exposure, with only 150 audio recordings appearing in M4-RAG.",
       "pageIndex": 20
     },
     {
