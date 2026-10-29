@@ -594,7 +594,10 @@ var FastKeySentenceExtractor = (() => {
       const tooSmall = line.fontSize <= Math.max(3, bodySize * 0.9);
       const largeHeading = line.fontSize >= bodySize * 1.28;
       const textHeading = looksLikeHeading(text);
-      const headingLike = !tooSmall && (textHeading || largeHeading || line.fontSize >= bodySize * 1.15);
+      const runInProse = /^[A-Z][A-Za-z0-9]*(?:\s+[A-Za-z0-9][A-Za-z0-9]*){0,2}:\s+\S/.test(text)
+        && text.slice(text.indexOf(":") + 1).trim().split(/\s+/).length >= 4;
+      const headingLike = !tooSmall && !runInProse
+        && (textHeading || largeHeading || line.fontSize >= bodySize * 1.15);
       const section = headingLike ? sectionFromText(text) : null;
       const sentenceEnd = /[.!?](?:\s|$)/.test(text.replace(/\.{3,}/g, ""));
       if (line.bullet) {
@@ -1062,7 +1065,7 @@ var FastKeySentenceExtractor = (() => {
       }
     }
     const currentStart = startText + leadingWhitespace + removedFront;
-    const subtitleSkip = subtitleTrimOffset(page, currentStart, endText);
+    const subtitleSkip = labelSkip > 0 || headSkip > 0 ? 0 : subtitleTrimOffset(page, currentStart, endText);
     if (subtitleSkip < 0) return;
     if (subtitleSkip > 0) {
       const kept = text.slice(subtitleSkip).trimStart();
