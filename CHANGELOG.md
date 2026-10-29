@@ -5,6 +5,7 @@
 - Use model-free ranking by default. Limit diversity selection to a shortlist that keeps section and uncommon-term coverage.
 - Reuse sparse sentence features and embed only shortlisted sentences for semantic relevance.
 - Normalize sentence importance to a range from 0 to 1. A threshold of 0 shows every eligible sentence, and 100 shows none. The default is 75%.
+- Add two downloaded academic templates and 16 controlled PDF layouts with independent expected text, source licenses, and extraction regression metrics.
 - Moved all configuration into a native **Settings → Zotero Skimming** pane.
 - Removed the sidebar settings overlay, summary dialog, and every alert and progress popup. Status and progress now appear in the reader sidebar.
 - Highlights are temporary by default. Generate a preview, adjust the score threshold, then press **Save as Zotero annotations…** to write native highlights.

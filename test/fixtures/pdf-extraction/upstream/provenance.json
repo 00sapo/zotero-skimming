@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "description": "Two original, openly MIT-licensed academic LaTeX template PDFs retained byte-for-byte from pinned GitHub revisions. Ground truth is manually curated by the assistant from independent extracted text and visual page review. It covers selected pages only, not the full documents.",
+  "independentReview": {
+    "textExtraction": "Poppler pdftotext -layout, performed independently of the extractor under evaluation.",
+    "visualReview": "The assistant rendered pages with Poppler pdftoppm at 110 dpi and visually reviewed the complete annotated page for each PDF. This is assistant review, not human review.",
+    "geometry": "PyMuPDF 1.26.7 extracted character geometry independently from the PDFs. Geometry is retained for every original page; unannotated pages have empty chars arrays. PDF coordinates are converted to bottom-left origin.",
+    "renderedPages": [
+      {"pdf": "upstream/ruohoruotsi/mainTemplatePDF.pdf", "originalPageIndex": 0, "rendered": "/tmp/ruo-page-1.png"},
+      {"pdf": "upstream/pmichaillat/paper.pdf", "originalPageIndex": 1, "rendered": "/tmp/pm-page-02.png"}
+    ]
+  },
+  "sources": [
+    {
+      "id": "upstream-ruohoruotsi-two-column",
+      "repository": "https://github.com/ruohoruotsi/latex-template-arxiv-preprint",
+      "branch": "master",
+      "revision": "ac24f569abb5f67cdbf00cac88b707738fbd52da",
+      "revisionApi": "https://api.github.com/repos/ruohoruotsi/latex-template-arxiv-preprint/commits/master",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/ruohoruotsi/latex-template-arxiv-preprint/blob/ac24f569abb5f67cdbf00cac88b707738fbd52da/LICENSE",
+      "annotationScope": {"pages": [0], "completePages": true, "pageIndexBase": 0},
+      "files": [
+        {"path": "upstream/ruohoruotsi/mainTemplatePDF.pdf", "url": "https://raw.githubusercontent.com/ruohoruotsi/latex-template-arxiv-preprint/ac24f569abb5f67cdbf00cac88b707738fbd52da/mainTemplatePDF.pdf", "sha256": "89ead1b74f3a870668d43b5782b2a255e78d73d1374b9c47615a302b1b00792f"},
+        {"path": "upstream/ruohoruotsi/mainTemplatePDF.tex", "url": "https://raw.githubusercontent.com/ruohoruotsi/latex-template-arxiv-preprint/ac24f569abb5f67cdbf00cac88b707738fbd52da/mainTemplatePDF.tex", "sha256": "deafcf0926f77adcd277439a20854ade112ebc3f928faba8e57ab15cc862d5fa"},
+        {"path": "upstream/ruohoruotsi/simpleConference.sty", "url": "https://raw.githubusercontent.com/ruohoruotsi/latex-template-arxiv-preprint/ac24f569abb5f67cdbf00cac88b707738fbd52da/simpleConference.sty", "sha256": "831a770674d91b9be0f4f1e3294043922069fa884d0460ece9ba97575c950e71"},
+        {"path": "upstream/ruohoruotsi/LICENSE", "url": "https://raw.githubusercontent.com/ruohoruotsi/latex-template-arxiv-preprint/ac24f569abb5f67cdbf00cac88b707738fbd52da/LICENSE", "sha256": "fc3e787ee1909493acd9b3bcf9b37e3c1259fdb1b13df35072fc153e9d3727b7"},
+        {"path": "upstream/ruohoruotsi/ground-truth.json", "sha256": "561a523c8c0e50aeed6a023315d23c8e6cf37464577a81d374ca8d7fb3b51a37"},
+        {"path": "upstream/ruohoruotsi/geometry.json.gz", "hashRecord": "manifest.json"}
+      ]
+    },
+    {
+      "id": "upstream-pmichaillat-one-column",
+      "repository": "https://github.com/pmichaillat/latex-paper",
+      "branch": "main",
+      "revision": "f8afa108da12b18f8b059b81b2ccba23bd4ee7aa",
+      "revisionApi": "https://api.github.com/repos/pmichaillat/latex-paper/commits/main",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/pmichaillat/latex-paper/blob/f8afa108da12b18f8b059b81b2ccba23bd4ee7aa/LICENSE.md",
+      "annotationScope": {"pages": [1], "completePages": true, "pageIndexBase": 0},
+      "files": [
+        {"path": "upstream/pmichaillat/paper.pdf", "url": "https://raw.githubusercontent.com/pmichaillat/latex-paper/f8afa108da12b18f8b059b81b2ccba23bd4ee7aa/paper.pdf", "sha256": "b863e016c474609c1d5326c2b495a4fdc472e5ea07179df2524fe89af35fde02"},
+        {"path": "upstream/pmichaillat/paper.tex", "url": "https://raw.githubusercontent.com/pmichaillat/latex-paper/f8afa108da12b18f8b059b81b2ccba23bd4ee7aa/paper.tex", "sha256": "ff7a63d7558079bf5240ce5b45816a6e84e290277e87bcbbbb5bc207474c224b"},
+        {"path": "upstream/pmichaillat/LICENSE.md", "url": "https://raw.githubusercontent.com/pmichaillat/latex-paper/f8afa108da12b18f8b059b81b2ccba23bd4ee7aa/LICENSE.md", "sha256": "a552a2078831ca7b96302c913dc237b53124fd04263237081c950e60a2fcf9b5"},
+        {"path": "upstream/pmichaillat/ground-truth.json", "sha256": "fd25112fa4bcf4840805fe936b9af89cc944a94bae1e859179f5580b50541d60"},
+        {"path": "upstream/pmichaillat/geometry.json.gz", "hashRecord": "manifest.json"}
+      ]
+    }
+  ]
+}

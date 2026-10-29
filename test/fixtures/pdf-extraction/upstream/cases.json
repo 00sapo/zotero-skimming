@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "id": "upstream-ruohoruotsi-two-column",
+      "pdf": "upstream/ruohoruotsi/mainTemplatePDF.pdf",
+      "groundTruth": "upstream/ruohoruotsi/ground-truth.json",
+      "geometry": "upstream/ruohoruotsi/geometry.json.gz",
+      "sha256": "89ead1b74f3a870668d43b5782b2a255e78d73d1374b9c47615a302b1b00792f",
+      "layout": {"columns": 2, "lineNumbers": false},
+      "source": {
+        "repository": "https://github.com/ruohoruotsi/latex-template-arxiv-preprint",
+        "revision": "ac24f569abb5f67cdbf00cac88b707738fbd52da",
+        "license": "MIT",
+        "licenseFile": "upstream/ruohoruotsi/LICENSE"
+      },
+      "annotationScope": {"pages": [0], "completePages": true}
+    },
+    {
+      "id": "upstream-pmichaillat-one-column",
+      "pdf": "upstream/pmichaillat/paper.pdf",
+      "groundTruth": "upstream/pmichaillat/ground-truth.json",
+      "geometry": "upstream/pmichaillat/geometry.json.gz",
+      "sha256": "b863e016c474609c1d5326c2b495a4fdc472e5ea07179df2524fe89af35fde02",
+      "layout": {"columns": 1, "lineNumbers": false},
+      "source": {
+        "repository": "https://github.com/pmichaillat/latex-paper",
+        "revision": "f8afa108da12b18f8b059b81b2ccba23bd4ee7aa",
+        "license": "MIT",
+        "licenseFile": "upstream/pmichaillat/LICENSE.md"
+      },
+      "annotationScope": {"pages": [1], "completePages": true}
+    }
+  ]
+}

@@ -1,0 +1,354 @@
+[
+  {
+    "id": "columns-1_lines-0_table-1_image-1",
+    "pdf": "matrix/columns-1_lines-0_table-1_image-1.pdf",
+    "groundTruth": "matrix/columns-1_lines-0_table-1_image-1.truth.json",
+    "geometry": "matrix/columns-1_lines-0_table-1_image-1.geometry.json.gz",
+    "sha256": "5edeb5b08039c976606e25ecb1f46f4cfa9ab033edf6cf56851d8c8fd6bc3dd3",
+    "layout": {
+      "columns": 1,
+      "numberedLines": false,
+      "tableSpan": 1,
+      "imageSpan": 1
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-1_lines-0_table-1_image-2",
+    "pdf": "matrix/columns-1_lines-0_table-1_image-2.pdf",
+    "groundTruth": "matrix/columns-1_lines-0_table-1_image-2.truth.json",
+    "geometry": "matrix/columns-1_lines-0_table-1_image-2.geometry.json.gz",
+    "sha256": "312faafc7fbc47c7efb2b2ca95645b11d0f51ccf6b147e37c64b35eeef685f36",
+    "layout": {
+      "columns": 1,
+      "numberedLines": false,
+      "tableSpan": 1,
+      "imageSpan": 2
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-1_lines-0_table-2_image-1",
+    "pdf": "matrix/columns-1_lines-0_table-2_image-1.pdf",
+    "groundTruth": "matrix/columns-1_lines-0_table-2_image-1.truth.json",
+    "geometry": "matrix/columns-1_lines-0_table-2_image-1.geometry.json.gz",
+    "sha256": "bc0321dce91ef77445d2553e5e15c85ab8e3e189ad8372b4e43b995acac714ea",
+    "layout": {
+      "columns": 1,
+      "numberedLines": false,
+      "tableSpan": 2,
+      "imageSpan": 1
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-1_lines-0_table-2_image-2",
+    "pdf": "matrix/columns-1_lines-0_table-2_image-2.pdf",
+    "groundTruth": "matrix/columns-1_lines-0_table-2_image-2.truth.json",
+    "geometry": "matrix/columns-1_lines-0_table-2_image-2.geometry.json.gz",
+    "sha256": "ac6a3aecbf6df11e2a8d745b32fbc53619b7171694333c45962bcccbf248a64f",
+    "layout": {
+      "columns": 1,
+      "numberedLines": false,
+      "tableSpan": 2,
+      "imageSpan": 2
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-1_lines-1_table-1_image-1",
+    "pdf": "matrix/columns-1_lines-1_table-1_image-1.pdf",
+    "groundTruth": "matrix/columns-1_lines-1_table-1_image-1.truth.json",
+    "geometry": "matrix/columns-1_lines-1_table-1_image-1.geometry.json.gz",
+    "sha256": "db83058418da0d79832469bfb309415654958268b740f7dc5e0f23fedf10baa7",
+    "layout": {
+      "columns": 1,
+      "numberedLines": true,
+      "tableSpan": 1,
+      "imageSpan": 1
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-1_lines-1_table-1_image-2",
+    "pdf": "matrix/columns-1_lines-1_table-1_image-2.pdf",
+    "groundTruth": "matrix/columns-1_lines-1_table-1_image-2.truth.json",
+    "geometry": "matrix/columns-1_lines-1_table-1_image-2.geometry.json.gz",
+    "sha256": "a842d4e72186689c9fa4c75479dc131963d953474681ba409afa87209d7f16eb",
+    "layout": {
+      "columns": 1,
+      "numberedLines": true,
+      "tableSpan": 1,
+      "imageSpan": 2
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-1_lines-1_table-2_image-1",
+    "pdf": "matrix/columns-1_lines-1_table-2_image-1.pdf",
+    "groundTruth": "matrix/columns-1_lines-1_table-2_image-1.truth.json",
+    "geometry": "matrix/columns-1_lines-1_table-2_image-1.geometry.json.gz",
+    "sha256": "86a7bb61e893e0cac34ac97a3b6c04b4d9e8ea06f77da7419a39b015e60335c9",
+    "layout": {
+      "columns": 1,
+      "numberedLines": true,
+      "tableSpan": 2,
+      "imageSpan": 1
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-1_lines-1_table-2_image-2",
+    "pdf": "matrix/columns-1_lines-1_table-2_image-2.pdf",
+    "groundTruth": "matrix/columns-1_lines-1_table-2_image-2.truth.json",
+    "geometry": "matrix/columns-1_lines-1_table-2_image-2.geometry.json.gz",
+    "sha256": "2e5b3e7e45cdd03bbcb03e0a4cf10e97e07c14e4966526c3dda6a4d57c56d854",
+    "layout": {
+      "columns": 1,
+      "numberedLines": true,
+      "tableSpan": 2,
+      "imageSpan": 2
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-2_lines-0_table-1_image-1",
+    "pdf": "matrix/columns-2_lines-0_table-1_image-1.pdf",
+    "groundTruth": "matrix/columns-2_lines-0_table-1_image-1.truth.json",
+    "geometry": "matrix/columns-2_lines-0_table-1_image-1.geometry.json.gz",
+    "sha256": "4b290b26e5f01d5efef3a6b2d7ebe95311d1eba634891b1ae6aab26a8633d195",
+    "layout": {
+      "columns": 2,
+      "numberedLines": false,
+      "tableSpan": 1,
+      "imageSpan": 1
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-2_lines-0_table-1_image-2",
+    "pdf": "matrix/columns-2_lines-0_table-1_image-2.pdf",
+    "groundTruth": "matrix/columns-2_lines-0_table-1_image-2.truth.json",
+    "geometry": "matrix/columns-2_lines-0_table-1_image-2.geometry.json.gz",
+    "sha256": "03d7a0495d6c7d71af89b1274b19f6d788907f7c684fd06aa3190b96a4a6581e",
+    "layout": {
+      "columns": 2,
+      "numberedLines": false,
+      "tableSpan": 1,
+      "imageSpan": 2
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-2_lines-0_table-2_image-1",
+    "pdf": "matrix/columns-2_lines-0_table-2_image-1.pdf",
+    "groundTruth": "matrix/columns-2_lines-0_table-2_image-1.truth.json",
+    "geometry": "matrix/columns-2_lines-0_table-2_image-1.geometry.json.gz",
+    "sha256": "24617218aafc8f4b507599aa8a9d7936154a5135ec5ac76838d244264b6b4632",
+    "layout": {
+      "columns": 2,
+      "numberedLines": false,
+      "tableSpan": 2,
+      "imageSpan": 1
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-2_lines-0_table-2_image-2",
+    "pdf": "matrix/columns-2_lines-0_table-2_image-2.pdf",
+    "groundTruth": "matrix/columns-2_lines-0_table-2_image-2.truth.json",
+    "geometry": "matrix/columns-2_lines-0_table-2_image-2.geometry.json.gz",
+    "sha256": "e5fa93f23db77d40dac62d44460452d2ddbb1eb279eca81c8d332f439d4a4598",
+    "layout": {
+      "columns": 2,
+      "numberedLines": false,
+      "tableSpan": 2,
+      "imageSpan": 2
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-2_lines-1_table-1_image-1",
+    "pdf": "matrix/columns-2_lines-1_table-1_image-1.pdf",
+    "groundTruth": "matrix/columns-2_lines-1_table-1_image-1.truth.json",
+    "geometry": "matrix/columns-2_lines-1_table-1_image-1.geometry.json.gz",
+    "sha256": "3765e291bb0ef453f5ff961da682ebf5ecc440b3f9786d2347471da2dde52804",
+    "layout": {
+      "columns": 2,
+      "numberedLines": true,
+      "tableSpan": 1,
+      "imageSpan": 1
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-2_lines-1_table-1_image-2",
+    "pdf": "matrix/columns-2_lines-1_table-1_image-2.pdf",
+    "groundTruth": "matrix/columns-2_lines-1_table-1_image-2.truth.json",
+    "geometry": "matrix/columns-2_lines-1_table-1_image-2.geometry.json.gz",
+    "sha256": "3de7451f1e60c2ea4b89f01e7c51afaffa890db4a685ddef004a0d310c624f5d",
+    "layout": {
+      "columns": 2,
+      "numberedLines": true,
+      "tableSpan": 1,
+      "imageSpan": 2
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-2_lines-1_table-2_image-1",
+    "pdf": "matrix/columns-2_lines-1_table-2_image-1.pdf",
+    "groundTruth": "matrix/columns-2_lines-1_table-2_image-1.truth.json",
+    "geometry": "matrix/columns-2_lines-1_table-2_image-1.geometry.json.gz",
+    "sha256": "0db355e7d2cfedcc28699eaf72638e305dce5d65d3cc403e06cfc37ac5d8afac",
+    "layout": {
+      "columns": 2,
+      "numberedLines": true,
+      "tableSpan": 2,
+      "imageSpan": 1
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  },
+  {
+    "id": "columns-2_lines-1_table-2_image-2",
+    "pdf": "matrix/columns-2_lines-1_table-2_image-2.pdf",
+    "groundTruth": "matrix/columns-2_lines-1_table-2_image-2.truth.json",
+    "geometry": "matrix/columns-2_lines-1_table-2_image-2.geometry.json.gz",
+    "sha256": "b40cc801211c649b0ea197a8cd95657910d96451259ffb5b33259e5f3c75658b",
+    "layout": {
+      "columns": 2,
+      "numberedLines": true,
+      "tableSpan": 2,
+      "imageSpan": 2
+    },
+    "source": "Controlled derivative of the MIT-licensed simpleConference template",
+    "annotationScope": {
+      "pages": [
+        0,
+        1,
+        2
+      ],
+      "completePages": true
+    }
+  }
+]

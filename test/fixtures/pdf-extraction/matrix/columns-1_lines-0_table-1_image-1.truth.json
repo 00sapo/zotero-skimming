@@ -1,0 +1,174 @@
+{
+  "title": "Controlled academic layout study",
+  "creators": [
+    "Alex Researcher"
+  ],
+  "sentences": [
+    {
+      "text": "The experiment studies how page layout changes the recovery of scientific prose from a document.",
+      "pageIndex": 0
+    },
+    {
+      "text": "Each page keeps the same research content while the positions of surrounding objects change.",
+      "pageIndex": 0
+    },
+    {
+      "text": "A reliable reader follows the left column before moving to the beginning of the right column.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The reading sequence must preserve the relationship between an observation and its explanation.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The sampling method selects independent measurements from several sites with different local conditions.",
+      "pageIndex": 0
+    },
+    {
+      "text": "We retain the original measurements so that later comparisons use the same evidence throughout the study.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The control group receives the standard treatment while the experimental group receives the revised treatment.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The difference between these groups estimates the effect of the intervention under matched conditions.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The measured temperature remains near 25 degrees during each trial despite small changes in room pressure.",
+      "pageIndex": 0
+    },
+    {
+      "text": "These numeric observations belong to ordinary prose and must not disappear with the printed line numbers.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The calibration procedure compares each sensor with a stable reference instrument before data collection begins.",
+      "pageIndex": 0
+    },
+    {
+      "text": "This procedure reduces systematic error without changing the order of the measurements in the final report.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The primary outcome improves across the sampled sites and remains consistent during repeated observations.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The secondary outcome varies between sites because the local environment changes the available resources.",
+      "pageIndex": 0
+    },
+    {
+      "text": "A narrow table presents a small set of measurements without becoming part of the surrounding paragraph.",
+      "pageIndex": 0
+    },
+    {
+      "text": "A wide illustration separates regions of prose but does not change the order of the sentences within them.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The analysis retains unusual findings because a rare observation can reveal a limitation of the proposed method.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The interpretation distinguishes this limitation from random variation in the measurements collected during the study.",
+      "pageIndex": 0
+    },
+    {
+      "text": "The final comparison supports the proposed method for the measured conditions but not for every possible setting.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Further experiments must examine other conditions before the same conclusion applies to a broader population.",
+      "pageIndex": 1
+    },
+    {
+      "text": "The discussion ends with a complete statement before the bibliography begins on the following page.",
+      "pageIndex": 1
+    },
+    {
+      "text": "Bibliographic entries identify earlier publications and do not belong to the prose selected for highlighting.",
+      "pageIndex": 1
+    }
+  ],
+  "excluded": [
+    {
+      "text": "[1] Smith, J. 2021. Reliable measurements in experimental research. Journal of Controlled Studies, volume 12, pages 45 to 67.",
+      "kind": "reference",
+      "pageIndex": 2
+    },
+    {
+      "text": "[2] Jones, A. 2022. Reading order in scientific documents. Proceedings of the Document Analysis Conference, pages 120 to 135.",
+      "kind": "reference",
+      "pageIndex": 2
+    },
+    {
+      "text": "[3] Brown, C. 2023. Calibration methods for independent sensors. Journal of Measurement Science, volume 8, pages 201 to 219.",
+      "kind": "reference",
+      "pageIndex": 2
+    },
+    {
+      "text": "Treatment",
+      "kind": "table",
+      "pageIndex": 0
+    },
+    {
+      "text": "Response",
+      "kind": "table",
+      "pageIndex": 1
+    },
+    {
+      "text": "Control",
+      "kind": "table",
+      "pageIndex": 0
+    },
+    {
+      "text": "12.4",
+      "kind": "table",
+      "pageIndex": 1
+    },
+    {
+      "text": "Revised",
+      "kind": "table",
+      "pageIndex": 0
+    },
+    {
+      "text": "18.7",
+      "kind": "table",
+      "pageIndex": 1
+    },
+    {
+      "text": "Repeated",
+      "kind": "table",
+      "pageIndex": 0
+    },
+    {
+      "text": "17.9",
+      "kind": "table",
+      "pageIndex": 1
+    },
+    {
+      "text": "Table 1. Treatment measurements from the controlled study.",
+      "kind": "caption",
+      "pageIndex": 1
+    },
+    {
+      "text": "Figure 1. Measurement pathway used during the controlled study.",
+      "kind": "caption",
+      "pageIndex": 1
+    },
+    {
+      "text": "Controlled academic layout study",
+      "kind": "metadata",
+      "pageIndex": 0
+    },
+    {
+      "text": "Alex Researcher",
+      "kind": "metadata",
+      "pageIndex": 0
+    }
+  ],
+  "annotationMethod": "Authored prose checked against rendered PDFs by the assistant. Raster image labels are not PDF text."
+}

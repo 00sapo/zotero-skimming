@@ -124,6 +124,15 @@ yarn smoke
 
 The smoke test runs the working tree in Zotero with a temporary profile. It checks summaries, embeddings, and highlights. It needs Ollama with the two models. See `AGENTS.md` for the options.
 
+The [PDF extraction corpus](test/fixtures/pdf-extraction/README.md) contains downloaded templates, 16 controlled layout variants, and independent expected text. The test suite tracks extraction quality against a recorded baseline.
+
+For a separate quality report, use Node.js from the repository root.
+
+```sh
+node scripts/evaluate-extraction.mjs --baseline test/fixtures/pdf-extraction/baseline.json
+```
+
+
 ## References
 
 - K. Rayner, E. R. Schotter, M. E. J. Masson, M. C. Potter, and R. Treiman, “So Much to Read, So Little Time,” Psychol Sci Public Interest, vol. 17, no. 1, pp. 4–34, Jan. 2016, doi: [10.1177/1529100615623267](https://doi.org/10.1177/1529100615623267).

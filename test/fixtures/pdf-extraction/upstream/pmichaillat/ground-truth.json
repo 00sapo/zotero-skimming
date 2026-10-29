@@ -1,0 +1,46 @@
+{
+  "title": "Research Paper",
+  "creators": ["First Author", "Second Author"],
+  "sentences": [
+    {"text": "Research question.", "pageIndex": 1},
+    {"text": "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.", "pageIndex": 1},
+    {"text": "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.", "pageIndex": 1},
+    {"text": "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.", "pageIndex": 1},
+    {"text": "Answer to the question.", "pageIndex": 1},
+    {"text": "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.", "pageIndex": 1},
+    {"text": "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.", "pageIndex": 1},
+    {"text": "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.", "pageIndex": 1},
+    {"text": "Positioning in the literature.", "pageIndex": 1},
+    {"text": "Sed ut perspiciatis, unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam eaque ipsa, quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt, explicabo.", "pageIndex": 1},
+    {"text": "Nemo enim ipsam voluptatem, quia voluptas sit, aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos, qui ratione voluptatem sequi nesciunt, neque porro quisquam est, qui dolorem ipsum, quia dolor sit amet consectetur adipiscing velit, sed quia non numquam eius modi tempora incidunt, ut labore et dolore magnam aliquam quaerat voluptatem.", "pageIndex": 1},
+    {"text": "A paragraph.", "pageIndex": 1},
+    {"text": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.", "pageIndex": 1},
+    {"text": "Nullam varius nisi vel ipsum vehicula, at finibus justo ultrices.", "pageIndex": 1},
+    {"text": "Morbi vitae leo vitae purus dapibus tempor.", "pageIndex": 1},
+    {"text": "Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.", "pageIndex": 1},
+    {"text": "Vestibulum sed nisi sit amet mi suscipit suscipit non nec tortor.", "pageIndex": 1},
+    {"text": "Vivamus non ligula id turpis tempus fermentum ac sit amet leo.", "pageIndex": 1},
+    {"text": "Etiam sit amet magna at turpis fringilla vestibulum.", "pageIndex": 1},
+    {"text": "Sed non nisl eu velit consectetur malesuada eget eu libero.", "pageIndex": 1},
+    {"text": "Sed a nisi sit amet velit facilisis feugiat nec at est.", "pageIndex": 1},
+    {"text": "Quisque nec ultrices purus.", "pageIndex": 1},
+    {"text": "Maecenas gravida mauris vel nulla eleifend, non dictum enim ullamcorper.", "pageIndex": 1},
+    {"text": "Sed sit amet turpis in lectus dictum facilisis.", "pageIndex": 1},
+    {"text": "Donec sed eros sed dui consectetur dictum.", "pageIndex": 1},
+    {"text": "Sed volutpat tortor nec odio viverra, id sodales enim congue.", "pageIndex": 1},
+    {"text": "Maecenas sit amet eros vitae nisl placerat mattis.", "pageIndex": 1},
+    {"text": "Another paragraph.", "pageIndex": 1},
+    {"text": "Maecenas nec risus nec nibh hendrerit ultricies.", "pageIndex": 1},
+    {"text": "Nulla facilisi.", "pageIndex": 1},
+    {"text": "Maecenas in magna eget felis dictum tempus.", "pageIndex": 1},
+    {"text": "Donec vehicula, dolor nec dictum aliquam, arcu libero commodo metus, nec varius neque magna at nulla.", "pageIndex": 1}
+  ],
+  "fragments": [
+    {"text": "Sed nec arcu sollicitudin,", "pageIndex": 1}
+  ],
+  "excluded": [
+    {"text": "Excepteur sint, sunt in culpa qui officia deserunt mollit anim id est laborum.", "kind": "footnote", "pageIndex": 1},
+    {"text": "Sunt in culpa qui officia deserunt mollit anim id est laborum. Excepteur sint occaecat cupidatat non proident. Sunt in culpa qui officia deserunt mollit anim id est laborum. Excepteur sint occaecat cupidatat non proident. Sunt in culpa qui officia deserunt mollit anim id est laborum. Excepteur sint occaecat cupidatat non proident.", "kind": "footnote", "pageIndex": 1},
+    {"text": "1", "kind": "page-number", "pageIndex": 1}
+  ]
+}

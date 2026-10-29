@@ -1,0 +1,441 @@
+{
+  "schemaVersion": 1,
+  "geometryParser": "PyMuPDF 1.26.7",
+  "coordinateSystem": "PDF bottom-left origin in points",
+  "cases": [
+    {
+      "id": "columns-1_lines-0_table-1_image-1",
+      "pdf": "matrix/columns-1_lines-0_table-1_image-1.pdf",
+      "groundTruth": "matrix/columns-1_lines-0_table-1_image-1.truth.json",
+      "geometry": "matrix/columns-1_lines-0_table-1_image-1.geometry.json.gz",
+      "sha256": "5edeb5b08039c976606e25ecb1f46f4cfa9ab033edf6cf56851d8c8fd6bc3dd3",
+      "layout": {
+        "columns": 1,
+        "numberedLines": false,
+        "tableSpan": 1,
+        "imageSpan": 1
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "f23c6658097d30f54a76a95971afbbe6e484985fffdef88061a667bff41c35b5",
+      "groundTruthSha256": "2780a62379d781a872b13816f6210ff456685321637e9664b0b25fd95139ee2c"
+    },
+    {
+      "id": "columns-1_lines-0_table-1_image-2",
+      "pdf": "matrix/columns-1_lines-0_table-1_image-2.pdf",
+      "groundTruth": "matrix/columns-1_lines-0_table-1_image-2.truth.json",
+      "geometry": "matrix/columns-1_lines-0_table-1_image-2.geometry.json.gz",
+      "sha256": "312faafc7fbc47c7efb2b2ca95645b11d0f51ccf6b147e37c64b35eeef685f36",
+      "layout": {
+        "columns": 1,
+        "numberedLines": false,
+        "tableSpan": 1,
+        "imageSpan": 2
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "f23c6658097d30f54a76a95971afbbe6e484985fffdef88061a667bff41c35b5",
+      "groundTruthSha256": "2780a62379d781a872b13816f6210ff456685321637e9664b0b25fd95139ee2c"
+    },
+    {
+      "id": "columns-1_lines-0_table-2_image-1",
+      "pdf": "matrix/columns-1_lines-0_table-2_image-1.pdf",
+      "groundTruth": "matrix/columns-1_lines-0_table-2_image-1.truth.json",
+      "geometry": "matrix/columns-1_lines-0_table-2_image-1.geometry.json.gz",
+      "sha256": "bc0321dce91ef77445d2553e5e15c85ab8e3e189ad8372b4e43b995acac714ea",
+      "layout": {
+        "columns": 1,
+        "numberedLines": false,
+        "tableSpan": 2,
+        "imageSpan": 1
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "95fd474663423f305e00e03c85c7cf37aa925eb05933b81228bb329aecbf4fae",
+      "groundTruthSha256": "2780a62379d781a872b13816f6210ff456685321637e9664b0b25fd95139ee2c"
+    },
+    {
+      "id": "columns-1_lines-0_table-2_image-2",
+      "pdf": "matrix/columns-1_lines-0_table-2_image-2.pdf",
+      "groundTruth": "matrix/columns-1_lines-0_table-2_image-2.truth.json",
+      "geometry": "matrix/columns-1_lines-0_table-2_image-2.geometry.json.gz",
+      "sha256": "ac6a3aecbf6df11e2a8d745b32fbc53619b7171694333c45962bcccbf248a64f",
+      "layout": {
+        "columns": 1,
+        "numberedLines": false,
+        "tableSpan": 2,
+        "imageSpan": 2
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "95fd474663423f305e00e03c85c7cf37aa925eb05933b81228bb329aecbf4fae",
+      "groundTruthSha256": "2780a62379d781a872b13816f6210ff456685321637e9664b0b25fd95139ee2c"
+    },
+    {
+      "id": "columns-1_lines-1_table-1_image-1",
+      "pdf": "matrix/columns-1_lines-1_table-1_image-1.pdf",
+      "groundTruth": "matrix/columns-1_lines-1_table-1_image-1.truth.json",
+      "geometry": "matrix/columns-1_lines-1_table-1_image-1.geometry.json.gz",
+      "sha256": "db83058418da0d79832469bfb309415654958268b740f7dc5e0f23fedf10baa7",
+      "layout": {
+        "columns": 1,
+        "numberedLines": true,
+        "tableSpan": 1,
+        "imageSpan": 1
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "3362977a18e06d500549fa18ccf7c8f619c0c2bdbc34714cca93fd70546735e0",
+      "groundTruthSha256": "2780a62379d781a872b13816f6210ff456685321637e9664b0b25fd95139ee2c"
+    },
+    {
+      "id": "columns-1_lines-1_table-1_image-2",
+      "pdf": "matrix/columns-1_lines-1_table-1_image-2.pdf",
+      "groundTruth": "matrix/columns-1_lines-1_table-1_image-2.truth.json",
+      "geometry": "matrix/columns-1_lines-1_table-1_image-2.geometry.json.gz",
+      "sha256": "a842d4e72186689c9fa4c75479dc131963d953474681ba409afa87209d7f16eb",
+      "layout": {
+        "columns": 1,
+        "numberedLines": true,
+        "tableSpan": 1,
+        "imageSpan": 2
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "3362977a18e06d500549fa18ccf7c8f619c0c2bdbc34714cca93fd70546735e0",
+      "groundTruthSha256": "2780a62379d781a872b13816f6210ff456685321637e9664b0b25fd95139ee2c"
+    },
+    {
+      "id": "columns-1_lines-1_table-2_image-1",
+      "pdf": "matrix/columns-1_lines-1_table-2_image-1.pdf",
+      "groundTruth": "matrix/columns-1_lines-1_table-2_image-1.truth.json",
+      "geometry": "matrix/columns-1_lines-1_table-2_image-1.geometry.json.gz",
+      "sha256": "86a7bb61e893e0cac34ac97a3b6c04b4d9e8ea06f77da7419a39b015e60335c9",
+      "layout": {
+        "columns": 1,
+        "numberedLines": true,
+        "tableSpan": 2,
+        "imageSpan": 1
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "d70efe1b17ee89c101c3a55643898af540324a258bd76f7c03b93e507ce145eb",
+      "groundTruthSha256": "2780a62379d781a872b13816f6210ff456685321637e9664b0b25fd95139ee2c"
+    },
+    {
+      "id": "columns-1_lines-1_table-2_image-2",
+      "pdf": "matrix/columns-1_lines-1_table-2_image-2.pdf",
+      "groundTruth": "matrix/columns-1_lines-1_table-2_image-2.truth.json",
+      "geometry": "matrix/columns-1_lines-1_table-2_image-2.geometry.json.gz",
+      "sha256": "2e5b3e7e45cdd03bbcb03e0a4cf10e97e07c14e4966526c3dda6a4d57c56d854",
+      "layout": {
+        "columns": 1,
+        "numberedLines": true,
+        "tableSpan": 2,
+        "imageSpan": 2
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "d70efe1b17ee89c101c3a55643898af540324a258bd76f7c03b93e507ce145eb",
+      "groundTruthSha256": "2780a62379d781a872b13816f6210ff456685321637e9664b0b25fd95139ee2c"
+    },
+    {
+      "id": "columns-2_lines-0_table-1_image-1",
+      "pdf": "matrix/columns-2_lines-0_table-1_image-1.pdf",
+      "groundTruth": "matrix/columns-2_lines-0_table-1_image-1.truth.json",
+      "geometry": "matrix/columns-2_lines-0_table-1_image-1.geometry.json.gz",
+      "sha256": "4b290b26e5f01d5efef3a6b2d7ebe95311d1eba634891b1ae6aab26a8633d195",
+      "layout": {
+        "columns": 2,
+        "numberedLines": false,
+        "tableSpan": 1,
+        "imageSpan": 1
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "2fd509333fb28fe949f65084b0b000aca98d87b28e0e5c277b1126b897499ceb",
+      "groundTruthSha256": "5c5f097ab960a542f0b7a6b47ff516bf27a3df1668495caa03992e084acae961"
+    },
+    {
+      "id": "columns-2_lines-0_table-1_image-2",
+      "pdf": "matrix/columns-2_lines-0_table-1_image-2.pdf",
+      "groundTruth": "matrix/columns-2_lines-0_table-1_image-2.truth.json",
+      "geometry": "matrix/columns-2_lines-0_table-1_image-2.geometry.json.gz",
+      "sha256": "03d7a0495d6c7d71af89b1274b19f6d788907f7c684fd06aa3190b96a4a6581e",
+      "layout": {
+        "columns": 2,
+        "numberedLines": false,
+        "tableSpan": 1,
+        "imageSpan": 2
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "1d24b0e36d6b9b91c7762bf8528ffa0d4b020b5658c0203274cc4b940cf737d6",
+      "groundTruthSha256": "65bcd9816ccffd63466780271328cf347d12a32172134d3dac8adbe9dbdd96a5"
+    },
+    {
+      "id": "columns-2_lines-0_table-2_image-1",
+      "pdf": "matrix/columns-2_lines-0_table-2_image-1.pdf",
+      "groundTruth": "matrix/columns-2_lines-0_table-2_image-1.truth.json",
+      "geometry": "matrix/columns-2_lines-0_table-2_image-1.geometry.json.gz",
+      "sha256": "24617218aafc8f4b507599aa8a9d7936154a5135ec5ac76838d244264b6b4632",
+      "layout": {
+        "columns": 2,
+        "numberedLines": false,
+        "tableSpan": 2,
+        "imageSpan": 1
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "e49edda43fcee97a61fdb642342bba8722b19663b69806133176d9d7edcd27a4",
+      "groundTruthSha256": "827659a4e89b41ff170015a319aa90dfa2ccf6b5ea13bab5dba87a0db7f71229"
+    },
+    {
+      "id": "columns-2_lines-0_table-2_image-2",
+      "pdf": "matrix/columns-2_lines-0_table-2_image-2.pdf",
+      "groundTruth": "matrix/columns-2_lines-0_table-2_image-2.truth.json",
+      "geometry": "matrix/columns-2_lines-0_table-2_image-2.geometry.json.gz",
+      "sha256": "e5fa93f23db77d40dac62d44460452d2ddbb1eb279eca81c8d332f439d4a4598",
+      "layout": {
+        "columns": 2,
+        "numberedLines": false,
+        "tableSpan": 2,
+        "imageSpan": 2
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "a262e92f8a79603a9e9fcfe2147a4170f09ae2ebd8b62c303cba25a94917c4bc",
+      "groundTruthSha256": "84e8fd8eb04cbdc13ebcc81ec51449e752e8d6c559914b57d21de126858914c4"
+    },
+    {
+      "id": "columns-2_lines-1_table-1_image-1",
+      "pdf": "matrix/columns-2_lines-1_table-1_image-1.pdf",
+      "groundTruth": "matrix/columns-2_lines-1_table-1_image-1.truth.json",
+      "geometry": "matrix/columns-2_lines-1_table-1_image-1.geometry.json.gz",
+      "sha256": "3765e291bb0ef453f5ff961da682ebf5ecc440b3f9786d2347471da2dde52804",
+      "layout": {
+        "columns": 2,
+        "numberedLines": true,
+        "tableSpan": 1,
+        "imageSpan": 1
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "9a0eadbf3092132ae107d50b020b761c953eae52608624e0f7231e01194b5490",
+      "groundTruthSha256": "5c5f097ab960a542f0b7a6b47ff516bf27a3df1668495caa03992e084acae961"
+    },
+    {
+      "id": "columns-2_lines-1_table-1_image-2",
+      "pdf": "matrix/columns-2_lines-1_table-1_image-2.pdf",
+      "groundTruth": "matrix/columns-2_lines-1_table-1_image-2.truth.json",
+      "geometry": "matrix/columns-2_lines-1_table-1_image-2.geometry.json.gz",
+      "sha256": "3de7451f1e60c2ea4b89f01e7c51afaffa890db4a685ddef004a0d310c624f5d",
+      "layout": {
+        "columns": 2,
+        "numberedLines": true,
+        "tableSpan": 1,
+        "imageSpan": 2
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "1be81d2fe0f095d48e61c9f74be7df1be9c27a9c747aca0da2a15077545a70f1",
+      "groundTruthSha256": "65bcd9816ccffd63466780271328cf347d12a32172134d3dac8adbe9dbdd96a5"
+    },
+    {
+      "id": "columns-2_lines-1_table-2_image-1",
+      "pdf": "matrix/columns-2_lines-1_table-2_image-1.pdf",
+      "groundTruth": "matrix/columns-2_lines-1_table-2_image-1.truth.json",
+      "geometry": "matrix/columns-2_lines-1_table-2_image-1.geometry.json.gz",
+      "sha256": "0db355e7d2cfedcc28699eaf72638e305dce5d65d3cc403e06cfc37ac5d8afac",
+      "layout": {
+        "columns": 2,
+        "numberedLines": true,
+        "tableSpan": 2,
+        "imageSpan": 1
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "e3fc3ecceead7930731d15d4c6a637b1c10496a10a3ece1f5a75d4830915b5b8",
+      "groundTruthSha256": "827659a4e89b41ff170015a319aa90dfa2ccf6b5ea13bab5dba87a0db7f71229"
+    },
+    {
+      "id": "columns-2_lines-1_table-2_image-2",
+      "pdf": "matrix/columns-2_lines-1_table-2_image-2.pdf",
+      "groundTruth": "matrix/columns-2_lines-1_table-2_image-2.truth.json",
+      "geometry": "matrix/columns-2_lines-1_table-2_image-2.geometry.json.gz",
+      "sha256": "b40cc801211c649b0ea197a8cd95657910d96451259ffb5b33259e5f3c75658b",
+      "layout": {
+        "columns": 2,
+        "numberedLines": true,
+        "tableSpan": 2,
+        "imageSpan": 2
+      },
+      "source": "Controlled derivative of the MIT-licensed simpleConference template",
+      "annotationScope": {
+        "pages": [
+          0,
+          1,
+          2
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "c4af9608b95dbfaa4c0e1928528eef27093e3ed1fbab1c7f3ee79501ddce319b",
+      "groundTruthSha256": "84e8fd8eb04cbdc13ebcc81ec51449e752e8d6c559914b57d21de126858914c4"
+    },
+    {
+      "id": "upstream-ruohoruotsi-two-column",
+      "pdf": "upstream/ruohoruotsi/mainTemplatePDF.pdf",
+      "groundTruth": "upstream/ruohoruotsi/ground-truth.json",
+      "geometry": "upstream/ruohoruotsi/geometry.json.gz",
+      "sha256": "89ead1b74f3a870668d43b5782b2a255e78d73d1374b9c47615a302b1b00792f",
+      "layout": {
+        "columns": 2,
+        "lineNumbers": false
+      },
+      "source": {
+        "repository": "https://github.com/ruohoruotsi/latex-template-arxiv-preprint",
+        "revision": "ac24f569abb5f67cdbf00cac88b707738fbd52da",
+        "license": "MIT",
+        "licenseFile": "upstream/ruohoruotsi/LICENSE"
+      },
+      "annotationScope": {
+        "pages": [
+          0
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "fe475998b2f1677f59a6282b598b0a110a318d61a779e968f3c6b45cd50d7d97",
+      "groundTruthSha256": "561a523c8c0e50aeed6a023315d23c8e6cf37464577a81d374ca8d7fb3b51a37"
+    },
+    {
+      "id": "upstream-pmichaillat-one-column",
+      "pdf": "upstream/pmichaillat/paper.pdf",
+      "groundTruth": "upstream/pmichaillat/ground-truth.json",
+      "geometry": "upstream/pmichaillat/geometry.json.gz",
+      "sha256": "b863e016c474609c1d5326c2b495a4fdc472e5ea07179df2524fe89af35fde02",
+      "layout": {
+        "columns": 1,
+        "lineNumbers": false
+      },
+      "source": {
+        "repository": "https://github.com/pmichaillat/latex-paper",
+        "revision": "f8afa108da12b18f8b059b81b2ccba23bd4ee7aa",
+        "license": "MIT",
+        "licenseFile": "upstream/pmichaillat/LICENSE.md"
+      },
+      "annotationScope": {
+        "pages": [
+          1
+        ],
+        "completePages": true
+      },
+      "geometrySha256": "1dc6f068703d557a8eb64211f7fec075c3355712ddba7f062a1dc0dce443d1cb",
+      "groundTruthSha256": "fd25112fa4bcf4840805fe936b9af89cc944a94bae1e859179f5580b50541d60"
+    }
+  ]
+}
