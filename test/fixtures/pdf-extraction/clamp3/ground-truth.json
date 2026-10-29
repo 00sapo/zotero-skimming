@@ -1042,11 +1042,7 @@
       "pageIndex": 18
     },
     {
-      "text": "Table 9 presents symbolic music classification results for ABC notation and MIDI across three benchmarks:",
-      "pageIndex": 18
-    },
-    {
-      "text": "WikiMT (Wu et al., 2023a) consists of 1,010 lead sheets in ABC notation sourced from Wikifonia, labeled into 8 genre categories based on corresponding Wikipedia entries.",
+      "text": "Table 9 presents symbolic music classification results for ABC notation and MIDI across three benchmarks: WikiMT (Wu et al., 2023a) consists of 1,010 lead sheets in ABC notation sourced from Wikifonia, labeled into 8 genre categories based on corresponding Wikipedia entries.",
       "pageIndex": 18
     },
     {

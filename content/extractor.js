@@ -1049,7 +1049,7 @@ var FastKeySentenceExtractor = (() => {
 
   const LEADING_HEADING = /^(?:Phase\s*\d+\s*[:.]?|(?:Results?|Methods?|Methodology|Findings?|Discussion|Conclusions?|Introduction|Background|Abstract|Limitations?)(?:\s+(?:for|of|to|in)\s+(?:the\s+)?[A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,2})?)\s*[:.]?\s+(?=[A-Z])/;
 
-  const LIST_LABEL = /^(?:(?:Stage|Step|Phase|Checkpoint|Setting|Setup)\s*\d+|(?:[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,2})):\s+(?=\S)/;
+  const LIST_LABEL = /^(?:(?:Stage|Step|Phase|Checkpoint|Setting|Setup)\s*\d+|(?:[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,4})):\s+(?=\S)/;
 
   function listLabelTrimOffset(text) {
     const model = /^([A-Z][A-Za-z]*(?:\s+[A-Za-z0-9._-]+){0,2}):\s+(?=\S)/.exec(text);
@@ -1144,6 +1144,7 @@ var FastKeySentenceExtractor = (() => {
       removedFront += text.length - kept.length;
       text = kept;
     }
+    text = text.replace(/\s+([,.;:!?])/g, "$1");
     if (removedFront > 0) startText += leadingWhitespace + removedFront;
     let startChar = -1;
     let endChar = -1;
