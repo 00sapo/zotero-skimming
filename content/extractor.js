@@ -137,6 +137,7 @@ var FastKeySentenceExtractor = (() => {
       const keep = Boolean(lastKept) && (
         /[0-9]/.test(lastKept.c) && gap <= fontSize * 0.4
         || lastKept.fontSize < fontSize * 0.92 && gap <= fontSize * 0.25
+        || /^[A-Za-z]$/.test(char.c) && /^[A-Za-z]$/.test(lastKept.c) && gap <= fontSize * 0.15
       );
       if (keep) lastKept = char;
       return keep;
