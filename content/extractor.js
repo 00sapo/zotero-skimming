@@ -15,7 +15,7 @@
 var FastKeySentenceExtractor = (() => {
   "use strict";
 
-  const MIN_LEN = 10;
+  const MIN_LEN = 8;
   const MAX_LEN = 800;
   const MIN_REPEAT_PAGES = 3;
   const REPEAT_PAGE_FRACTION = 0.3;
@@ -532,6 +532,7 @@ var FastKeySentenceExtractor = (() => {
     let keywordColumn = null;
     const suppressed = { left: false, right: false, single: false };
     const suppressedBullet = { left: false, right: false, single: false };
+    const lastColumnLine = { left: null, right: null, single: null };
     let references = false;
     const eligible = [];
 
@@ -542,6 +543,8 @@ var FastKeySentenceExtractor = (() => {
       if (!text || !key) continue;
       const column = lineColumn(line);
       const sectionColumn = headingColumn(line);
+      const previousColumnLine = lastColumnLine[column];
+      lastColumnLine[column] = line;
       const tooSmall = line.fontSize <= Math.max(3, bodySize * 0.9);
       const largeHeading = line.fontSize >= bodySize * 1.28;
       const textHeading = looksLikeHeading(text);
@@ -557,7 +560,11 @@ var FastKeySentenceExtractor = (() => {
         if (/^[A-Z0-9]/.test(text)) suppressedBullet[column] = false;
         else continue;
       }
-      if (text.split(/\s+/).length <= 3 && /:\s*$/.test(text) && !line.bullet) continue;
+      const hyphenTail = previousColumnLine
+        && previousColumnLine.baseline - line.baseline <= lineHeight * 1.6
+        && /-\s*$/.test(previousColumnLine.text);
+      if (text.split(/\s+/).length <= 3 && /:\s*$/.test(text) && !line.bullet
+        && (/^[A-Z]/.test(text) || hyphenTail)) continue;
       if (!heading && lineIndex < 3 && headingLike) heading = section;
 
       if (/^(?:keywords?|keyterms?)$/i.test(key)) {

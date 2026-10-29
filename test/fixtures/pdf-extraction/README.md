@@ -80,7 +80,7 @@ The report contains these measurements.
 
 Word metrics count repeated words separately. Excluded leakage ignores phrases that also occur in expected prose. It matches whole phrases and does not detect every partial reference or table fragment. Order measurements cover exact matches that occur once in each text. A zero inversion count does not prove correct order when sentence recall is low.
 
-The test suite requires at least 99 percent balanced accuracy, sentence sensitivity, and negative specificity. It also rejects lower recall, lower precision, more leakage, more order inversions, or lower rectangle validity for any case. The committed corpus reaches 99.61 percent balanced accuracy, 99.84 percent sentence sensitivity, and 99.38 percent negative specificity. Passing these tests means the measured corpus passes, not that every unseen PDF extracts perfectly.
+The test suite requires at least 99 percent balanced accuracy, sentence sensitivity, and negative specificity. It also rejects lower recall, lower precision, more leakage, more order inversions, or lower rectangle validity for any case. The committed corpus reaches 99.67 percent balanced accuracy, 99.96 percent sentence sensitivity, and 99.38 percent negative specificity. Passing these tests means the measured corpus passes, not that every unseen PDF extracts perfectly.
 
 The replay uses PyMuPDF geometry rather than the Zotero reader parser. It tests layout processing after character extraction. It does not replace a real Zotero smoke test or prove that rectangles align with the reader on every PDF.
 

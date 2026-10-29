@@ -209,6 +209,37 @@ describe("FastKeySentenceExtractor", () => {
     expect(page.text).toContain("Running Example:");
   });
 
+  it("keeps lowercase colon continuations and short run-in labels", () => {
+    const api = extractor();
+    const leadLines = [
+      textLine("Here are some of the calligraphic letters shown", 40, 720),
+      textLine("below:", 40, 708)
+    ];
+    const leadPage = api.buildStructuredPage(1, leadLines.flat(), 600, {});
+    expect(api.segmentSentences(leadPage).map(item => item.text))
+      .toContain("Here are some of the calligraphic letters shown below:");
+
+    const labelLines = [
+      textLine("Summary.", 40, 720),
+      textLine("At vero eos et accusamus et iusto odio dignissimos.", 40, 708)
+    ];
+    const labelPage = api.buildStructuredPage(1, labelLines.flat(), 600, {});
+    expect(api.segmentSentences(labelPage).map(item => item.text)).toContain("Summary.");
+  });
+
+  it("excludes a hyphenated list heading that starts uppercase", () => {
+    const api = extractor();
+    const lines = [
+      textLine("Possi-", 40, 720),
+      textLine("bilities:", 40, 708),
+      textLine("Ordinary prose follows the list heading in this paragraph.", 40, 680)
+    ];
+    const page = api.buildStructuredPage(1, lines.flat(), 600, {});
+    expect(page.text).not.toContain("Possibilities:");
+    expect(api.segmentSentences(page).map(item => item.text))
+      .toContain("Ordinary prose follows the list heading in this paragraph.");
+  });
+
   it("extracts sentences from the reader document", async () => {
     const api = loadScript("content/extractor.js", {
       Components: { utils: { waiveXrays: value => value, cloneInto: value => value } },

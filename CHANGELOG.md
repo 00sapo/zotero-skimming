@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Improve PDF extraction. Remove printed line numbers, table cells, captions, bullets, run-in list labels, superscripts, footnotes, abstract text, and reference entries. Keep column order, paragraph boundaries, complete list sentences, short prose, and logotype small capitals. The committed corpus reaches 99.61 percent balanced accuracy.
+- Improve PDF extraction. Remove printed line numbers, table cells, captions, bullets, run-in list labels, superscripts, footnotes, abstract text, and reference entries. Keep column order, paragraph boundaries, complete list sentences, short prose, and logotype small capitals. The committed corpus reaches 99.67 percent balanced accuracy.
 - Use model-free ranking by default. Limit diversity selection to a shortlist that keeps section and uncommon-term coverage.
 - Reuse sparse sentence features and embed only shortlisted sentences for semantic relevance.
 - Normalize sentence importance to a range from 0 to 1. A threshold of 0 shows every eligible sentence, and 100 shows none. The default is 75%.
