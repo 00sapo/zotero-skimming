@@ -63,7 +63,11 @@ node scripts/evaluate-extraction.mjs --baseline test/fixtures/pdf-extraction/bas
 
 The report contains these measurements.
 
-- Exact sentence recall measures the fraction of expected sentences recovered intact.
+- Sentence sensitivity measures the fraction of expected sentences recovered exactly. It includes sentences that continue across a page break.
+- Negative specificity measures the fraction of annotated non-body line units where no glyph is claimed.
+- Balanced accuracy is the mean of sentence sensitivity and negative specificity, averaged across PDFs.
+- Character balanced accuracy repeats the check for every labeled glyph.
+- Exact sentence recall measures the fraction of expected sentences recovered as one extraction.
 - Word precision measures how much extracted text belongs to expected prose.
 - Word recall measures how much expected prose appears in extracted text.
 - Excluded leakage counts annotated excluded phrases that appear in the output.
@@ -72,7 +76,7 @@ The report contains these measurements.
 
 Word metrics count repeated words separately. Excluded leakage ignores phrases that also occur in expected prose. It matches whole phrases and does not detect every partial reference or table fragment. Order measurements cover exact matches that occur once in each text. A zero inversion count does not prove correct order when sentence recall is low.
 
-The committed baseline records current defects. Tests reject lower recall, lower precision, more leakage, more order inversions, or lower rectangle validity for any case. Passing these tests means no measured regression, not perfect extraction.
+The test suite requires at least 99 percent balanced accuracy, sentence sensitivity, and negative specificity. It also rejects lower recall, lower precision, more leakage, more order inversions, or lower rectangle validity for any case. The committed corpus reaches 100 percent on the three target metrics. Passing these tests means the measured corpus passes, not that every unseen PDF extracts perfectly.
 
 The replay uses PyMuPDF geometry rather than the Zotero reader parser. It tests layout processing after character extraction. It does not replace a real Zotero smoke test or prove that rectangles align with the reader on every PDF.
 

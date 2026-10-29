@@ -82,9 +82,12 @@ describe("extraction evaluation metrics", () => {
 });
 
 describe("academic PDF extraction corpus", () => {
-  it("does not lose prose or admit more excluded content than the reviewed baseline", async () => {
+  it("meets the balanced accuracy target without regressing the reviewed baseline", async () => {
     const baseline = JSON.parse(fs.readFileSync(new URL("./fixtures/pdf-extraction/baseline.json", import.meta.url), "utf8"));
     const current = await evaluateCorpus();
     expect(compareBaseline(current, baseline)).toEqual([]);
+    expect(current.totals.balancedAccuracy).toBeGreaterThanOrEqual(0.99);
+    expect(current.totals.sentenceSensitivity).toBeGreaterThanOrEqual(0.99);
+    expect(current.totals.negativeSpecificity).toBeGreaterThanOrEqual(0.99);
   }, 30000);
 });

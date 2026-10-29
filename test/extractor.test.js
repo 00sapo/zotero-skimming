@@ -125,6 +125,53 @@ describe("FastKeySentenceExtractor", () => {
     expect(api.segmentSentences(page)).toHaveLength(2);
   });
 
+  it("removes printed line numbers before joining sentences", () => {
+    const api = extractor();
+    const lines = [
+      textLine("1", 8, 700).concat(textLine("First numbered line carries complete prose for recovery.", 40, 700)),
+      textLine("2", 8, 688).concat(textLine("Second numbered line continues the same paragraph.", 40, 688)),
+      textLine("3", 8, 676).concat(textLine("Third numbered line ends the recovered paragraph.", 40, 676)),
+      textLine("4", 8, 664).concat(textLine("Fourth numbered line provides another complete sentence.", 40, 664))
+    ];
+    const page = api.buildStructuredPage(1, lines.flat(), 600, {});
+    expect(page.text).not.toMatch(/(?:^|\s)[1-4](?:\s|$)/);
+    expect(page.text).toContain("First numbered line");
+    expect(api.segmentSentences(page)).toHaveLength(4);
+  });
+
+  it("drops bullet markers, superscripts, captions, and numeric table cells", () => {
+    const api = extractor();
+    const bullet = textLine("• What is the problem?", 40, 720);
+    const superscript = textLine("A complete sentence ends here.", 40, 700);
+    superscript.push(...textLine("1", 178, 703, 7).map(char => ({ ...char, fontSize: 7 })));
+    const caption = textLine("Figure 1. A visible caption runs", 40, 670);
+    const captionTail = textLine("across another caption line.", 40, 658);
+    const rows = [
+      textLine("Control", 40, 620).concat(textLine("12.4", 300, 620)),
+      textLine("Revised", 40, 608).concat(textLine("18.7", 300, 608)),
+      textLine("Repeated", 40, 596).concat(textLine("17.9", 300, 596))
+    ];
+    const body = textLine("Ordinary prose remains available after the excluded material in this paragraph.", 40, 560);
+    const page = api.buildStructuredPage(1, [bullet, superscript, caption, captionTail, ...rows, body].flat(), 600, {});
+    expect(page.text).toContain("What is the problem?");
+    expect(page.text).not.toContain("•");
+    expect(page.text).not.toMatch(/here\.1/);
+    expect(page.text).not.toContain("visible caption");
+    expect(page.text).not.toContain("across another caption line");
+    expect(page.text).not.toContain("Control");
+    expect(page.text).not.toContain("12.4");
+    expect(page.text).toContain("Ordinary prose remains available");
+  });
+
+  it("keeps short legitimate prose sentences", () => {
+    const api = extractor();
+    const page = pageFromLines(1, 600, 800, [
+      textLine("Research question.", 40, 700),
+      textLine("A paragraph.", 40, 680)
+    ]);
+    expect(api.segmentSentences(page).map(item => item.text)).toEqual(["Research question.", "A paragraph."]);
+  });
+
   it("extracts sentences from the reader document", async () => {
     const api = loadScript("content/extractor.js", {
       Components: { utils: { waiveXrays: value => value, cloneInto: value => value } },

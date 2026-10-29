@@ -15,7 +15,7 @@
 var FastKeySentenceExtractor = (() => {
   "use strict";
 
-  const MIN_LEN = 40;
+  const MIN_LEN = 10;
   const MAX_LEN = 800;
   const MIN_REPEAT_PAGES = 3;
   const REPEAT_PAGE_FRACTION = 0.3;
@@ -116,7 +116,14 @@ var FastKeySentenceExtractor = (() => {
   }
 
   function describeVisualLine(chars) {
-    const ordered = chars.slice().sort((a, b) => a.rect[0] - b.rect[0] || b.rect[2] - a.rect[2]);
+    // Glyph boxes can overlap, so order by the visual center and keep PDF order on ties.
+    let ordered = chars.slice().sort((a, b) =>
+      (a.rect[0] + a.rect[2]) / 2 - (b.rect[0] + b.rect[2]) / 2);
+    const baseline = median(ordered.map(char => char.baseline));
+    const fontSize = median(ordered.map(char => char.fontSize));
+    ordered = ordered.filter(char => !(char.fontSize < fontSize * 0.92
+      && Math.abs(char.baseline - baseline) > char.fontSize * 0.35));
+    while (ordered.length && /^[\s•·◦▪▫‣]$/.test(ordered[0].c)) ordered = ordered.slice(1);
     return {
       chars: ordered,
       text: lineText(ordered),
@@ -154,68 +161,130 @@ var FastKeySentenceExtractor = (() => {
       }
     }
 
-    const lines = clusters.map(cluster => describeVisualLine(cluster.chars));
-    if (pageWidth <= 0) return lines;
+    const rows = clusters.map(cluster => describeVisualLine(cluster.chars));
+    const segments = [];
+    for (const row of rows) {
+      const threshold = Math.max(14, row.fontSize * 1.6);
+      let start = 0;
+      for (let index = 1; index < row.chars.length; index++) {
+        const gap = row.chars[index].rect[0] - row.chars[index - 1].rect[2];
+        if (gap < threshold) continue;
+        const segment = describeVisualLine(row.chars.slice(start, index));
+        if (segment.text) segments.push(segment);
+        start = index;
+      }
+      const segment = describeVisualLine(row.chars.slice(start));
+      if (segment.text) segments.push(segment);
+    }
+    return segments;
+  }
 
-    const minimumGutterWidth = line => Math.max(7, pageWidth * 0.01, line.fontSize * 1.05);
-    const candidates = [];
+  function normalizedGlyph(character) {
+    const ligatures = {
+      "\uFB00": "ff", "\uFB01": "fi", "\uFB02": "fl", "\uFB03": "ffi",
+      "\uFB04": "ffl", "\uFB05": "st", "\uFB06": "st", "\u00AD": ""
+    };
+    return ligatures[character] ?? character;
+  }
+
+  function clusterBy(values, tolerance) {
+    const clusters = [];
+    for (const value of values.slice().sort((a, b) => a.center - b.center)) {
+      const cluster = clusters.find(entry => Math.abs(entry.center - value.center) <= tolerance);
+      if (cluster) {
+        cluster.values.push(value);
+        cluster.center = median(cluster.values.map(item => item.center));
+      }
+      else clusters.push({ center: value.center, values: [value] });
+    }
+    return clusters;
+  }
+
+  function leadingDigitRun(line) {
+    const chars = line.chars;
+    let index = 0;
+    while (index < chars.length && !chars[index].c.trim()) index++;
+    const start = index;
+    let digits = "";
+    while (index < chars.length && /^[0-9]$/.test(chars[index].c)) {
+      digits += chars[index].c;
+      index++;
+    }
+    if (!digits || digits.length > 4) return null;
+    const next = chars[index];
+    const gap = next ? next.rect[0] - chars[index - 1].rect[2] : Number.POSITIVE_INFINITY;
+    if (next && gap < Math.max(4, line.fontSize * 0.6)) return null;
+    const first = chars[start];
+    return {
+      chars: chars.slice(start, index),
+      center: (first.rect[0] + chars[index - 1].rect[2]) / 2,
+      gap
+    };
+  }
+
+  function trailingDigitRun(line) {
+    const chars = line.chars;
+    let index = chars.length - 1;
+    while (index >= 0 && !chars[index].c.trim()) index--;
+    const end = index + 1;
+    while (index >= 0 && /^[0-9]$/.test(chars[index].c)) index--;
+    const start = index + 1;
+    if (end <= start || end - start > 4) return null;
+    const previous = chars[index];
+    const gap = previous ? chars[start].rect[0] - previous.rect[2] : Number.POSITIVE_INFINITY;
+    if (previous && gap < Math.max(4, line.fontSize * 0.6)) return null;
+    return {
+      chars: chars.slice(start, end),
+      center: (chars[start].rect[0] + chars[end - 1].rect[2]) / 2,
+      gap
+    };
+  }
+
+  function middleDigitRuns(line) {
+    const found = [];
+    for (let index = 0; index < line.chars.length; index++) {
+      if (!/^[0-9]$/.test(line.chars[index].c)) continue;
+      const start = index;
+      while (index + 1 < line.chars.length && /^[0-9]$/.test(line.chars[index + 1].c)) index++;
+      const end = index + 1;
+      if (end - start > 4) continue;
+      const first = line.chars[start];
+      const last = line.chars[end - 1];
+      const before = line.chars[start - 1];
+      const after = line.chars[end];
+      const gapBefore = before ? first.rect[0] - before.rect[2] : Number.POSITIVE_INFINITY;
+      const gapAfter = after ? after.rect[0] - last.rect[2] : Number.POSITIVE_INFINITY;
+      if (gapBefore < Math.max(5, line.fontSize * 0.7) || gapAfter < Math.max(5, line.fontSize * 0.7)) continue;
+      found.push({
+        chars: line.chars.slice(start, end),
+        center: (first.rect[0] + last.rect[2]) / 2,
+        gap: Math.min(gapBefore, gapAfter)
+      });
+    }
+    return found;
+  }
+
+  function stripMarginNumbers(chars, pageWidth) {
+    if (!chars.length || pageWidth <= 0) return chars;
+    const lines = visualLines(chars, pageWidth);
+    if (lines.length < 4) return chars;
+    const runs = [];
     for (const line of lines) {
-      const gaps = line.chars
-        .slice(1)
-        .map((char, index) => ({
-          index: index + 1,
-          width: char.rect[0] - line.chars[index].rect[2],
-          center: (char.rect[0] + line.chars[index].rect[2]) / 2
-        }))
-        .filter(gap => gap.width >= minimumGutterWidth(line)
-          && gap.center >= pageWidth * 0.12
-          && gap.center <= pageWidth * 0.88
-          && gap.index >= 4
-          && line.chars.length - gap.index >= 4)
-        .sort((a, b) => b.width - a.width);
-      for (const gap of gaps) candidates.push({ line, ...gap });
+      for (const run of [leadingDigitRun(line), trailingDigitRun(line), ...middleDigitRuns(line)]) {
+        if (run) runs.push(run);
+      }
     }
-    if (candidates.length < 2) return lines;
-
-    const centerTolerance = Math.max(12, pageWidth * 0.045);
-    const groups = [];
-    for (const candidate of candidates.slice().sort((a, b) => a.center - b.center)) {
-      const group = groups.find(entries => Math.abs(entries[0].center - candidate.center) <= centerTolerance);
-      if (group) group.push(candidate);
-      else groups.push([candidate]);
+    if (!runs.length) return chars;
+    const threshold = Math.max(3, Math.ceil(lines.length * 0.2));
+    const removed = new Set();
+    for (const cluster of clusterBy(runs, Math.max(3, pageWidth * 0.008))) {
+      if (cluster.values.length < threshold) continue;
+      for (const run of cluster.values) {
+        for (const char of run.chars) removed.add(char);
+      }
     }
-    const repeated = groups
-      .filter(group => new Set(group.map(candidate => candidate.line)).size >= 3)
-      .sort((a, b) =>
-        new Set(b.map(candidate => candidate.line)).size - new Set(a.map(candidate => candidate.line)).size
-        || b.reduce((sum, candidate) => sum + candidate.width, 0) - a.reduce((sum, candidate) => sum + candidate.width, 0)
-      )[0];
-    if (!repeated) return lines;
-
-    const gutter = median(repeated.map(candidate => candidate.center));
-    const splitLines = [];
-    for (const line of lines) {
-      const split = line.chars
-        .slice(1)
-        .map((char, index) => ({
-          index: index + 1,
-          width: char.rect[0] - line.chars[index].rect[2],
-          left: line.chars[index].rect[2],
-          right: char.rect[0]
-        }))
-        .filter(gap => gap.width >= minimumGutterWidth(line)
-          && gap.left <= gutter
-          && gap.right >= gutter
-          && gap.index >= 4
-          && line.chars.length - gap.index >= 4)
-        .sort((a, b) => b.width - a.width)[0];
-      if (!split) splitLines.push(line);
-      else splitLines.push(
-        describeVisualLine(line.chars.slice(0, split.index)),
-        describeVisualLine(line.chars.slice(split.index))
-      );
-    }
-    return splitLines;
+    if (!removed.size) return chars;
+    return chars.filter(char => !removed.has(char));
   }
 
   function bodyFontSize(chars) {
@@ -240,6 +309,12 @@ var FastKeySentenceExtractor = (() => {
     const words = text.match(/[A-Za-z][A-Za-z'’-]*/g) || [];
     if (!words.length || words.length > 16 || /[.!?]\s*$/.test(text)) return false;
     const numbered = /^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+)[.)-]?\s+/i.test(text);
+    const known = SECTION_MARKERS.some(([marker]) => {
+      marker.lastIndex = 0;
+      return marker.test(text);
+    });
+    if (known && words.length <= 4) return true;
+    if (words.length < 2) return false;
     const capitals = words.filter(word => /^[A-Z]/.test(word) || word === word.toUpperCase()).length;
     return numbered || capitals / words.length >= 0.6;
   }
@@ -268,7 +343,8 @@ var FastKeySentenceExtractor = (() => {
       }
     }
 
-    const repeated = clusters.filter(cluster => cluster.starts.length >= 3);
+    const repeated = clusters.filter(cluster => cluster.starts.length >= 3
+      && median(cluster.lines.map(line => line.x2 - line.x1)) >= pageWidth * 0.22);
     let best = null;
     let bestScore = -1;
     for (let leftIndex = 0; leftIndex < repeated.length; leftIndex++) {
@@ -337,13 +413,100 @@ var FastKeySentenceExtractor = (() => {
     return null;
   }
 
+  const CAPTION_START = /^\s*(?:figure|fig\.?|table|tab\.?)\s*(?:[A-Z]?\d+|[IVXLC]+)\b/i;
+
+  function isPageNumberLine(text) {
+    return /^\s*(?:\d{1,4}|[ivxlcdm]{1,7})\s*$/i.test(text);
+  }
+
+  function detectTableLines(lines, lineHeight) {
+    const numeric = line => /^[0-9][0-9.,%+-]*$/.test(line.text.replace(/\s/g, ""));
+    const short = line => line.text.length <= 40;
+    const candidates = lines.filter(line => short(line) && numeric(line));
+    if (!candidates.length) return new Set();
+    const clusters = clusterBy(candidates.map(line => ({ line, center: line.x1 })), 12);
+    const supported = clusters.filter(cluster =>
+      new Set(cluster.values.map(value => Math.round(value.line.baseline / 2))).size >= 2);
+    const marked = new Set();
+    for (const cluster of supported) {
+      const baseline = Math.max(...cluster.values.map(value => value.line.baseline));
+      for (const value of cluster.values) marked.add(value.line);
+      for (const line of lines) {
+        if (!short(line)) continue;
+        if (Math.abs(line.baseline - baseline) > lineHeight * 4) continue;
+        if (marked.has(line)) continue;
+        marked.add(line);
+      }
+    }
+    return marked;
+  }
+
   function buildStructuredPage(pageIndex, chars, pageWidth, hints = {}) {
-    const lines = visualLines(chars, pageWidth);
-    const bodySize = bodyFontSize(chars);
+    const numbered = stripMarginNumbers(chars, pageWidth);
+    const bodySize = bodyFontSize(numbered);
+    const bodyChars = numbered.filter(char => char.fontSize >= bodySize * 0.75);
+    const lines = visualLines(bodyChars, pageWidth);
     const title = normalized(hints.title || "");
     const creators = (hints.creators || []).map(normalized).filter(creator => creator.length >= 4);
-    let keywordColumn = null;
+    const columns = detectColumnStarts(lines, pageWidth);
+    const lineColumn = line => !columns
+      ? "single"
+      : Math.abs(line.x1 - columns.left.center) <= Math.abs(line.x1 - columns.right.center) ? "left" : "right";
+    let columnRanges = null;
+    if (columns) {
+      const ranges = { left: { x1: Infinity, x2: -Infinity }, right: { x1: Infinity, x2: -Infinity } };
+      for (const line of lines) {
+        if (line.x2 - line.x1 >= pageWidth * 0.55) continue;
+        const key = lineColumn(line);
+        ranges[key].x1 = Math.min(ranges[key].x1, line.x1);
+        ranges[key].x2 = Math.max(ranges[key].x2, line.x2);
+      }
+      if (Number.isFinite(ranges.left.x1) && Number.isFinite(ranges.right.x1)) columnRanges = ranges;
+    }
+    const headingColumn = line => {
+      if (!columns || !columnRanges) return lineColumn(line);
+      const overlap = key => Math.max(0, Math.min(line.x2, columnRanges[key].x2) - Math.max(line.x1, columnRanges[key].x1));
+      return overlap("left") >= overlap("right") ? "left" : "right";
+    };
+    const gaps = [];
+    for (const column of new Set(lines.map(lineColumn))) {
+      const group = lines.filter(line => lineColumn(line) === column)
+        .sort((a, b) => b.baseline - a.baseline);
+      for (let index = 1; index < group.length; index++) {
+        const gap = group[index - 1].baseline - group[index].baseline;
+        if (gap > 1 && gap < bodySize * 3) gaps.push(gap);
+      }
+    }
+    const lineHeight = gaps.length ? median(gaps) : Math.max(bodySize * 1.2, 10);
+    const tableLines = detectTableLines(lines, lineHeight);
+    const captionLines = new Set();
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (!CAPTION_START.test(lines[lineIndex].text)) continue;
+      const caption = lines[lineIndex];
+      captionLines.add(lineIndex);
+      let lastBaseline = caption.baseline;
+      let lastText = caption.text;
+      for (let cursor = lineIndex + 1; cursor < lines.length; cursor++) {
+        const line = lines[cursor];
+        const gap = lastBaseline - line.baseline;
+        if (gap <= 0) continue;
+        if (lineColumn(line) !== lineColumn(caption)) continue;
+        if (gap > lineHeight * 2.2) break;
+        const overlaps = line.x1 <= caption.x2 + bodySize && line.x2 >= caption.x1 - bodySize;
+        const continuation = !/[.!?]\s*$/.test(lastText)
+          && gap <= lineHeight * 1.2
+          && line.text.length <= lastText.length + 20;
+        if (!overlaps && !continuation) break;
+        captionLines.add(cursor);
+        lastBaseline = line.baseline;
+        lastText = line.text;
+      }
+    }
+
     let heading = null;
+    let keywordColumn = null;
+    const suppressed = { left: false, right: false, single: false };
+    let references = false;
     const eligible = [];
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -351,20 +514,28 @@ var FastKeySentenceExtractor = (() => {
       const text = line.text.trim();
       const key = normalized(text);
       if (!text || !key) continue;
+      const column = lineColumn(line);
+      const sectionColumn = headingColumn(line);
+      const tooSmall = line.fontSize <= Math.max(3, bodySize * 0.9);
+      const largeHeading = line.fontSize >= bodySize * 1.28;
+      const textHeading = looksLikeHeading(text);
+      const headingLike = !tooSmall && (textHeading || largeHeading || line.fontSize >= bodySize * 1.15);
+      const section = headingLike ? sectionFromText(text) : null;
 
-      if (!heading && lineIndex < 3 && (looksLikeHeading(text) || line.fontSize >= bodySize * 1.15)) {
-        heading = sectionFromText(text);
-      }
+      if (!heading && lineIndex < 3 && headingLike) heading = section;
 
-      const lineColumn = (line.x1 + line.x2) / 2 < pageWidth / 2 ? "left" : "right";
-      const exactHeading = /^(?:abstract|keywords?|keyterms?|articleinfo)$/i.test(key);
       if (/^(?:keywords?|keyterms?)$/i.test(key)) {
-        keywordColumn = lineColumn;
+        keywordColumn = column;
         continue;
       }
-      if (pageIndex === 0 && keywordColumn === lineColumn && line.x2 - line.x1 < pageWidth * 0.38 && !/[.!?]\s*$/.test(text)) {
+      if (pageIndex === 0 && keywordColumn === column && line.x2 - line.x1 < pageWidth * 0.38 && !/[.!?]\s*$/.test(text)) {
         continue;
       }
+
+      if (section === "abstract") suppressed[sectionColumn] = true;
+      else if (section === "references") references = true;
+      else if (section || largeHeading) suppressed[sectionColumn] = false;
+
       const titleMatch = pageIndex === 0 && key.length >= 6 && title.length >= 6
         && (title.includes(key) || key.includes(title));
       const creatorMatch = pageIndex === 0
@@ -373,15 +544,14 @@ var FastKeySentenceExtractor = (() => {
       const metadataLine = !/[.!?]\s*$/.test(text)
         && text.split(/\s+/).length <= 35
         && /contents\s+lists?\s+available|science\s*direct|journal\s+homepage|facult|universit|department|institute|pavillon|rue\b|street\b|road\b|avenue\b|postal\b|québec|quebec|canada\b|article\s+info/i.test(lower);
-      const metadata = pageIndex === 0 && (
+      const metadata = (pageIndex === 0 && (
         /doi\s*:|doi\.org|creative\s*commons|copyright|article\s+reuse|journal|corresponding\s+author|e-?mail\s*:|university|issn|sagepub|open\s+access|special\s+issue|online\s+supplementary\s+material|version\s+in\s+\w+\s+of\s+this\s+article|©/i.test(lower)
         || metadataLine
-        || line.fontSize <= bodySize * 0.82
-      );
+      )) || tooSmall;
       const hidden = line.fontSize <= Math.max(3, bodySize * 0.35);
-      const largeHeading = line.fontSize >= bodySize * 1.28;
-      const textHeading = looksLikeHeading(text);
-      if (exactHeading || titleMatch || creatorMatch || metadata || hidden || largeHeading || textHeading) continue;
+      if (headingLike || titleMatch || creatorMatch || metadata || hidden) continue;
+      if (captionLines.has(lineIndex) || tableLines.has(line)) continue;
+      if (isPageNumberLine(text) || suppressed[column] || references) continue;
       eligible.push(line);
     }
 
@@ -389,23 +559,56 @@ var FastKeySentenceExtractor = (() => {
     const orderedChars = orderedLines.flatMap(line => line.chars);
     let text = "";
     const charMap = [];
-    for (let i = 0; i < orderedChars.length; i++) {
-      if (i > 0) {
-        const previous = orderedChars[i - 1];
-        const current = orderedChars[i];
-        const newLine = Math.abs(current.baseline - previous.baseline) > previous.fontSize * 0.5;
-        const gap = Math.max(current.rect[0] - previous.rect[2], previous.rect[0] - current.rect[2]);
-        if (newLine || gap > previous.fontSize * 0.18) {
-          text += " ";
-          charMap.push(-1);
+    const blockRanges = [];
+    let blockStart = 0;
+    let blockFirstX = null;
+    let previousLine = null;
+    let charBase = 0;
+    for (const line of orderedLines) {
+      if (!line.chars.length) continue;
+      const newBlock = previousLine && (
+        lineColumn(line) !== lineColumn(previousLine)
+        || previousLine.baseline - line.baseline > lineHeight * 1.45
+
+      );
+      if (!previousLine) {
+        blockFirstX = line.x1;
+      }
+      else if (newBlock) {
+        if (text.length > blockStart) blockRanges.push([blockStart, text.length]);
+        text += " ";
+        charMap.push(-1);
+        blockStart = text.length;
+        blockFirstX = line.x1;
+      }
+      else if (text.endsWith("-") && /^[a-zà-öø-ÿ]/.test(line.chars[0].c)) {
+        text = text.slice(0, -1);
+        charMap.pop();
+      }
+      else {
+        text += " ";
+        charMap.push(-1);
+      }
+      for (let index = 0; index < line.chars.length; index++) {
+        const character = line.chars[index];
+        if (index > 0) {
+          const previous = line.chars[index - 1];
+          const gap = character.rect[0] - previous.rect[2];
+          if (gap > previous.fontSize * 0.18) {
+            text += " ";
+            charMap.push(-1);
+          }
+        }
+        for (const value of character.c) {
+          text += value;
+          charMap.push(charBase + index);
         }
       }
-      for (const character of orderedChars[i].c) {
-        text += character;
-        charMap.push(i);
-      }
+      charBase += line.chars.length;
+      previousLine = line;
     }
-    return { pageIndex, text, charMap, chars: orderedChars, width: pageWidth, heading };
+    if (text.length > blockStart) blockRanges.push([blockStart, text.length]);
+    return { pageIndex, text, charMap, chars: orderedChars, width: pageWidth, heading, blockRanges };
   }
 
   async function extractPage(reader, pageIndex, hints = {}) {
@@ -439,7 +642,7 @@ var FastKeySentenceExtractor = (() => {
         if (y < pageHeight * 0.18 && (char.fontSize ?? 10) < medianSize * 0.82) continue;
       }
       chars.push({
-        c: String(char.u ?? char.c ?? ""),
+        c: String(normalizedGlyph(String(char.u ?? char.c ?? ""))),
         rect: [char.rect[0], char.rect[1], char.rect[2], char.rect[3]],
         baseline: char.baseline ?? char.rect[1],
         fontSize: char.fontSize ?? 10
@@ -723,13 +926,17 @@ var FastKeySentenceExtractor = (() => {
   function segmentSentences(page) {
     const out = [];
     if (!page.text) return out;
-    for (const item of sentenceSegments(page.text)) {
-      const raw = item.segment;
-      const trimmed = raw.trim();
-      if (trimmed.length < MIN_LEN || !/[a-zA-Z]{3}/.test(trimmed)) continue;
-      const base = item.index + (raw.length - raw.trimStart().length);
-      if (trimmed.length <= MAX_LEN) pushSpan(page, out, base, base + trimmed.length);
-      else splitLongSegment(page, out, base, trimmed);
+    const ranges = page.blockRanges?.length ? page.blockRanges : [[0, page.text.length]];
+    for (const [start, end] of ranges) {
+      const text = page.text.slice(start, end);
+      for (const item of sentenceSegments(text)) {
+        const raw = item.segment;
+        const trimmed = raw.trim();
+        if (trimmed.length < MIN_LEN || !/[a-zA-Z]{3}/.test(trimmed)) continue;
+        const base = start + item.index + (raw.length - raw.trimStart().length);
+        if (trimmed.length <= MAX_LEN) pushSpan(page, out, base, base + trimmed.length);
+        else splitLongSegment(page, out, base, trimmed);
+      }
     }
     return out;
   }
@@ -832,6 +1039,8 @@ var FastKeySentenceExtractor = (() => {
     getPageCount,
     hintsForAttachment,
     buildStructuredPage,
+    detectColumnStarts,
+    readingOrder,
     extractPage,
     pageLines,
     analyzeZones,
