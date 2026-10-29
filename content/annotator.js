@@ -118,8 +118,7 @@ FastOfflineKeySentenceAnnotator = {
   getConfiguredSettings() {
     const defaults = this.settingsDefaults;
     const compressionRatio = Number(Zotero.Prefs.get(this.prefBranch + "compressionRatio", true));
-    const storedThreshold = Zotero.Prefs.get(this.prefBranch + "selectionThreshold", true);
-    const thresholdPercent = storedThreshold === null || storedThreshold === undefined ? NaN : Number(storedThreshold);
+    const thresholdPercent = this.getStoredSelectionThreshold();
     const settings = {
       compressionRatio: Number.isFinite(compressionRatio) && compressionRatio >= 1.5 ? compressionRatio : defaults.compressionRatio,
       selectionThreshold: Number.isFinite(thresholdPercent)
@@ -193,9 +192,24 @@ FastOfflineKeySentenceAnnotator = {
     return true;
   },
 
+  getStoredSelectionThreshold() {
+    const key = this.prefBranch + "selectionThreshold";
+    try {
+      if (typeof Services !== "undefined"
+          && Services.prefs?.prefHasUserValue
+          && !Services.prefs.prefHasUserValue(key)) {
+        return null;
+      }
+    }
+    catch (_) {}
+    const stored = Zotero.Prefs.get(key, true);
+    if (stored === null || stored === undefined) return null;
+    const percent = Number(stored);
+    return Number.isFinite(percent) ? percent : null;
+  },
+
   getSelectionThreshold() {
-    const storedThreshold = Zotero.Prefs.get(this.prefBranch + "selectionThreshold", true);
-    const percent = storedThreshold === null || storedThreshold === undefined ? NaN : Number(storedThreshold);
+    const percent = this.getStoredSelectionThreshold();
     return Number.isFinite(percent)
       ? Math.min(1, Math.max(0, percent / 100))
       : this.settingsDefaults.selectionThreshold;
@@ -554,7 +568,16 @@ FastOfflineKeySentenceAnnotator = {
     if (!refs?.progress) return;
     refs.progress.hidden = false;
     const number = Number(value);
-    refs.progress.value = Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : 0;
+    const clamped = Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : 0;
+    refs.progress.value = clamped;
+    refs.progress.setAttribute?.("value", String(clamped));
+  },
+
+  setPanelProgressIndeterminate(body) {
+    const refs = this.panelRefs.get(body);
+    if (!refs?.progress) return;
+    refs.progress.hidden = false;
+    refs.progress.removeAttribute?.("value");
   },
 
   hasSavedAnnotations(attachment) {
@@ -637,6 +660,31 @@ FastOfflineKeySentenceAnnotator = {
       FastKeySentenceModels.setModelOverrides(settings);
       this.setPanelStatus(body, `Ranking ${candidates.length} candidate sentences…`);
       this.setPanelProgress(body, 45);
+      const progressPhases = {
+        summarization: [45, 58],
+        "summary-relevance": [58, 70],
+        "summary-sentences": [70, 76],
+        "tag-embeddings": [76, 88],
+        "tag-model": [88, 96]
+      };
+      const progressLabels = {
+        summarization: "Summarising the paper…",
+        "summary-relevance": "Comparing the summary with candidate sentences…",
+        "summary-sentences": "Embedding the summary sentences…",
+        "tag-embeddings": "Classifying highlights…",
+        "tag-model": "Asking the summary model to classify highlights…"
+      };
+      const embeddingLabels = {
+        "summary-relevance": "Embedding candidate sentences",
+        "summary-sentences": "Embedding summary sentences",
+        "tag-embeddings": "Classifying highlights"
+      };
+      let progressValue = 45;
+      let activeChunk = false;
+      const setModelProgress = value => {
+        progressValue = Math.max(progressValue, Math.max(0, Math.min(100, Number(value) || 0)));
+        this.setPanelProgress(body, progressValue);
+      };
       const selected = await FastKeySentenceNLP.analyzeAsync(candidates, count, {
         localRelevance: settings.localRelevance,
         summaryLabels: settings.summaryLabels,
@@ -646,15 +694,52 @@ FastOfflineKeySentenceAnnotator = {
         mapReduceSentences: settings.mapReduceSentences,
         documentTitle: await this.getDocumentTitle(attachment),
         onModelProgress: event => {
-          if (event.stage === "done") this.setPanelProgress(body, 90);
-          else if (event.stage === "inference" && Number.isFinite(Number(event.progress))) {
-            this.setPanelProgress(body, 50 + Number(event.progress) * 0.4);
+          const operation = event.operation;
+          const [start, end] = progressPhases[operation] || [45, 96];
+          const progress = Number(event.progress);
+          if (event.stage === "done") {
+            activeChunk = false;
+            setModelProgress(end);
           }
+          else if (event.stage === "mapping") {
+            activeChunk = true;
+            const mappingProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+            setModelProgress(45 + mappingProgress / 100 * 8);
+          }
+          else if (event.stage === "reducing") {
+            activeChunk = true;
+            const reducingProgress = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+            setModelProgress(53 + reducingProgress / 100 * 5);
+          }
+          else if (event.stage === "inference" && Number.isFinite(progress)) {
+            if (activeChunk) {
+              if (progress <= 0) this.setPanelProgressIndeterminate(body);
+            }
+            else if (progress <= 0) {
+              this.setPanelProgressIndeterminate(body);
+            }
+            else {
+              setModelProgress(start + Math.max(0, Math.min(100, progress)) / 100 * (end - start));
+            }
+          }
+          else if (event.stage === "sending" || event.stage === "retrying") {
+            setModelProgress(start);
+            this.setPanelProgressIndeterminate(body);
+          }
+          else if (event.stage === "preparing") {
+            activeChunk = false;
+            setModelProgress(start);
+          }
+
           if (event.message) this.setPanelStatus(body, event.message);
+          else if (event.stage === "preparing") this.setPanelStatus(body, progressLabels[operation] || "Working…");
           else if (event.stage === "mapping") this.setPanelStatus(body, `Summarising in parts… ${event.completed || 0}/${event.total || 0}`);
-          else if (event.stage === "reducing") this.setPanelStatus(body, "Reducing summary…");
+          else if (event.stage === "reducing") this.setPanelStatus(body, "Reducing the summary…");
           else if (event.stage === "sending") this.setPanelStatus(body, "Sending text to the remote API…");
           else if (event.stage === "retrying") this.setPanelStatus(body, "Retrying the remote request…");
+          else if (event.stage === "inference" && event.batch && event.total) {
+            this.setPanelStatus(body, `${embeddingLabels[operation] || "Computing embeddings"}… batch ${event.batch}/${event.total}`);
+          }
         }
       });
       if (!selected.length) throw new Error("No suitable highlight candidates were found.");

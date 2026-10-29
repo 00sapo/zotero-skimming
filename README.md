@@ -34,7 +34,7 @@ Ollama runs the models on your computer. If your computer cannot run the models,
 
 1. Open the PDF in the Zotero reader.
 2. Open the `Paper skim` section in the right pane.
-3. Click `Generate highlights`. The status line shows extraction, ranking, and model progress.
+3. Click `Generate highlights`. The status line shows extraction, ranking, and model progress. The progress bar follows separate summary, embedding, and classification steps. It animates while a long request runs.
 4. Move the `Highlight threshold` slider to filter eligible sentences by normalized importance. Zero shows all eligible sentences. 100 hides all eligible sentences. The preview updates without another model run.
 5. Click `Save as Zotero annotations…` to keep the visible highlights in your library. Click `Clear` to remove the preview.
 
@@ -82,7 +82,7 @@ Highlights follow the summary sentence order. A position weight keeps the select
 
 The add-on paints the selected sentences as temporary overlays. Nothing is written to the library until you click `Save as Zotero annotations…`. A second save skips sentences that already have an annotation, so repeated clicks do not create duplicates. Each saved highlight receives the `autoskim-key-sentence` tag.
 
-With `Classify highlights from labeled summary`, the add-on compares each selected sentence with the summary labels or the label descriptions in the TOML box. It assigns the closest label and the label color.
+With `Classify highlights from labeled summary`, the add-on asks the summary model to label the selected highlights in one batch. The prompt includes the category definitions and the labeled summary sentences as examples. The embedding classifier tags the remaining candidates and serves as a fallback. The add-on assigns the label color.
 
 `scoring-config.json` contains the score weights. `model-identifiers.json` contains the default model names.
 

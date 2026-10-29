@@ -261,7 +261,16 @@ describe("FastOfflineKeySentenceAnnotator sidebar", () => {
     ];
     const extractor = { cleanText: text => text, extractDocument: vi.fn(async () => ({ sentences, pages: [], pageCount: 1 })) };
     const nlp = loadScript("content/nlp.js").FastKeySentenceNLP;
-    nlp.analyzeAsync = vi.fn(async () => sentences.map(sentence => ({ ...sentence, _paperSummary: "Summary text." })));
+    nlp.analyzeAsync = vi.fn(async (_sentences, _count, options) => {
+      options.onModelProgress({ stage: "preparing", operation: "summarization" });
+      options.onModelProgress({ stage: "inference", operation: "summarization", progress: 0 });
+      options.onModelProgress({ stage: "inference", operation: "summarization", progress: 50 });
+      options.onModelProgress({ stage: "inference", operation: "summarization", progress: 100 });
+      options.onModelProgress({ stage: "preparing", operation: "tag-embeddings" });
+      options.onModelProgress({ stage: "inference", operation: "tag-embeddings", progress: 0, batch: 1, total: 2 });
+      options.onModelProgress({ stage: "inference", operation: "tag-embeddings", progress: 50, batch: 1, total: 2 });
+      return sentences.map(sentence => ({ ...sentence, _paperSummary: "Summary text." }));
+    });
     const api = annotator({ FastKeySentenceExtractor: extractor, FastKeySentenceNLP: nlp });
     api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
     api.__prefs.set("extensions.zotero-skimming.compressionRatio", 2);
@@ -279,7 +288,16 @@ describe("FastOfflineKeySentenceAnnotator sidebar", () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     const refs = api.panelRefs.get(body);
     expect(refs).toBeTruthy();
+    const progressSpy = vi.spyOn(api, "setPanelProgress");
+    const indeterminateSpy = vi.spyOn(api, "setPanelProgressIndeterminate");
     await api.generateForItem(attachmentItem, body);
+    const generationProgress = progressSpy.mock.calls.map(call => call[1]);
+    expect(generationProgress).toEqual([...generationProgress].sort((a, b) => a - b));
+    expect(generationProgress).toContain(45);
+    expect(generationProgress).toContain(58);
+    expect(generationProgress).toContain(76);
+    expect(generationProgress).toContain(100);
+    expect(indeterminateSpy).toHaveBeenCalledTimes(2);
     expect(api.previews.get(attachmentItem.id).visible).toHaveLength(1);
     expect(refs.status.textContent).toContain("Generated 1");
 

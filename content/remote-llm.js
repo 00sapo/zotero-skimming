@@ -141,10 +141,10 @@ var FastKeySentenceRemote = (() => {
       }
       catch (error) {
         lastError = error;
-        log(`Summarization attempt ${attempt + 1} failed: ${errorDetail(error)}`);
+        log(`Remote LLM attempt ${attempt + 1} failed: ${errorDetail(error)}`);
       }
     }
-    throw new Error(`Remote summarization failed after ${MAX_RETRIES + 1} attempts: ${lastError?.message || lastError}`);
+    throw new Error(`Remote LLM request failed after ${MAX_RETRIES + 1} attempts: ${lastError?.message || lastError}`);
   }
 
   const SYSTEM_PROMPT = [
@@ -166,7 +166,7 @@ var FastKeySentenceRemote = (() => {
 
   function summaryPrompt(targetSentences, labels = []) {
     if (Array.isArray(labels) && labels.length) {
-      return `Write a summary of exactly ${targetSentences} numbered sentences. Format every sentence as \"N. [label] sentence\", choosing one category defined above for each sentence. Summary:`;
+      return `Write a summary of exactly ${targetSentences} numbered sentences. Format every sentence as \"N. [label] sentence\", choosing one category defined above for each sentence. Keep the [label] prefix on every line. Summary:`;
     }
     return `Write a summary of exactly ${targetSentences} numbered sentences. Summary:`;
   }
@@ -243,6 +243,28 @@ var FastKeySentenceRemote = (() => {
     return { valid: true };
   }
 
+  async function classify(sentences, labels = [], examples = [], onProgress = null) {
+    if (!Array.isArray(sentences) || !sentences.length) return "";
+    if (!Array.isArray(labels) || !labels.length) return "";
+    const config = getConfig();
+    const categories = labels
+      .map(label => `${label.name} ${String(label.description || "").replace(/\s+/g, " ").trim()}`)
+      .join("\n");
+    const exampleText = Array.isArray(examples) && examples.length
+      ? `\nLabeled examples from the paper summary:\n${examples.map((example, index) => `${index + 1}. ${example.label} ${example.sentence}`).join("\n")}\n`
+      : "";
+    const sentenceText = sentences.map((text, index) => `${index + 1}. ${text}`).join("\n");
+    const prompt = `Classify each sentence from the paper into exactly one category.\n\nCategories:\n${categories}\n${exampleText}\nSentences to classify:\n${sentenceText}\n\nReturn exactly one line per sentence, in the same order, in the format:\n1. [category]\n2. [category]\nDo not add explanations.`;
+    return requestSummary(
+      config,
+      "You are a precise academic sentence classifier. Return only the numbered category lines.",
+      prompt,
+      Math.max(128, sentences.length * 24 + 64),
+      onProgress,
+      { operation: "tag-classification" }
+    );
+  }
+
   async function embeddings(texts, callback) {
     if (!Array.isArray(texts) || !texts.length) throw new Error("No texts provided for embedding.");
     const config = getConfig();
@@ -281,6 +303,7 @@ var FastKeySentenceRemote = (() => {
     estimateTokens,
     splitByTokenLimit,
     summarize,
+    classify,
     embeddings,
     validateConfig,
     log

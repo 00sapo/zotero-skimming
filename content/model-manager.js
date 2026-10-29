@@ -141,7 +141,7 @@ var FastKeySentenceModels = (() => {
 
   function summaryInstruction(sentenceCount, labels = []) {
     if (Array.isArray(labels) && labels.length) {
-      return `Write a summary of exactly ${sentenceCount} numbered sentences. Format every sentence as \"N. [label] sentence\", choosing one category defined above for each sentence. Summary:`;
+      return `Write a summary of exactly ${sentenceCount} numbered sentences. Format every sentence as \"N. [label] sentence\", choosing one category defined above for each sentence. Keep the [label] prefix on every line. Summary:`;
     }
     return `Write a summary of exactly ${sentenceCount} numbered sentences. Summary:`;
   }
@@ -200,6 +200,31 @@ var FastKeySentenceModels = (() => {
     return combined;
   }
 
+  async function classify(sentences, labels = [], examples = [], callback = null) {
+    if (!Array.isArray(sentences) || !sentences.length) return "";
+    if (!Array.isArray(labels) || !labels.length) return "";
+    const categories = labels
+      .map(label => `${label.name} ${String(label.description || "").replace(/\s+/g, " ").trim()}`)
+      .join("\n");
+    const exampleText = Array.isArray(examples) && examples.length
+      ? `\nLabeled examples from the paper summary:\n${examples.map((example, index) => `${index + 1}. ${example.label} ${example.sentence}`).join("\n")}\n`
+      : "";
+    const sentenceText = sentences.map((text, index) => `${index + 1}. ${text}`).join("\n");
+    const prompt = `Classify each sentence from the paper into exactly one category.\n\nCategories:\n${categories}\n${exampleText}\nSentences to classify:\n${sentenceText}\n\nReturn exactly one line per sentence, in the same order, in the format:\n1. [category]\n2. [category]\nDo not add explanations.`;
+    callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 0 });
+    const result = await ollamaRequest("/api/generate", {
+      model: SUMMARY_MODEL,
+      prompt,
+      system: "You are a precise academic sentence classifier. Return only the numbered category lines.",
+      stream: false,
+      keep_alive: "5m",
+      think: false,
+      options: { temperature: 0 }
+    });
+    callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 100 });
+    return String(result.response || "").trim();
+  }
+
   async function embeddings(texts, callback) {
     if (!texts.length) return [];
     await ensureOllama(callback);
@@ -247,6 +272,7 @@ var FastKeySentenceModels = (() => {
     init,
     shutdown,
     summarize,
+    classify,
     embeddings,
     testOllama,
     supportsInference,

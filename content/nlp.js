@@ -209,6 +209,32 @@ var FastKeySentenceNLP = (() => {
     return Math.sqrt(sum);
   }
 
+  async function embedBatch(embedFn, texts, callback) {
+    if (!texts.length) return [];
+    const vectors = [];
+    const batchSize = 32;
+    const totalBatches = Math.ceil(texts.length / batchSize);
+    for (let start = 0; start < texts.length; start += batchSize) {
+      const batch = texts.slice(start, start + batchSize);
+      const batchIndex = Math.floor(start / batchSize);
+      const result = await embedFn(batch, event => {
+        if (event?.stage === "inference" && Number.isFinite(Number(event.progress))) {
+          const fraction = Math.max(0, Math.min(1, Number(event.progress) / 100));
+          const overall = (start + fraction * batch.length) / texts.length * 100;
+          callback?.({ ...event, progress: overall, batch: batchIndex + 1, total: totalBatches });
+        }
+        else {
+          callback?.(event);
+        }
+      });
+      if (!Array.isArray(result) || result.length !== batch.length) {
+        throw new Error("The embedding model returned an incomplete batch.");
+      }
+      vectors.push(...result);
+    }
+    return vectors;
+  }
+
   function isSparseVector(vector) {
     return vector instanceof Map;
   }
@@ -442,6 +468,7 @@ var FastKeySentenceNLP = (() => {
     let j = bestJ;
     let i = bestI;
     while (t >= 1 && j >= 0 && i >= 0) {
+      sentences[i]._summaryIndex = j;
       selected.push(i);
       const previous = prev[stateIndex(t, j, i)];
       if (previous < 0) break;
@@ -488,6 +515,20 @@ var FastKeySentenceNLP = (() => {
     return entries;
   }
 
+  function parseClassification(text, count, labels) {
+    const byName = new Map(labels.map((label, index) => [label.name.toLowerCase(), { label, index }]));
+    const results = new Map();
+    for (const line of String(text || "").split(/\r?\n/)) {
+      const match = line.match(/^\s*(\d+)[.)]?\s*\[([a-z][a-z0-9-]*)\]/i);
+      if (!match) continue;
+      const order = Number(match[1]) - 1;
+      if (!Number.isInteger(order) || order < 0 || order >= count) continue;
+      const entry = byName.get(`[${match[2].toLowerCase()}]`);
+      if (entry) results.set(order, entry);
+    }
+    return results;
+  }
+
   function analyze(sentences, count) {
     const filtered = sentences.filter(sentence => !isNoise(sentence));
     const { vectors, norms } = scoreSparse(filtered, count);
@@ -510,6 +551,7 @@ var FastKeySentenceNLP = (() => {
     const positionDenominator = filtered.length > 1 ? filtered.length - 1 : 0;
     filtered.forEach((sentence, index) => {
       sentence.position = positionDenominator ? index / positionDenominator : 0.5;
+      sentence._summaryIndex = -1;
     });
 
     const labelsEnabled = options.summaryLabels === true;
@@ -571,9 +613,6 @@ var FastKeySentenceNLP = (() => {
     }
 
     const summaryEntries = labelsEnabled ? parseLabeledSummary(summary, labels) : [];
-    const classificationEntries = summaryEntries.length
-      ? summaryEntries.map(entry => ({ text: entry.sentence, label: labels.find(label => label.name === entry.label) }))
-      : labels.map(label => ({ text: label.description, label }));
     if (summaryEntries.length) summary = summaryEntries.map(entry => entry.sentence).join("\n");
 
     const featureInput = summary ? [...filtered, { text: summary }] : filtered;
@@ -585,9 +624,11 @@ var FastKeySentenceNLP = (() => {
       : new Array(filtered.length).fill(0);
     scoreWithVectors(filtered, sentenceVectors, sentenceNorms, count, summaryScores);
 
-    const summarySentences = summary
-      ? sentenceRanges(summary).map(([start, end]) => cleanSummarySentence(summary.slice(start, end))).filter(Boolean)
-      : [];
+    const summarySentences = summaryEntries.length
+      ? summaryEntries.map(entry => entry.sentence)
+      : summary
+        ? sentenceRanges(summary).map(([start, end]) => cleanSummarySentence(summary.slice(start, end))).filter(Boolean)
+        : [];
     let summaryParts = summarySentences.map(text => {
       const { vector, norm } = vectorizeText(text, features.vocabulary, features.idf);
       return { vector, norm, text };
@@ -613,7 +654,8 @@ var FastKeySentenceNLP = (() => {
       try {
         options.onModelProgress?.({ stage: "preparing", operation: "summary-relevance" });
         const texts = shortlist.map(sentence => sentence.text);
-        const [summaryEmbedding, ...sentenceEmbeddings] = await embedFn(
+        const [summaryEmbedding, ...sentenceEmbeddings] = await embedBatch(
+          embedFn,
           [summary, ...texts],
           event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
         );
@@ -641,12 +683,14 @@ var FastKeySentenceNLP = (() => {
 
     if (summary && useLocalRelevance && denseShortlistVectors && summarySentences.length > 1) {
       try {
+        options.onModelProgress?.({ stage: "preparing", operation: "summary-sentences" });
         const embedFn = options.summarySource === "remote" && typeof FastKeySentenceRemote?.embeddings === "function"
           ? FastKeySentenceRemote.embeddings
           : FastKeySentenceModels.embeddings;
-        const vectors = await embedFn(
+        const vectors = await embedBatch(
+          embedFn,
           summarySentences,
-          event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
+          event => options.onModelProgress?.({ ...event, operation: "summary-sentences" })
         );
         summaryParts = vectors.map((vector, index) => {
           const values = Array.from(vector, Number);
@@ -682,46 +726,100 @@ var FastKeySentenceNLP = (() => {
 
     if (labelsEnabled && filtered.length) {
       try {
-        options.onModelProgress?.({ stage: "preparing", operation: "tag-classification" });
-        if (!classificationEntries.length) throw new Error("No summary labels are configured.");
+        options.onModelProgress?.({ stage: "preparing", operation: "tag-embeddings" });
+        if (!labels.length) throw new Error("No summary labels are configured.");
         const remoteAvailable = typeof FastKeySentenceRemote?.embeddings === "function";
         const useRemoteClassify = options.summarySource === "remote" && remoteAvailable;
         const primaryEmbed = useRemoteClassify ? FastKeySentenceRemote.embeddings : FastKeySentenceModels.embeddings;
         const fallbackEmbed = useRemoteClassify ? FastKeySentenceModels.embeddings : (remoteAvailable ? FastKeySentenceRemote.embeddings : null);
-        const texts = [...classificationEntries.map(entry => entry.text), ...filtered.map(sentence => sentence.text)];
+        const texts = [
+          ...labels.map(label => label.description),
+          ...summarySentences,
+          ...filtered.map(sentence => sentence.text)
+        ];
         let vectors;
         try {
-          vectors = await primaryEmbed(texts, event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
+          vectors = await embedBatch(primaryEmbed, texts, event => options.onModelProgress?.({ ...event, operation: "tag-embeddings" }));
         }
         catch (primaryError) {
           if (!fallbackEmbed) throw primaryError;
           options.onModelProgress?.({
             stage: "unavailable",
-            operation: "tag-classification",
+            operation: "tag-embeddings",
             message: `Primary embedding failed; trying fallback. ${primaryError.message || primaryError}`
           });
-          vectors = await fallbackEmbed(texts, event => options.onModelProgress?.({ ...event, operation: "tag-classification" }));
+          vectors = await embedBatch(fallbackEmbed, texts, event => options.onModelProgress?.({ ...event, operation: "tag-embeddings" }));
         }
-        const summaryVectors = vectors.slice(0, classificationEntries.length);
-        const sourceVectors = vectors.slice(classificationEntries.length);
+        const descriptionVectors = vectors.slice(0, labels.length);
+        const summaryVectors = vectors.slice(labels.length, labels.length + summarySentences.length);
+        const sourceVectors = vectors.slice(labels.length + summarySentences.length);
+        const descriptionNorms = descriptionVectors.map(denseNorm);
         const summaryNorms = summaryVectors.map(denseNorm);
         const sourceNorms = sourceVectors.map(denseNorm);
-        for (let i = 0; i < filtered.length; i++) {
-          let bestIndex = 0;
-          let bestScore = -1;
-          for (let j = 0; j < classificationEntries.length; j++) {
-            const score = vectorCosine(sourceVectors[i], summaryVectors[j], sourceNorms[i], summaryNorms[j]);
-            if (score > bestScore) {
-              bestScore = score;
-              bestIndex = j;
+
+        const summaryPseudo = summaryVectors.map((vector, index) => {
+          let labelIndex = 0;
+          let confidence = -Infinity;
+          for (let candidate = 0; candidate < labels.length; candidate++) {
+            const score = vectorCosine(vector, descriptionVectors[candidate], summaryNorms[index], descriptionNorms[candidate]);
+            if (score > confidence) {
+              confidence = score;
+              labelIndex = candidate;
             }
           }
-          const label = classificationEntries[bestIndex].label;
-          filtered[i].tag = label.name.replace(/^\[|\]$/g, "");
-          filtered[i].tagDescription = label.description || "";
-          filtered[i].tagColor = label.color || null;
-          filtered[i].tagIndex = labels.indexOf(label);
-          filtered[i].tagScore = bestScore;
+          return { labelIndex, confidence: Math.max(0, confidence) };
+        });
+
+        const centroids = labels.map((label, labelIndex) => {
+          const dimension = descriptionVectors[labelIndex].length;
+          const vector = new Array(dimension).fill(0);
+          let weight = 0;
+          const add = (source, norm, sourceWeight) => {
+            const scale = sourceWeight / (norm || 1);
+            for (let d = 0; d < dimension && d < source.length; d++) vector[d] += source[d] * scale;
+            weight += sourceWeight;
+          };
+          add(descriptionVectors[labelIndex], descriptionNorms[labelIndex], 1);
+          summaryPseudo.forEach((pseudo, summaryIndex) => {
+            if (pseudo.labelIndex !== labelIndex) return;
+            const entryLabel = summaryEntries[summaryIndex]?.label;
+            const summaryWeight = entryLabel === label.name ? 0.75 : 0.5;
+            add(summaryVectors[summaryIndex], summaryNorms[summaryIndex], summaryWeight);
+          });
+          if (weight) {
+            for (let d = 0; d < dimension; d++) vector[d] /= weight;
+          }
+          return { label, vector, norm: denseNorm(vector) };
+        });
+
+        for (let i = 0; i < filtered.length; i++) {
+          const sentence = filtered[i];
+          const rawScores = centroids.map(centroid =>
+            vectorCosine(sourceVectors[i], centroid.vector, sourceNorms[i], centroid.norm)
+          );
+          const scores = rawScores.slice();
+          if (sentence._selected && summaryPseudo.length) {
+            const summaryIndex = Number(sentence._summaryIndex);
+            if (Number.isInteger(summaryIndex) && summaryIndex >= 0 && summaryIndex < summaryPseudo.length) {
+              const pseudo = summaryPseudo[summaryIndex];
+              scores[pseudo.labelIndex] += 0.05 * pseudo.confidence;
+            }
+          }
+          let bestIndex = -1;
+          let bestScore = -Infinity;
+          for (let labelIndex = 0; labelIndex < scores.length; labelIndex++) {
+            if (scores[labelIndex] > bestScore) {
+              bestScore = scores[labelIndex];
+              bestIndex = labelIndex;
+            }
+          }
+          if (bestIndex < 0) continue;
+          const label = centroids[bestIndex].label;
+          sentence.tag = label.name.replace(/^\[|\]$/g, "");
+          sentence.tagDescription = label.description || "";
+          sentence.tagColor = label.color || null;
+          sentence.tagIndex = bestIndex;
+          sentence.tagScore = rawScores[bestIndex];
         }
       }
       catch (error) {
@@ -729,9 +827,47 @@ var FastKeySentenceNLP = (() => {
         if (typeof Services !== "undefined") Services.console.logStringMessage(`Zotero Skimming: tag classification failed — ${msg}`);
         options.onModelProgress?.({
           stage: "unavailable",
-          operation: "tag-classification",
+          operation: "tag-embeddings",
           message: `Tag classification failed; highlights remain untagged. ${error.message || error}`
         });
+      }
+    }
+
+    if (labelsEnabled && selectedSentences.length) {
+      const classifier = options.summarySource === "remote" && typeof FastKeySentenceRemote?.classify === "function"
+        ? FastKeySentenceRemote.classify
+        : typeof FastKeySentenceModels?.classify === "function"
+          ? FastKeySentenceModels.classify
+          : null;
+      if (classifier) {
+        try {
+          options.onModelProgress?.({ stage: "preparing", operation: "tag-model" });
+          const batch = selectedSentences.slice(0, 30);
+          const texts = batch.map(sentence => sentence.text);
+          const examples = summaryEntries.slice(0, 10).map(entry => ({ label: entry.label, sentence: entry.sentence }));
+          const output = await classifier(
+            texts,
+            labels,
+            examples,
+            event => options.onModelProgress?.({ ...event, operation: "tag-model" })
+          );
+          const parsed = parseClassification(output, batch.length, labels);
+          for (const [index, entry] of parsed) {
+            const sentence = batch[index];
+            sentence.tag = entry.label.name.replace(/^\[|\]$/g, "");
+            sentence.tagDescription = entry.label.description || "";
+            sentence.tagColor = entry.label.color || null;
+            sentence.tagIndex = entry.index;
+            sentence.tagScore = 1;
+          }
+        }
+        catch (error) {
+          options.onModelProgress?.({
+            stage: "unavailable",
+            operation: "tag-model",
+            message: `Summary-model classification failed; keeping fallback tags. ${error.message || error}`
+          });
+        }
       }
     }
 
@@ -748,6 +884,7 @@ var FastKeySentenceNLP = (() => {
     isNoise,
     paperTextForSummary,
     parseLabeledSummary,
+    parseClassification,
     selectSequence,
 
     analyze,

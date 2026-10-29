@@ -61,7 +61,30 @@ describe("FastKeySentenceRemote", () => {
     const prompt = JSON.parse(fetch.mock.calls[0][1].body).messages[1].content;
     expect(prompt.indexOf("Label category descriptions:")).toBeGreaterThan(prompt.indexOf("Paper body."));
     expect(prompt).toContain("[method] Explains how the study was carried out.");
+    expect(prompt).toContain("Keep the [label] prefix on every line.");
     expect(prompt).toMatch(/Format every sentence as .*Summary:$/);
+  });
+
+  it("classifies sentences in a batch through the chat API", async () => {
+    const fetch = vi.fn().mockResolvedValue(response("1. [method]\n2. [result]"));
+    const api = remote(new Map([
+      [prefix + "remoteApiKey", "key"],
+      [prefix + "remoteEndpoint", "https://api.example.test/chat"]
+    ]), fetch);
+    const result = await api.classify(
+      ["We measure the signal.", "The result improves."],
+      [
+        { name: "[method]", description: "Explains how the study was carried out." },
+        { name: "[result]", description: "Reports outcomes." }
+      ],
+      [{ label: "[method]", sentence: "We measure the signal." }]
+    );
+    expect(result).toBe("1. [method]\n2. [result]");
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.messages[0].content).toContain("precise academic sentence classifier");
+    expect(body.messages[1].content).toContain("Classify each sentence from the paper");
+    expect(body.messages[1].content).toContain("1. We measure the signal.");
+    expect(body.messages[1].content).toContain("Labeled examples from the paper summary");
   });
 
   it("maps and reduces long text without exceeding the reserved map input window", async () => {

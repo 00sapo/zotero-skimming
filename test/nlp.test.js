@@ -24,12 +24,17 @@ function nlp(models) {
     DEFAULT_CONFIG: "# config",
     parseConfig(text) {
       const labels = [];
-      const labelRe = /^\[([a-z][a-z0-9-]*)\]$/im;
-      const descRe = /^description\s*=\s*"(.+)"$/im;
-      const m = labelRe.exec(text);
-      if (m) {
-        const desc = descRe.exec(text);
-        labels.push({ name: `[${m[1]}]`, description: desc ? desc[1] : "", color: m[1] === "method" ? "#112233" : "#445566" });
+      const blocks = String(text || "").split(/^\[([a-z][a-z0-9-]*)\]$/im);
+      for (let index = 1; index < blocks.length; index += 2) {
+        const name = blocks[index];
+        const body = blocks[index + 1] || "";
+        const description = /^description\s*=\s*"(.+)"$/im.exec(body);
+        const color = /^color\s*=\s*"(.+)"$/im.exec(body);
+        labels.push({
+          name: `[${name}]`,
+          description: description ? description[1] : "",
+          color: color ? color[1] : name === "method" ? "#112233" : "#445566"
+        });
       }
       if (!labels.length) {
         // fallback: produce dummy labels so tag classification runs
@@ -274,7 +279,7 @@ describe("FastKeySentenceNLP", () => {
     expect(selected.every(item => item.importance >= 0 && item.importance <= 1)).toBe(true);
   });
 
-  it("assigns labels from the closest summary sentence when enabled", async () => {
+  it("assigns labels from the matched summary sentence when enabled", async () => {
     const embeddings = vi.fn(async texts => texts.map(text => {
       if (String(text).includes("method")) return [10, 0];
       if (String(text).includes("result")) return [0, 10];
@@ -311,6 +316,72 @@ describe("FastKeySentenceNLP", () => {
     expect(selected.every(item => item.tagColor === "#112233")).toBe(true);
   });
 
+  it("ignores wrong summary labels and classifies from embeddings", async () => {
+    const embeddings = vi.fn(async texts => texts.map(raw => {
+      const text = String(raw).toLowerCase();
+      if (text.includes("measured outcome")) return [0, 1];
+      if (text.includes("measure")) return [1, 0];
+      if (text.includes("improves") || text.includes("outcome")) return [0, 1];
+      if (text.includes("carried out")) return [1, 0];
+      return [0, 0];
+    }));
+    const input = [
+      sentence("We measure the alpha signal with care.", 0),
+      sentence("The measured outcome improves after alpha treatment.", 1)
+    ];
+    const selected = await nlp({
+      supportsInference: () => true,
+      summarize: async () => "1. [result] We measure the alpha signal with care.\n2. [method] Alpha improves the outcome in this study.",
+      embeddings
+    }).analyzeAsync(input, 2, {
+      summarySource: "local",
+      summaryLabels: true,
+      summaryLabelConfigV2: `[method]\ndescription = "Explains how the study was carried out."\n\n[result]\ndescription = "Reports evidence or outcomes."`
+    });
+    const byOrder = new Map(selected.map(item => [item.order, item]));
+    expect(byOrder.get(0).tag).toBe("method");
+    expect(byOrder.get(1).tag).toBe("result");
+    expect(byOrder.get(1).tagScore).toBeGreaterThan(0);
+  });
+
+  it("uses the summary model to label selected highlights", async () => {
+    const classify = vi.fn(async () => "1. [method]\n2. [result]");
+    const embeddings = vi.fn(async texts => texts.map(() => [1, 0]));
+    const input = [
+      sentence("We measure the alpha signal with care.", 0),
+      sentence("The measured outcome improves after alpha treatment.", 1)
+    ];
+    const selected = await nlp({
+      supportsInference: () => true,
+      summarize: async () => "1. [method] We measure the alpha signal with care.\n2. [result] Alpha improves the outcome in this study.",
+      classify,
+      embeddings
+    }).analyzeAsync(input, 2, {
+      summarySource: "local",
+      summaryLabels: true,
+      summaryLabelConfigV2: `[method]\ndescription = "Explains how the study was carried out."\n\n[result]\ndescription = "Reports evidence or outcomes."`
+    });
+    const byOrder = new Map(selected.map(item => [item.order, item]));
+    expect(classify).toHaveBeenCalledOnce();
+    expect(classify.mock.calls[0][0]).toHaveLength(2);
+    expect(classify.mock.calls[0][1]).toHaveLength(2);
+    expect(classify.mock.calls[0][2]).toHaveLength(2);
+    expect(byOrder.get(0).tag).toBe("method");
+    expect(byOrder.get(1).tag).toBe("result");
+    expect(byOrder.get(0).tagScore).toBe(1);
+    expect(byOrder.get(1).tagScore).toBe(1);
+  });
+
+  it("parses numbered classification output", () => {
+    const api = nlp();
+    const labels = [{ name: "[method]" }, { name: "[result]" }];
+    const parsed = api.parseClassification("1. [method]\n2. [result]\n3. [unknown]", 2, labels);
+    expect([...parsed.entries()]).toEqual([
+      [0, { label: labels[0], index: 0 }],
+      [1, { label: labels[1], index: 1 }]
+    ]);
+  });
+
   it("parses line-delimited and collapsed labeled summaries", () => {
     const api = nlp();
     const labels = [{ name: "[method]" }, { name: "[result]" }];
@@ -334,6 +405,31 @@ describe("FastKeySentenceNLP", () => {
       sentence("Body result two.", 3, "results")
     ]);
     expect(paperText).toBe("Body result one. Body result two.");
+  });
+
+  it("reports embedding batches as overall progress", async () => {
+    const events = [];
+    const embeddings = vi.fn(async (texts, callback) => {
+      callback?.({ stage: "inference", progress: 0 });
+      callback?.({ stage: "inference", progress: 100 });
+      return texts.map(() => [1, 0]);
+    });
+    const input = Array.from({ length: 40 }, (_, order) =>
+      sentence(`Sentence number ${order} contains enough words for testing.`, order)
+    );
+    await nlp({
+      supportsInference: () => true,
+      summarize: async () => "First summary sentence. Second summary sentence.",
+      embeddings
+    }).analyzeAsync(input, 2, {
+      summarySource: "local",
+      localRelevance: true,
+      onModelProgress: event => events.push(event)
+    });
+    const relevance = events.filter(event => event.operation === "summary-relevance" && event.batch);
+    expect(relevance.some(event => event.batch === 2 && event.total === 2)).toBe(true);
+    expect(relevance.every((event, index) => index === 0 || event.progress >= relevance[index - 1].progress)).toBe(true);
+    expect(relevance.at(-1).progress).toBe(100);
   });
 
   it("scores sentences via dense summary relevance and relays progress", async () => {

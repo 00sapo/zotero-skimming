@@ -114,6 +114,7 @@ describe("FastKeySentenceModels Ollama", () => {
           expect(payload.prompt).toContain("Label category descriptions:");
           expect(payload.prompt).toContain("[method] Explains how the current study");
           expect(payload.prompt).toContain("Write a summary of exactly 2 numbered sentences");
+          expect(payload.prompt).toContain("Keep the [label] prefix on every line.");
           expect(payload.prompt.indexOf("Label category descriptions:")).toBeGreaterThan(payload.prompt.indexOf("Another sentence."));
           expect(payload.prompt).toMatch(/Format every sentence as .*Summary:$/);
           return { response: "1. [method] The method is described.\n2. [result] The results are reported." };
@@ -123,6 +124,32 @@ describe("FastKeySentenceModels Ollama", () => {
     const { api } = manager({ xhr, io: { exists: async () => true } });
     const result = await api.summarize("A sentence. Another sentence.", null, { sentenceCount: 2, labels: [{ name: "[method]", description: "Explains how the current study" }, { name: "[result]", description: "Reports evidence" }] });
     expect(result).toBeTruthy();
+  });
+
+  it("classifies sentences in a batch via Ollama", async () => {
+    const xhr = makeXHR({
+      "/api/generate": {
+        body: (_url, req) => {
+          const payload = JSON.parse(req._body);
+          expect(payload.prompt).toContain("Classify each sentence from the paper");
+          expect(payload.prompt).toContain("[method] Explains how the study was carried out.");
+          expect(payload.prompt).toContain("1. We measure the signal.");
+          expect(payload.prompt).toContain("Labeled examples from the paper summary");
+          expect(payload.system).toContain("precise academic sentence classifier");
+          return { response: "1. [method]\n2. [result]" };
+        }
+      }
+    });
+    const { api } = manager({ xhr });
+    const result = await api.classify(
+      ["We measure the signal.", "The result improves."],
+      [
+        { name: "[method]", description: "Explains how the study was carried out." },
+        { name: "[result]", description: "Reports outcomes." }
+      ],
+      [{ label: "[method]", sentence: "We measure the signal." }]
+    );
+    expect(result).toBe("1. [method]\n2. [result]");
   });
 
   it("generates embeddings for tag classification", async () => {
