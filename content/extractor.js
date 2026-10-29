@@ -639,8 +639,15 @@ var FastKeySentenceExtractor = (() => {
       if (visible.length >= 4 && letters < visible.length * 0.4) continue;
       const mathSymbols = (text.match(/[=+×÷⋅→←↔≤≥≠∑∫√∞±τλσμ]/g) || []).length;
       if (mathSymbols >= 2 && mathSymbols / visible.length > 0.12) continue;
+      const colonTail = /:\s*$/.test(text);
+      const colonContinuation = wordCount === 1 && colonTail && previousColumnLine
+        && !/[.!?]["'’)]?$/.test(previousColumnLine.text)
+        && previousColumnLine.baseline - line.baseline <= lineHeight * 1.6
+        && !lines.some(other => other !== line
+          && Math.abs(other.baseline - line.baseline) <= line.fontSize * 0.3
+          && other.x2 <= line.x1);
       if (wordCount < 4 && !line.bullet && !/[.!?]\s*$/.test(text)
-        && !(wordCount >= 2 && /:\s*$/.test(text))) continue;
+        && !(wordCount >= 2 && colonTail) && !colonContinuation) continue;
       if (nounListLines.has(line)) continue;
 
       const titleMatch = pageIndex === 0 && key.length >= 6 && title.length >= 6
@@ -1102,15 +1109,17 @@ var FastKeySentenceExtractor = (() => {
   }
 
   function sentenceSegments(text) {
+    const masked = text.replace(/\b(e\.g|i\.e|et al|Fig|Figs|Sec|Eq|Ref|No|vs|Dr|Prof|cf)\.(?=\s)/gi,
+      match => `${match.slice(0, -1)}\u0001`);
     if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
       const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-      return [...segmenter.segment(text)].map(item => ({ index: item.index, segment: item.segment }));
+      return [...segmenter.segment(masked)].map(item => ({ index: item.index, segment: item.segment.replace(/\u0001/g, ".") }));
     }
     const out = [];
     const pattern = /[^.!?]+(?:[.!?]+|$)/g;
     let match;
-    while ((match = pattern.exec(text))) {
-      if (match[0].trim()) out.push({ index: match.index, segment: match[0] });
+    while ((match = pattern.exec(masked))) {
+      if (match[0].trim()) out.push({ index: match.index, segment: match[0].replace(/\u0001/g, ".") });
     }
     return out;
   }
