@@ -123,15 +123,23 @@ var FastKeySentenceExtractor = (() => {
       (a.rect[0] + a.rect[2]) / 2 - (b.rect[0] + b.rect[2]) / 2);
     const baseline = median(ordered.map(char => char.baseline));
     const fontSize = median(ordered.map(char => char.fontSize));
-    ordered = ordered.filter((char, index) => {
-      if (!(char.fontSize < fontSize * 0.92 && Math.abs(char.baseline - baseline) > char.fontSize * 0.35)) return true;
+    let lastKept = null;
+    ordered = ordered.filter(char => {
+      const small = char.fontSize < fontSize * 0.92
+        && Math.abs(char.baseline - baseline) > char.fontSize * 0.35;
+      if (!small) {
+        lastKept = char;
+        return true;
+      }
       // Keep superscript and subscript suffixes such as CLaMP 3c2sa, but drop
       // footnote markers that follow an ordinary letter.
-      let anchor = index - 1;
-      while (anchor >= 0 && ordered[anchor].fontSize < fontSize * 0.92) anchor--;
-      const previous = ordered[anchor];
-      return Boolean(previous && /[0-9]/.test(previous.c)
-        && char.rect[0] - previous.rect[2] <= fontSize * 0.4);
+      const gap = lastKept ? char.rect[0] - lastKept.rect[2] : Number.POSITIVE_INFINITY;
+      const keep = Boolean(lastKept) && (
+        /[0-9]/.test(lastKept.c) && gap <= fontSize * 0.4
+        || lastKept.fontSize < fontSize * 0.92 && gap <= fontSize * 0.25
+      );
+      if (keep) lastKept = char;
+      return keep;
     });
     // Superscript and subscript suffixes overlap in x. Read the raised part
     // before the lowered part so CLaMP 3c2sa keeps its order.
