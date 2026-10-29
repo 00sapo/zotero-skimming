@@ -133,6 +133,18 @@ var FastKeySentenceExtractor = (() => {
       return Boolean(previous && /[0-9]/.test(previous.c)
         && char.rect[0] - previous.rect[2] <= fontSize * 0.4);
     });
+    // Superscript and subscript suffixes overlap in x. Read the raised part
+    // before the lowered part so CLaMP 3c2sa keeps its order.
+    for (let index = 0; index < ordered.length;) {
+      if (!(ordered[index].fontSize < fontSize * 0.92)) { index++; continue; }
+      let end = index;
+      while (end < ordered.length && ordered[end].fontSize < fontSize * 0.92) end++;
+      const run = ordered.slice(index, end)
+        .sort((a, b) => (b.baseline > baseline ? 1 : 0) - (a.baseline > baseline ? 1 : 0)
+          || a.rect[0] - b.rect[0]);
+      ordered.splice(index, end - index, ...run);
+      index = end;
+    }
     const bullet = ordered.length > 0 && /^[•·◦▪▫‣]$/.test(ordered[0].c);
     while (ordered.length && /^[\s•·◦▪▫‣]$/.test(ordered[0].c)) ordered = ordered.slice(1);
     return {
@@ -728,7 +740,7 @@ var FastKeySentenceExtractor = (() => {
       if (!line.chars.length) continue;
       const continues = previousLine
         && !/[.!?]["'’)]?$/.test(previousLine.text)
-        && /^[a-zà-öø-ÿ]/.test(line.chars[0].c);
+        && /^[a-zà-öø-ÿ→←]/.test(line.chars[0].c);
       const newBlock = previousLine && (
         (lineColumn(line) !== lineColumn(previousLine) && !continues)
         || previousLine.baseline - line.baseline > lineHeight * 1.45
