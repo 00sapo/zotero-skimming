@@ -100,6 +100,57 @@ def occurrences(stream, text):
     return found
 
 
+def item_position(stream, text, cursor):
+    """Approximate stream position used only to order authored items within a page."""
+    needle = canonical(text)
+    plain = "".join(char for char, _, _ in stream)
+    for length in range(min(len(needle), 60), 0, -1):
+        position = plain.find(needle[:length], cursor)
+        if position >= 0:
+            return position
+    return len(stream)
+
+
+def align_same_page(item, page, positive, cursor):
+    for start, end, indices in occurrences(page["stream"], item["text"]):
+        if start < cursor:
+            continue
+        positive.update(indices)
+        return end
+    raise RuntimeError(f"Cannot align authored text {item['text']!r} on page {item['pageIndex']}")
+
+
+def align_cross_page(item, pages, positives, cursors):
+    first = item["pageIndex"]
+    last = item.get("endPageIndex", first)
+    needle = canonical(item["text"])
+    if last != first + 1:
+        raise RuntimeError(f"Unsupported multi-page authored item: {item['text']!r}")
+    # The end of the first page can contain footnotes or superscripts between the
+    # sentence prefix and the continuation. Split the sentence at every point and
+    # take the longest prefix that occurs after the cursor on the first page while
+    # the remaining text occurs on the next page.
+    for split in range(len(needle) - 1, 0, -1):
+        prefix = needle[:split]
+        remainder = needle[split:]
+        first_matches = [match for match in occurrences(pages[first]["stream"], prefix)
+                         if match[0] >= cursors[first]]
+        if not first_matches:
+            continue
+        second_matches = [match for match in occurrences(pages[last]["stream"], remainder)
+                          if match[0] >= cursors[last]]
+        if not second_matches:
+            continue
+        prefix_match = max(first_matches, key=lambda match: match[0])
+        remainder_match = min(second_matches, key=lambda match: match[0])
+        positives[first].update(prefix_match[2])
+        positives[last].update(remainder_match[2])
+        cursors[first] = prefix_match[1]
+        cursors[last] = remainder_match[1]
+        return
+    raise RuntimeError(f"Cannot align cross-page authored text {item['text']!r} pages {first}-{last}")
+
+
 def label_case(case):
     truth_path = FIXTURES / case["groundTruth"]
     truth = json.loads(truth_path.read_text())
@@ -112,31 +163,32 @@ def label_case(case):
 
     positive_by_page = [set() for _ in pages]
     cursor_by_page = [0 for _ in pages]
-    authored = list(truth.get("sentences", [])) + list(truth.get("fragments", []))
-    for item in authored:
-        first_page = item["pageIndex"]
-        last_page = item.get("endPageIndex", first_page)
-        combined = []
-        boundaries = []
-        for page_index in range(first_page, last_page + 1):
-            boundaries.extend([page_index] * len(pages[page_index]["stream"]))
-            combined.extend(pages[page_index]["stream"])
-        eligible = []
-        for start, end, indices in occurrences(combined, item["text"]):
-            if boundaries[start] != first_page or start < cursor_by_page[first_page]:
-                continue
-            if boundaries[end - 1] > last_page:
-                continue
-            eligible.append((start, end, indices))
-        if not eligible:
-            raise RuntimeError(f"Cannot align authored text in {case['id']} page {first_page}: {item['text']}")
-        start, end, _ = eligible[0]
-        page_index = first_page
-        for position in range(start, end):
-            while boundaries[position] != page_index:
-                page_index = boundaries[position]
-            positive_by_page[page_index].add(combined[position][1])
-        cursor_by_page[first_page] = end
+    sentences = list(truth.get("sentences", []))
+    fragments = list(truth.get("fragments", []))
+    by_page = {}
+    for item in sentences:
+        by_page.setdefault(item["pageIndex"], []).append((item, False))
+    for item in fragments:
+        by_page.setdefault(item["pageIndex"], []).append((item, True))
+
+    for page_index in sorted(by_page):
+        entries = by_page[page_index]
+        stream = pages[page_index]["stream"]
+        first_sentence = next((item_position(stream, item["text"], 0)
+                               for item, is_fragment in entries if not is_fragment), len(stream))
+        leading = sorted(((item_position(stream, item["text"], 0), item)
+                          for item, is_fragment in entries
+                          if is_fragment and item_position(stream, item["text"], 0) < first_sentence),
+                         key=lambda entry: entry[0])
+        leading_items = [item for _, item in leading]
+        remaining = [item for item, _ in entries if item not in leading_items]
+        for item in leading_items + remaining:
+            last_page = item.get("endPageIndex", page_index)
+            if last_page == page_index:
+                cursor_by_page[page_index] = align_same_page(
+                    item, pages[page_index], positive_by_page[page_index], cursor_by_page[page_index])
+            else:
+                align_cross_page(item, pages, positive_by_page, cursor_by_page)
 
     scope = set(case["annotationScope"]["pages"])
     labeled_pages = []

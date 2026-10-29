@@ -25,8 +25,10 @@ The two downloaded PDFs remain unchanged. Their annotations cover selected origi
 
 | Original template | Annotated page index | Source |
 |---|---|---|
-| Two-column conference paper | 0 | [Iroro Orife template](https://github.com/ruohoruotsi/latex-template-arxiv-preprint/tree/ac24f569abb5f67cdbf00cac88b707738fbd52da) |
-| One-column research paper | 1 | [Pascal Michaillat template](https://github.com/pmichaillat/latex-paper/tree/f8afa108da12b18f8b059b81b2ccba23bd4ee7aa) |
+| Two-column conference paper | 0, 1 | [Iroro Orife template](https://github.com/ruohoruotsi/latex-template-arxiv-preprint/tree/ac24f569abb5f67cdbf00cac88b707738fbd52da) |
+| One-column research paper | 1, 2, 13 | [Pascal Michaillat template](https://github.com/pmichaillat/latex-paper/tree/f8afa108da12b18f8b059b81b2ccba23bd4ee7aa) |
+
+Page 13 of the one-column paper holds a floating table with grouped column headings, Greek table cells, and a table note, so the annotated prose on that page is interrupted by a float. Page 13 also starts inside a sentence that continues from page 11 across the full-page figure on page 12; that opening text is recorded as a fragment.
 
 Both repositories declare the MIT license. The `upstream` directory retains their licenses, source files, pinned revisions, download URLs, and original file hashes.
 

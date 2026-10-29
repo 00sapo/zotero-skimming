@@ -437,14 +437,15 @@
       },
       "annotationScope": {
         "pages": [
-          0
+          0,
+          1
         ],
         "completePages": true
       },
       "labels": "upstream/ruohoruotsi/ground-truth.json.labels.json.gz",
-      "labelsSha256": "495ebdeb9bf79df1c40bd124195c45cb6059e14dc89d9c8d452aebed299f548b",
-      "geometrySha256": "fe475998b2f1677f59a6282b598b0a110a318d61a779e968f3c6b45cd50d7d97",
-      "groundTruthSha256": "561a523c8c0e50aeed6a023315d23c8e6cf37464577a81d374ca8d7fb3b51a37"
+      "labelsSha256": "f33baa6734bea3efac093212433e5c6968fe2ddb220fe71625c2292d211fc5dc",
+      "geometrySha256": "0045ab84d2a1ca462b078432c4977bfd7064fb39232f592fcadbe4a127b7c2af",
+      "groundTruthSha256": "757069e3cbc1d87791b3225a89b72d3f75182afee3fafe259b6345be63e6bc07"
     },
     {
       "id": "upstream-pmichaillat-one-column",
@@ -464,14 +465,16 @@
       },
       "annotationScope": {
         "pages": [
-          1
+          1,
+          2,
+          13
         ],
         "completePages": true
       },
       "labels": "upstream/pmichaillat/ground-truth.json.labels.json.gz",
-      "labelsSha256": "b2bd511e0e0da10b8ae002ad2377481a039f649395b5bd775b4a55ff75c48352",
-      "geometrySha256": "1dc6f068703d557a8eb64211f7fec075c3355712ddba7f062a1dc0dce443d1cb",
-      "groundTruthSha256": "fd25112fa4bcf4840805fe936b9af89cc944a94bae1e859179f5580b50541d60"
+      "labelsSha256": "0f2482335577ac402c491d7958d0393ec3cab78c6542d050e3003e0712ccae02",
+      "geometrySha256": "92131575a7d7a9bb71ecfcdbe1a4a6881b69c9c632b4b335de95013c8f500fec",
+      "groundTruthSha256": "6b48111e9a04501e39cd52306df0094e3021aa234fc4920a6b350353bb675551"
     }
   ]
 }

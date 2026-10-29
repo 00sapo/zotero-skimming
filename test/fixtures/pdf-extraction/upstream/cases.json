@@ -13,7 +13,7 @@
         "license": "MIT",
         "licenseFile": "upstream/ruohoruotsi/LICENSE"
       },
-      "annotationScope": {"pages": [0], "completePages": true}
+      "annotationScope": {"pages": [0, 1], "completePages": true}
     },
     {
       "id": "upstream-pmichaillat-one-column",
@@ -28,7 +28,7 @@
         "license": "MIT",
         "licenseFile": "upstream/pmichaillat/LICENSE.md"
       },
-      "annotationScope": {"pages": [1], "completePages": true}
+      "annotationScope": {"pages": [1, 2, 13], "completePages": true}
     }
   ]
 }

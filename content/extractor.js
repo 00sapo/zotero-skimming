@@ -486,7 +486,8 @@ var FastKeySentenceExtractor = (() => {
       captionLines.add(lineIndex);
       let lastBaseline = caption.baseline;
       let lastText = caption.text;
-      for (let cursor = lineIndex + 1; cursor < lines.length; cursor++) {
+      let continuationCount = 0;
+      for (let cursor = lineIndex + 1; cursor < lines.length && continuationCount < 2; cursor++) {
         const line = lines[cursor];
         const gap = lastBaseline - line.baseline;
         if (gap <= 0) continue;
@@ -498,6 +499,7 @@ var FastKeySentenceExtractor = (() => {
           && line.text.length <= lastText.length + 20;
         if (!overlaps && !continuation) break;
         captionLines.add(cursor);
+        continuationCount++;
         lastBaseline = line.baseline;
         lastText = line.text;
       }
