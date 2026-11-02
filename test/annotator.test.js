@@ -430,7 +430,7 @@ describe("FastOfflineKeySentenceAnnotator attachments", () => {
 });
 
 describe("FastOfflineKeySentenceAnnotator overlays", () => {
-  it("paints colored tag labels on both page edges", () => {
+  it("paints one colored tag label on the nearest page edge", () => {
     const window = actualDocument();
     const doc = window.document;
     const pageDiv = doc.createElement("div");
@@ -458,23 +458,32 @@ describe("FastOfflineKeySentenceAnnotator overlays", () => {
     const specs = [
       { tag: "method", tagColor: "#5b9bd5", tagDescription: "How the study ran.", pageIndex: 0, rects: [[20, 100, 200, 112]] },
       { tag: "result", tagColor: "#a5a5a5", pageIndex: 0, rects: [[20, 104, 200, 116]] },
-      { pageIndex: 0, rects: [[20, 300, 200, 312]] }
+      { tag: "goal", tagColor: "#ed7d31", pageIndex: 0, rects: [[450, 300, 580, 312]] },
+      { tag: "conclusion", tagColor: "#70ad47", pageIndex: 0, rects: [[250, 400, 350, 412]] },
+      { pageIndex: 0, rects: [[20, 500, 200, 512]] }
     ];
     const labelsOf = () => pageDiv.children.filter(child => child.className === "zotero-skimming-tag" && !child.removed);
 
     const overlays = api.installOverlays(reader, specs);
     const labels = labelsOf();
     expect(labels).toHaveLength(4);
-    expect(labels.map(label => label.textContent)).toEqual(["method", "method", "result", "result"]);
+    expect(labels.map(label => label.textContent)).toEqual(["method", "result", "goal", "conclusion"]);
     expect(labels[0].style.left).toBe("0px");
-    expect(labels[1].style.right).toBe("0px");
+    expect(labels[0].style.right).toBeUndefined();
+    expect(labels[1].style.left).toBe("0px");
+    expect(labels[2].style.right).toBe("0px");
+    expect(labels[2].style.left).toBeUndefined();
+    expect(labels[3].style.right).toBe("0px");
+    expect(labels[3].style.left).toBeUndefined();
     expect(labels[0].style.top).toBe("100px");
-    expect(labels[2].style.top).toBe("116px");
+    expect(labels[1].style.top).toBe("116px");
+    expect(labels[2].style.top).toBe("300px");
+    expect(labels[3].style.top).toBe("400px");
     expect(labels[0].style.backgroundColor).toBe("#5b9bd5");
     expect(labels[0].getAttribute("title")).toBe("How the study ran.");
 
     overlays.update(specs.slice(0, 1));
-    expect(labelsOf()).toHaveLength(2);
+    expect(labelsOf()).toHaveLength(1);
 
     overlays.clear();
     expect(pageDiv.children.filter(child => !child.removed)).toHaveLength(0);

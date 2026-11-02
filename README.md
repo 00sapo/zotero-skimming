@@ -14,7 +14,7 @@
 - 📐 Handles two-column papers and multi-page documents. The extractor keeps reading order and sentence positions.
 - 🎯 Ranks sentences with a score from 0 to 1. The score weights are in `scoring-config.json`.
 - 🧭 Aligns the highlights with the paper summary. The selected sentences explain the summary in the same order.
-- 🏷️ Adds a category to the selected highlights. Colored labels on both page edges show the category at a glance.
+- 🏷️ Adds a category to the selected highlights. A colored label on the nearest page edge shows the category at a glance.
 - 👁️ Shows temporary highlights before any write. The PDF and the library stay unchanged until you save.
 - 💾 Saves highlights to your Zotero library. Each saved item keeps a correct text position.
 - 🔁 Skips duplicate saves. A second save adds only new sentences.
@@ -98,7 +98,7 @@ The threshold range is 0 to 100. Zero shows all candidates. One hundred hides al
 
 The add-on keeps the extracted text and the paper summary in memory for the session. Press `Generate highlights` again on the same PDF to reuse both. The compression ratio sets the number of selected sentences. A value of 10 selects one sentence for every ten candidates. A changed source, model, label configuration, long-paper split setting, or compression ratio starts a new summary.
 
-Tagged highlights show a small colored label on the left and right page edges. Each label sits at the height of its highlight and shows the tag name. The label color comes from the tag definition.
+Tagged highlights show a small colored label on the nearer page edge. Each label sits at the height of its highlight and shows the tag name. The label color comes from the tag definition.
 
 A second save skips sentences that already have an annotation. Press `Remove saved annotations` twice to delete the annotations that the add-on created.
 
@@ -138,7 +138,7 @@ The threshold hides sentences below its value.
 
 Tagging needs the summary and a local or remote model. The model labels up to 30 selected highlights in one batch. The prompt is the text that the model receives. The prompt includes the category definitions and labeled summary sentences as examples. The embedding classifier tags the candidates and serves as a fallback.
 
-Each tag has a color from the configuration file. The preview paints the tag name on both page edges. Saved annotations keep the tag as a native Zotero tag.
+Each tag has a color from the configuration file. The preview paints the tag name on the nearer page edge. Saved annotations keep the tag as a native Zotero tag.
 
 ### Saving annotations
 

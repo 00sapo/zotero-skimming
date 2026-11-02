@@ -972,16 +972,21 @@ FastOfflineKeySentenceAnnotator = {
       return luminance > 0.6 ? "#1f1f1f" : "#ffffff";
     };
 
-    const viewportTop = (spec, viewport) => {
+    const viewportBounds = (spec, viewport) => {
       let top = Infinity;
+      let left = Infinity;
+      let right = -Infinity;
       for (const rect of spec.rects || []) {
         try {
           const viewportRect = viewport.convertToViewportRectangle(Cu.cloneInto([...rect], win));
           top = Math.min(top, Math.min(viewportRect[1], viewportRect[3]));
+          left = Math.min(left, Math.min(viewportRect[0], viewportRect[2]));
+          right = Math.max(right, Math.max(viewportRect[0], viewportRect[2]));
         }
         catch (_) {}
       }
-      return top;
+      if (!Number.isFinite(top) || !Number.isFinite(left) || !Number.isFinite(right)) return null;
+      return { top, left, right };
     };
 
     // Shift overlapping labels down so each tag stays readable. Labels that
@@ -1007,21 +1012,24 @@ FastOfflineKeySentenceAnnotator = {
 
     const paintEdgeLabels = (pageSpecs, pageDiv, viewport) => {
       if (!(viewport.width > 0 && viewport.height > 0)) return;
-      const entries = [];
+      const sides = { left: [], right: [] };
       for (const spec of pageSpecs) {
         if (!tagOf(spec)) continue;
-        const top = viewportTop(spec, viewport);
-        if (!Number.isFinite(top)) continue;
-        entries.push({ spec, top });
+        const bounds = viewportBounds(spec, viewport);
+        if (!bounds) continue;
+        const leftGap = Math.max(0, bounds.left);
+        const rightGap = Math.max(0, viewport.width - bounds.right);
+        sides[leftGap < rightGap ? "left" : "right"].push({ spec, top: bounds.top });
       }
-      if (!entries.length) return;
-      entries.sort((a, b) => a.top - b.top);
-      const tops = stackTops(entries.map(entry => entry.top), viewport.height);
-      for (let index = 0; index < entries.length; index++) {
-        const { spec } = entries[index];
-        const tag = tagOf(spec);
-        const color = labelColor(spec);
-        for (const side of ["left", "right"]) {
+      for (const side of ["left", "right"]) {
+        const entries = sides[side];
+        if (!entries.length) continue;
+        entries.sort((a, b) => a.top - b.top);
+        const tops = stackTops(entries.map(entry => entry.top), viewport.height);
+        for (let index = 0; index < entries.length; index++) {
+          const { spec } = entries[index];
+          const tag = tagOf(spec);
+          const color = labelColor(spec);
           const label = doc.createElement("div");
           label.className = TAG_CLASS;
           label.textContent = tag;
