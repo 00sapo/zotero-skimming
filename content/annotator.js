@@ -926,12 +926,19 @@ FastOfflineKeySentenceAnnotator = {
     const { win, app, Cu } = handle;
     const doc = win.document;
     const HL_CLASS = "zotero-skimming-hl";
-    if (!doc.getElementById("zotero-skimming-preview-style")) {
-      const style = doc.createElement("style");
+    const TAG_CLASS = "zotero-skimming-tag";
+    const LABEL_HEIGHT = 14;
+    const LABEL_GAP = 2;
+    let style = doc.getElementById("zotero-skimming-preview-style");
+    if (!style) {
+      style = doc.createElement("style");
       style.id = "zotero-skimming-preview-style";
-      style.textContent = `.${HL_CLASS}{position:absolute;pointer-events:none;border-radius:2px;mix-blend-mode:multiply;z-index:3;}`;
       (doc.head || doc.documentElement).appendChild(style);
     }
+    style.textContent = `.${HL_CLASS}{position:absolute;pointer-events:none;border-radius:2px;mix-blend-mode:multiply;z-index:3;}`
+      + `.${TAG_CLASS}{position:absolute;pointer-events:none;z-index:4;box-sizing:border-box;height:${LABEL_HEIGHT}px;line-height:${LABEL_HEIGHT}px;`
+      + `padding:0 4px;border-radius:2px;font:600 9px/1 system-ui,sans-serif;max-width:45%;overflow:hidden;text-overflow:ellipsis;`
+      + `white-space:nowrap;box-shadow:0 0 0 1px rgba(0,0,0,0.12);}`;
 
     let specs = Array.isArray(sentences) ? sentences.slice() : [];
     let byPage = new Map();
@@ -952,6 +959,83 @@ FastOfflineKeySentenceAnnotator = {
       return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, 0.28)`;
     };
 
+    const tagOf = spec => typeof spec.tag === "string" && spec.tag.trim() ? spec.tag.trim() : null;
+
+    const labelColor = spec => {
+      const color = typeof spec.tagColor === "string" ? spec.tagColor : "";
+      return /^#[0-9a-f]{6}$/i.test(color) ? color : "#6b7280";
+    };
+
+    const labelTextColor = color => {
+      const value = parseInt(color.slice(1), 16);
+      const luminance = (0.299 * ((value >> 16) & 255) + 0.587 * ((value >> 8) & 255) + 0.114 * (value & 255)) / 255;
+      return luminance > 0.6 ? "#1f1f1f" : "#ffffff";
+    };
+
+    const viewportTop = (spec, viewport) => {
+      let top = Infinity;
+      for (const rect of spec.rects || []) {
+        try {
+          const viewportRect = viewport.convertToViewportRectangle(Cu.cloneInto([...rect], win));
+          top = Math.min(top, Math.min(viewportRect[1], viewportRect[3]));
+        }
+        catch (_) {}
+      }
+      return top;
+    };
+
+    // Shift overlapping labels down so each tag stays readable. Labels that
+    // would leave the page are pulled back inside it.
+    const stackTops = (tops, pageHeight) => {
+      const sorted = tops.slice().sort((a, b) => a - b);
+      let bottom = -Infinity;
+      const placed = sorted.map(top => {
+        const value = Math.max(top, bottom + LABEL_GAP);
+        bottom = value + LABEL_HEIGHT;
+        return value;
+      });
+      const overflow = bottom - pageHeight;
+      if (overflow <= 0) return placed;
+      bottom = -Infinity;
+      for (let index = 0; index < placed.length; index++) {
+        const value = Math.max(0, placed[index] - overflow);
+        placed[index] = Math.max(value, bottom + LABEL_GAP);
+        bottom = placed[index] + LABEL_HEIGHT;
+      }
+      return placed;
+    };
+
+    const paintEdgeLabels = (pageSpecs, pageDiv, viewport) => {
+      if (!(viewport.width > 0 && viewport.height > 0)) return;
+      const entries = [];
+      for (const spec of pageSpecs) {
+        if (!tagOf(spec)) continue;
+        const top = viewportTop(spec, viewport);
+        if (!Number.isFinite(top)) continue;
+        entries.push({ spec, top });
+      }
+      if (!entries.length) return;
+      entries.sort((a, b) => a.top - b.top);
+      const tops = stackTops(entries.map(entry => entry.top), viewport.height);
+      for (let index = 0; index < entries.length; index++) {
+        const { spec } = entries[index];
+        const tag = tagOf(spec);
+        const color = labelColor(spec);
+        for (const side of ["left", "right"]) {
+          const label = doc.createElement("div");
+          label.className = TAG_CLASS;
+          label.textContent = tag;
+          if (spec.tagDescription) label.setAttribute("title", spec.tagDescription);
+          label.style.top = `${tops[index]}px`;
+          if (side === "left") label.style.left = "0px";
+          else label.style.right = "0px";
+          label.style.backgroundColor = color;
+          label.style.color = labelTextColor(color);
+          pageDiv.appendChild(label);
+        }
+      }
+    };
+
     const paintPage = pageIndex => {
       const pageSpecs = byPage.get(pageIndex);
       const pageView = app.pdfViewer._pages?.[pageIndex];
@@ -959,6 +1043,7 @@ FastOfflineKeySentenceAnnotator = {
       const viewport = pageView?.viewport;
       if (!pageSpecs || !pageDiv || !viewport) return;
       for (const element of Array.from(pageDiv.querySelectorAll(`.${HL_CLASS}`))) element.remove();
+      for (const element of Array.from(pageDiv.querySelectorAll(`.${TAG_CLASS}`))) element.remove();
       if (!pageView.canvas && pageView.renderingState === 0) return;
       for (const spec of pageSpecs) {
         for (const rect of spec.rects || []) {
@@ -984,6 +1069,7 @@ FastOfflineKeySentenceAnnotator = {
           pageDiv.appendChild(div);
         }
       }
+      paintEdgeLabels(pageSpecs, pageDiv, viewport);
     };
 
     const repaint = () => {
@@ -1018,6 +1104,7 @@ FastOfflineKeySentenceAnnotator = {
         }
         try {
           for (const element of Array.from(doc.querySelectorAll(`.${HL_CLASS}`))) element.remove();
+          for (const element of Array.from(doc.querySelectorAll(`.${TAG_CLASS}`))) element.remove();
         }
         catch (_) {}
       }

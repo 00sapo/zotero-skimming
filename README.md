@@ -84,7 +84,7 @@ Highlights follow the summary sentence order. A position weight keeps the select
 
 The add-on paints the selected sentences as temporary overlays. Nothing is written to the library until you click `Save as Zotero annotations…`. A second save skips sentences that already have an annotation, so repeated clicks do not create duplicates. Each saved highlight receives the `autoskim-key-sentence` tag.
 
-With `Tagging`, the add-on asks the summary model to label the selected highlights in one batch. The prompt includes the category definitions and the labeled summary sentences as examples. The embedding classifier tags the remaining candidates and serves as a fallback. The add-on assigns the label color.
+With `Tagging`, the add-on asks the summary model to label the selected highlights in one batch. The prompt includes the category definitions and the labeled summary sentences as examples. The embedding classifier tags the remaining candidates and serves as a fallback. The add-on assigns the label color. The add-on also paints a small colored label with the tag name on the left and right edges of the page. Each label sits at the height of its highlight.
 
 `scoring-config.json` contains the score weights. `model-identifiers.json` contains the default model names.
 

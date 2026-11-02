@@ -428,3 +428,55 @@ describe("FastOfflineKeySentenceAnnotator attachments", () => {
     expect(annotation.comment).toBe("Section: results. Score: 0.812.");
   });
 });
+
+describe("FastOfflineKeySentenceAnnotator overlays", () => {
+  it("paints colored tag labels on both page edges", () => {
+    const window = actualDocument();
+    const doc = window.document;
+    const pageDiv = doc.createElement("div");
+    const viewport = {
+      width: 600,
+      height: 800,
+      convertToViewportRectangle: rect => rect.slice()
+    };
+    const app = {
+      pdfViewer: { _pages: [{ div: pageDiv, viewport }] },
+      pdfDocument: {},
+      eventBus: { on: vi.fn(), off: vi.fn() }
+    };
+    const reader = { _internalReader: { _primaryView: { _iframeWindow: { document: doc, PDFViewerApplication: app } } } };
+    doc.querySelectorAll = selector => pageDiv.children.filter(child => child.className === selector.replace(/^\./, ""));
+    const api = annotator({
+      Components: {
+        utils: {
+          waiveXrays: value => value,
+          cloneInto: value => value,
+          exportFunction: fn => fn
+        }
+      }
+    });
+    const specs = [
+      { tag: "method", tagColor: "#5b9bd5", tagDescription: "How the study ran.", pageIndex: 0, rects: [[20, 100, 200, 112]] },
+      { tag: "result", tagColor: "#a5a5a5", pageIndex: 0, rects: [[20, 104, 200, 116]] },
+      { pageIndex: 0, rects: [[20, 300, 200, 312]] }
+    ];
+    const labelsOf = () => pageDiv.children.filter(child => child.className === "zotero-skimming-tag" && !child.removed);
+
+    const overlays = api.installOverlays(reader, specs);
+    const labels = labelsOf();
+    expect(labels).toHaveLength(4);
+    expect(labels.map(label => label.textContent)).toEqual(["method", "method", "result", "result"]);
+    expect(labels[0].style.left).toBe("0px");
+    expect(labels[1].style.right).toBe("0px");
+    expect(labels[0].style.top).toBe("100px");
+    expect(labels[2].style.top).toBe("116px");
+    expect(labels[0].style.backgroundColor).toBe("#5b9bd5");
+    expect(labels[0].getAttribute("title")).toBe("How the study ran.");
+
+    overlays.update(specs.slice(0, 1));
+    expect(labelsOf()).toHaveLength(2);
+
+    overlays.clear();
+    expect(pageDiv.children.filter(child => !child.removed)).toHaveLength(0);
+  });
+});
