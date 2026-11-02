@@ -159,6 +159,15 @@ describe("FastKeySentenceModels Ollama", () => {
     expect(vectors[0]).toEqual([1, 0]);
   });
 
+  it("warms the embedding model", async () => {
+    const xhr = makeXHR();
+    const { api } = manager({ xhr });
+    await api.warmEmbeddings();
+    const embedCall = xhr.mock.instances.find(instance => instance._url?.includes("/api/embed"));
+    expect(embedCall).toBeTruthy();
+    expect(JSON.parse(embedCall._body).input).toEqual(["warmup"]);
+  });
+
   it("reports inference support with Ollama", () => {
     const { api } = manager();
     expect(api.supportsInference()).toBe(true);

@@ -12,6 +12,8 @@ FastOfflineKeySentenceAnnotator = {
   previews: new Map(),
   panelRefs: new WeakMap(),
   generateLocks: new Set(),
+  extractionCache: new Map(),
+  summaryCache: new Map(),
 
   init({ id, version, rootURI }) {
     this.id = id;
@@ -21,6 +23,8 @@ FastOfflineKeySentenceAnnotator = {
     this.previews = new Map();
     this.panelRefs = new WeakMap();
     this.generateLocks = new Set();
+    this.extractionCache = new Map();
+    this.summaryCache = new Map();
     if (typeof FastKeySentenceModels?.init === "function") FastKeySentenceModels.init(rootURI);
   },
 
@@ -70,6 +74,8 @@ FastOfflineKeySentenceAnnotator = {
     }
     this.previews.clear();
     this.generateLocks.clear();
+    this.extractionCache.clear();
+    this.summaryCache.clear();
     this.panelRefs = new WeakMap();
     if (!this.sectionKey) return;
     try {
@@ -616,6 +622,65 @@ FastOfflineKeySentenceAnnotator = {
     refs.progress.removeAttribute?.("value");
   },
 
+  getExtractionKey(attachment) {
+    return `${attachment.id}|${attachment.version ?? attachment.dateModified ?? ""}`;
+  },
+
+  getCachedExtraction(attachment) {
+    const key = this.getExtractionKey(attachment);
+    const entry = this.extractionCache.get(key);
+    if (!entry) return null;
+    this.extractionCache.delete(key);
+    this.extractionCache.set(key, entry);
+    return entry;
+  },
+
+  storeExtraction(attachment, sentences) {
+    const key = this.getExtractionKey(attachment);
+    this.extractionCache.delete(key);
+    this.extractionCache.set(key, sentences);
+    while (this.extractionCache.size > 4) {
+      this.extractionCache.delete(this.extractionCache.keys().next().value);
+    }
+  },
+
+  resetSentenceScores(sentences) {
+    for (const sentence of sentences) {
+      sentence.importance = 0;
+      sentence.summaryRelevance = 0;
+      sentence._selected = false;
+      sentence._summaryIndex = -1;
+      delete sentence.tag;
+      delete sentence.tagDescription;
+      delete sentence.tagColor;
+      delete sentence.tagIndex;
+      delete sentence.tagScore;
+      delete sentence._paperSummary;
+    }
+  },
+
+  getSummaryKey(attachment, settings, count) {
+    return JSON.stringify([
+      attachment.id,
+      settings.summarySource,
+      settings.remoteEndpoint,
+      settings.summaryModel,
+      settings.mapReduce,
+      settings.mapReduceSentences,
+      settings.summaryLabels ? settings.summaryLabelConfigV2 : "",
+      count
+    ]);
+  },
+
+  storeSummary(key, summary) {
+    if (typeof summary !== "string" || !summary.trim()) return;
+    this.summaryCache.delete(key);
+    this.summaryCache.set(key, summary);
+    while (this.summaryCache.size > 8) {
+      this.summaryCache.delete(this.summaryCache.keys().next().value);
+    }
+  },
+
   hasSavedAnnotations(attachment) {
     try {
       return (attachment.getAnnotations?.() || []).some(annotation =>
@@ -680,12 +745,24 @@ FastOfflineKeySentenceAnnotator = {
     this.previews.set(attachment.id, preview);
 
     try {
-      this.setPanelStatus(body, "Reading PDF text…");
-      const extracted = await FastKeySentenceExtractor.extractDocument(reader, attachment, (progress, page, total) => {
-        this.setPanelProgress(body, progress * 40);
-        this.setPanelStatus(body, `Reading PDF text… page ${page}/${total}`);
-      });
-      const candidates = extracted.sentences.filter(sentence =>
+      const cachedExtraction = this.getCachedExtraction(attachment);
+      let sentences;
+      if (cachedExtraction) {
+        this.setPanelProgress(body, 40);
+        this.setPanelStatus(body, "Reusing the extracted text for this PDF.");
+        sentences = cachedExtraction;
+      }
+      else {
+        this.setPanelStatus(body, "Reading PDF text…");
+        const extracted = await FastKeySentenceExtractor.extractDocument(reader, attachment, (progress, page, total) => {
+          this.setPanelProgress(body, progress * 40);
+          this.setPanelStatus(body, `Reading PDF text… page ${page}/${total}`);
+        });
+        sentences = extracted.sentences;
+        this.storeExtraction(attachment, sentences);
+      }
+      this.resetSentenceScores(sentences);
+      const candidates = sentences.filter(sentence =>
         !FastKeySentenceNLP.isNoise(sentence)
         && sentence.section !== "abstract"
         && sentence.section !== "references"
@@ -693,9 +770,12 @@ FastOfflineKeySentenceAnnotator = {
       );
       if (!candidates.length) throw new Error("No usable candidate sentences were found.");
       const count = this.calculateAnnotationTarget(candidates.length, settings);
+      const summaryKey = this.getSummaryKey(attachment, settings, count);
+      const cachedSummary = this.summaryCache.get(summaryKey) || "";
       FastKeySentenceModels.setModelOverrides(settings);
       this.setPanelStatus(body, `Ranking ${candidates.length} candidate sentences…`);
       this.setPanelProgress(body, 45);
+      if (cachedSummary) this.setPanelStatus(body, "Reusing the summary from the last run.");
       const progressPhases = {
         summarization: [45, 58],
         "summary-relevance": [58, 70],
@@ -728,6 +808,8 @@ FastOfflineKeySentenceAnnotator = {
         summarySource: settings.summarySource,
         mapReduce: settings.mapReduce,
         mapReduceSentences: settings.mapReduceSentences,
+        cachedSummary,
+        onSummary: summary => this.storeSummary(summaryKey, summary),
         documentTitle: await this.getDocumentTitle(attachment),
         onModelProgress: event => {
           const operation = event.operation;

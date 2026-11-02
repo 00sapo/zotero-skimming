@@ -1323,13 +1323,16 @@ var FastKeySentenceExtractor = (() => {
     const pageCount = getPageCount(reader);
     if (!pageCount) throw new Error("The reader did not report any pages.");
     const hints = hintsForAttachment(attachment);
-    const vocabulary = new Set();
+    const pageData = new Array(pageCount);
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-      addVocabulary(vocabulary, await readPageData(reader, pageIndex));
+      pageData[pageIndex] = await readPageData(reader, pageIndex);
     }
+    const vocabulary = new Set();
+    for (const data of pageData) addVocabulary(vocabulary, data);
     const pages = [];
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-      const page = await extractPage(reader, pageIndex, { ...hints, vocabulary }, await readPageData(reader, pageIndex));
+      const page = await extractPage(reader, pageIndex, { ...hints, vocabulary }, pageData[pageIndex]);
+      pageData[pageIndex] = null;
       if (page?.text) pages.push(page);
       onProgress?.((pageIndex + 1) / pageCount, pageIndex + 1, pageCount);
       await Promise.resolve();

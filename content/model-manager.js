@@ -5,6 +5,7 @@ var FastKeySentenceModels = (() => {
 
   const OLLAMA_URL = "http://127.0.0.1:11434";
   const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
+  const KEEP_ALIVE = "30m";
   let SUMMARY_MODEL = "hf.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF";
   let EMBEDDING_MODEL = "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF";
   const COMMAND_PREF = "extensions.zotero-skimming.ollamaCommand";
@@ -94,7 +95,16 @@ var FastKeySentenceModels = (() => {
     return parsed;
   }
 
+  let ensurePromise = null;
+
   async function ensureOllama(callback, command = null) {
+    if (!ensurePromise) {
+      ensurePromise = startOllama(callback, command).finally(() => { ensurePromise = null; });
+    }
+    return ensurePromise;
+  }
+
+  async function startOllama(callback, command) {
     if (await isOllamaReady()) return;
     const [binary, ...arguments_] = configuredCommand(command);
     if (!await IOUtils.exists(binary)) {
@@ -117,6 +127,11 @@ var FastKeySentenceModels = (() => {
       await Zotero.Promise.delay(250);
     }
     throw new Error("Ollama started but did not become ready. Check its local logs and GPU drivers.");
+  }
+
+  async function warmEmbeddings(callback = null) {
+    await ensureOllama(callback);
+    await ollamaRequest("/api/embed", { model: EMBEDDING_MODEL, input: ["warmup"], keep_alive: KEEP_ALIVE });
   }
 
 
@@ -154,9 +169,9 @@ var FastKeySentenceModels = (() => {
       prompt,
       system: "Return the summary directly without \"Here is...\" nor comments. Return just the summary. The summaries are made of one sentence per line, without blank lines, nor sections or titles. Number the lines starting from 1. Order the lines to follow the order of the source text.",
       stream: false,
-      keep_alive: "5m",
+      keep_alive: KEEP_ALIVE,
       think: false,
-      options: { temperature: 0 }
+      options: { temperature: 0, num_predict: Math.max(128, Math.round(sentenceCount * 48)) }
     });
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 100 });
     const raw = String(result.response || "").trim();
@@ -217,9 +232,9 @@ var FastKeySentenceModels = (() => {
       prompt,
       system: "You are a precise academic sentence classifier. Return only the numbered category lines.",
       stream: false,
-      keep_alive: "5m",
+      keep_alive: KEEP_ALIVE,
       think: false,
-      options: { temperature: 0 }
+      options: { temperature: 0, num_predict: Math.max(128, sentences.length * 24 + 64) }
     });
     callback?.({ stage: "inference", model: SUMMARY_MODEL, progress: 100 });
     return String(result.response || "").trim();
@@ -229,7 +244,7 @@ var FastKeySentenceModels = (() => {
     if (!texts.length) return [];
     await ensureOllama(callback);
     callback?.({ stage: "inference", model: EMBEDDING_MODEL, progress: 0 });
-    const result = await ollamaRequest("/api/embed", { model: EMBEDDING_MODEL, input: texts, keep_alive: "5m" });
+    const result = await ollamaRequest("/api/embed", { model: EMBEDDING_MODEL, input: texts, keep_alive: KEEP_ALIVE });
     const vectors = Array.isArray(result.embeddings) ? result.embeddings.map(vector => vector.map(Number)) : [];
     if (vectors.length !== texts.length) throw new Error("Ollama returned an incomplete embedding response.");
     callback?.({ stage: "inference", model: EMBEDDING_MODEL, progress: 100 });
@@ -274,6 +289,7 @@ var FastKeySentenceModels = (() => {
     summarize,
     classify,
     embeddings,
+    warmEmbeddings,
     testOllama,
     supportsInference,
     setModelOverrides,

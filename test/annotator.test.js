@@ -271,7 +271,8 @@ describe("FastOfflineKeySentenceAnnotator sidebar", () => {
     ];
     const extractor = { cleanText: text => text, extractDocument: vi.fn(async () => ({ sentences, pages: [], pageCount: 1 })) };
     const nlp = loadScript("content/nlp.js").FastKeySentenceNLP;
-    nlp.analyzeAsync = vi.fn(async (_sentences, _count, options) => {
+    const importanceByText = new Map(sentences.map(sentence => [sentence.text, sentence.importance]));
+    nlp.analyzeAsync = vi.fn(async (input, _count, options) => {
       options.onModelProgress({ stage: "preparing", operation: "summarization" });
       options.onModelProgress({ stage: "inference", operation: "summarization", progress: 0 });
       options.onModelProgress({ stage: "inference", operation: "summarization", progress: 50 });
@@ -279,7 +280,12 @@ describe("FastOfflineKeySentenceAnnotator sidebar", () => {
       options.onModelProgress({ stage: "preparing", operation: "tag-embeddings" });
       options.onModelProgress({ stage: "inference", operation: "tag-embeddings", progress: 0, batch: 1, total: 2 });
       options.onModelProgress({ stage: "inference", operation: "tag-embeddings", progress: 50, batch: 1, total: 2 });
-      return sentences.map(sentence => ({ ...sentence, _paperSummary: "Summary text." }));
+      options.onSummary?.("Raw summary text.");
+      return input.map(sentence => ({
+        ...sentence,
+        importance: importanceByText.get(sentence.text) ?? sentence.importance,
+        _paperSummary: "Summary text."
+      }));
     });
     const api = annotator({ FastKeySentenceExtractor: extractor, FastKeySentenceNLP: nlp });
     api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
@@ -337,6 +343,40 @@ describe("FastOfflineKeySentenceAnnotator sidebar", () => {
     });
     await api.savePreviewForItem(attachmentItem, body);
     expect(saved).toHaveLength(1);
+  });
+
+  it("reuses extracted text and the summary on a second run", async () => {
+    const sentences = [
+      { text: "First sentence with enough words.", pageIndex: 0, pageHeight: 800, rects: [[0, 700, 200, 710]], section: "results", importance: 0.9, order: 0 },
+      { text: "Second sentence with enough words.", pageIndex: 0, pageHeight: 800, rects: [[0, 680, 200, 690]], section: "results", importance: 0.4, order: 1 }
+    ];
+    const extractor = { cleanText: text => text, extractDocument: vi.fn(async () => ({ sentences, pages: [], pageCount: 1 })) };
+    const nlp = loadScript("content/nlp.js").FastKeySentenceNLP;
+    const calls = [];
+    nlp.analyzeAsync = vi.fn(async (input, count, options) => {
+      calls.push({ count, options });
+      if (calls.length === 1) input.forEach(sentence => { sentence.tag = "stale"; sentence.tagColor = "#ffffff"; });
+      options.onSummary?.("Raw summary.");
+      return input.map(sentence => ({ ...sentence, importance: 1, _paperSummary: "Summary." }));
+    });
+    const api = annotator({ FastKeySentenceExtractor: extractor, FastKeySentenceNLP: nlp });
+    api.init({ id: "addon@example.com", version: "1.0", rootURI: "resource://addon/" });
+    api.__zotero.Reader._readers = [{ itemID: 7 }];
+    const window = actualDocument();
+    const body = window.document.createElement("div");
+    const attachmentItem = attachment();
+    api.renderSidebar(body, window, attachmentItem, "reader");
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    await api.generateForItem(attachmentItem, body);
+    await api.generateForItem(attachmentItem, body);
+
+    expect(extractor.extractDocument).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].options.cachedSummary).toBe("");
+    expect(calls[1].options.cachedSummary).toBe("Raw summary.");
+    const cachedSentences = [...api.extractionCache.values()][0];
+    expect(cachedSentences.every(sentence => sentence.tag === undefined)).toBe(true);
   });
 });
 

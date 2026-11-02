@@ -39,6 +39,8 @@ Ollama runs the models on your computer. If your computer cannot run the models,
 5. Move the `Highlight threshold` slider to filter eligible sentences by normalized importance. Zero shows all eligible sentences. 100 hides all eligible sentences. The preview updates without another model run.
 6. Click `Save as Zotero annotations…` to keep the visible highlights in your library. Click `Clear` to remove the preview.
 
+The add-on keeps the extracted text and the paper summary in memory for the current session. Generate again on the same PDF reuses both. A changed summary source, model, map-reduce setting, label configuration, or compression ratio generates a new summary.
+
 The `Steps` checkboxes also work from `Settings → Zotero Skimming`. Other settings live only in that pane:
 
 - The summary source. Choose `Local Ollama` or `Remote API`.

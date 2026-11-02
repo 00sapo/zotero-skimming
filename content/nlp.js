@@ -209,10 +209,15 @@ var FastKeySentenceNLP = (() => {
     return Math.sqrt(sum);
   }
 
-  async function embedBatch(embedFn, texts, callback) {
+  function embeddingBatchSize(embedFn) {
+    if (embedFn === FastKeySentenceRemote?.embeddings) return 256;
+    return 128;
+  }
+
+  async function embedBatch(embedFn, texts, callback, requestedSize = 32) {
     if (!texts.length) return [];
     const vectors = [];
-    const batchSize = 32;
+    const batchSize = Math.max(1, Math.round(Number(requestedSize) || 32));
     const totalBatches = Math.ceil(texts.length / batchSize);
     for (let start = 0; start < texts.length; start += batchSize) {
       const batch = texts.slice(start, start + batchSize);
@@ -576,9 +581,17 @@ var FastKeySentenceNLP = (() => {
 
     const labels = labelsEnabled ? FastKeySentenceSummaryLabels.parseConfig(options.summaryLabelConfigV2 || FastKeySentenceSummaryLabels.DEFAULT_CONFIG) : [];
     const shouldSummarize = useLocalSummary || useRemoteSummary;
-    let summary = "";
+    let summary = typeof options.cachedSummary === "string" ? options.cachedSummary : "";
+    const reusedSummary = Boolean(summary);
     let localSummaryFailed = false;
-    if (shouldSummarize) {
+    if ((useLocalRelevance || labelsEnabled) && options.summarySource !== "remote" && inferenceAvailable
+        && typeof FastKeySentenceModels.warmEmbeddings === "function") {
+      try {
+        FastKeySentenceModels.warmEmbeddings()?.catch?.(() => {});
+      }
+      catch (_) {}
+    }
+    if (shouldSummarize && !reusedSummary) {
       options.onModelProgress?.({ stage: "preparing", operation: "summarization" });
       const paperText = paperTextForSummary(filtered);
       if (useLocalSummary && inferenceAvailable) {
@@ -612,6 +625,7 @@ var FastKeySentenceNLP = (() => {
           labels
         );
       }
+      if (summary) options.onSummary?.(summary);
     }
 
     const summaryEntries = labelsEnabled ? parseLabeledSummary(summary, labels) : [];
@@ -659,7 +673,8 @@ var FastKeySentenceNLP = (() => {
         const [summaryEmbedding, ...sentenceEmbeddings] = await embedBatch(
           embedFn,
           [summary, ...texts],
-          event => options.onModelProgress?.({ ...event, operation: "summary-relevance" })
+          event => options.onModelProgress?.({ ...event, operation: "summary-relevance" }),
+          embeddingBatchSize(embedFn)
         );
         const sentenceEmbeddingNorms = sentenceEmbeddings.map(denseNorm);
         denseShortlistVectors = sentenceEmbeddings.map(vector => Array.from(vector, Number));
@@ -692,7 +707,8 @@ var FastKeySentenceNLP = (() => {
         const vectors = await embedBatch(
           embedFn,
           summarySentences,
-          event => options.onModelProgress?.({ ...event, operation: "summary-sentences" })
+          event => options.onModelProgress?.({ ...event, operation: "summary-sentences" }),
+          embeddingBatchSize(embedFn)
         );
         summaryParts = vectors.map((vector, index) => {
           const values = Array.from(vector, Number);
@@ -734,14 +750,36 @@ var FastKeySentenceNLP = (() => {
         const useRemoteClassify = options.summarySource === "remote" && remoteAvailable;
         const primaryEmbed = useRemoteClassify ? FastKeySentenceRemote.embeddings : FastKeySentenceModels.embeddings;
         const fallbackEmbed = useRemoteClassify ? FastKeySentenceModels.embeddings : (remoteAvailable ? FastKeySentenceRemote.embeddings : null);
-        const texts = [
-          ...labels.map(label => label.description),
-          ...summarySentences,
-          ...filtered.map(sentence => sentence.text)
+        const reusedVectors = new Map();
+        if (Array.isArray(denseShortlistVectors)) {
+          shortlist.forEach((sentence, index) => {
+            if (Array.isArray(denseShortlistVectors[index])) reusedVectors.set(sentence, denseShortlistVectors[index]);
+          });
+        }
+        const reusedSummaryVectors = new Map();
+        if (Array.isArray(summaryParts)) {
+          for (const part of summaryParts) {
+            if (part?.text && Array.isArray(part.vector)) reusedSummaryVectors.set(part.text, part.vector);
+          }
+        }
+        const slots = [
+          ...labels.map(label => ({ text: label.description })),
+          ...summarySentences.map(text => {
+            const vector = reusedSummaryVectors.get(text);
+            return vector ? { vector } : { text };
+          }),
+          ...filtered.map(sentence => {
+            const vector = reusedVectors.get(sentence);
+            return vector ? { vector } : { text: sentence.text };
+          })
         ];
-        let vectors;
+        const pendingTexts = slots.filter(slot => !slot.vector).map(slot => slot.text);
+        const embedPending = async embedFn => pendingTexts.length
+          ? embedBatch(embedFn, pendingTexts, event => options.onModelProgress?.({ ...event, operation: "tag-embeddings" }), embeddingBatchSize(embedFn))
+          : [];
+        let filled = [];
         try {
-          vectors = await embedBatch(primaryEmbed, texts, event => options.onModelProgress?.({ ...event, operation: "tag-embeddings" }));
+          filled = await embedPending(primaryEmbed);
         }
         catch (primaryError) {
           if (!fallbackEmbed) throw primaryError;
@@ -750,8 +788,10 @@ var FastKeySentenceNLP = (() => {
             operation: "tag-embeddings",
             message: `Primary embedding failed; trying fallback. ${primaryError.message || primaryError}`
           });
-          vectors = await embedBatch(fallbackEmbed, texts, event => options.onModelProgress?.({ ...event, operation: "tag-embeddings" }));
+          filled = await embedPending(fallbackEmbed);
         }
+        let pendingIndex = 0;
+        const vectors = slots.map(slot => slot.vector || filled[pendingIndex++]);
         const descriptionVectors = vectors.slice(0, labels.length);
         const summaryVectors = vectors.slice(labels.length, labels.length + summarySentences.length);
         const sourceVectors = vectors.slice(labels.length + summarySentences.length);

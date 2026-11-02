@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loadScript } from "./helpers.js";
 
 function extractor() {
@@ -262,15 +262,14 @@ describe("FastKeySentenceExtractor", () => {
     }).FastKeySentenceExtractor;
     const chars = textLine("This first paragraph contains a complete prose sentence that is long enough to survive the front-matter filter used by the extractor.", 40, 700)
       .map(char => ({ ...char, u: char.c, rotation: 0, diagonal: false, rect: char.rect.slice() }));
+    const getPageData = vi.fn(async () => ({ viewBox: [0, 0, 600, 800], chars }));
     const reader = {
       _internalReader: {
         _primaryView: {
           _iframeWindow: {
             PDFViewerApplication: {
               pagesCount: 1,
-              pdfDocument: {
-                getPageData: async () => ({ viewBox: [0, 0, 600, 800], chars })
-              }
+              pdfDocument: { getPageData }
             }
           }
         }
@@ -278,6 +277,7 @@ describe("FastKeySentenceExtractor", () => {
     };
     expect(api.isAvailable(reader)).toBe(true);
     const result = await api.extractDocument(reader, { parentItem: null });
+    expect(getPageData).toHaveBeenCalledTimes(1);
     expect(result.pageCount).toBe(1);
     expect(result.sentences.length).toBe(1);
     expect(result.sentences[0].text).toContain("complete prose sentence");

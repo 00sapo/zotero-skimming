@@ -108,4 +108,26 @@ describe("FastKeySentenceRemote", () => {
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ stage: "mapping" }));
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ stage: "done" }));
   });
+
+  it("sends map chunks concurrently", async () => {
+    let active = 0;
+    let peak = 0;
+    const fetch = vi.fn(async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      active--;
+      return response("A compact summary sentence.");
+    });
+    const api = remote(new Map([
+      [prefix + "remoteApiKey", "key"],
+      [prefix + "remoteEndpoint", "https://api.example.test/chat"],
+      [prefix + "mapReduce", true],
+      [prefix + "mapReduceInputTokens", 256]
+    ]), fetch);
+    const paper = Array.from({ length: 200 }, (_, index) => `Sentence number ${index} with several words for the chunking test.`).join(" ");
+
+    await expect(api.summarize(paper, "Title", 3)).resolves.toBeTruthy();
+    expect(peak).toBeGreaterThan(1);
+  });
 });

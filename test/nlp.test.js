@@ -279,6 +279,65 @@ describe("FastKeySentenceNLP", () => {
     expect(selected.every(item => item.importance >= 0 && item.importance <= 1)).toBe(true);
   });
 
+  it("skips summarization when a cached summary is provided", async () => {
+    const summarize = vi.fn(async () => "Fresh summary.");
+    const embeddings = vi.fn(async texts => texts.map(() => [1, 0]));
+    const selected = await nlp({
+      supportsInference: () => true,
+      summarize,
+      embeddings
+    }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, {
+      summarySource: "local",
+      localRelevance: true,
+      cachedSummary: "Cached summary sentence. Another cached sentence."
+    });
+    expect(summarize).not.toHaveBeenCalled();
+    expect(embeddings).toHaveBeenCalled();
+    expect(selected.every(item => item._paperSummary === "Cached summary sentence. Another cached sentence.")).toBe(true);
+  });
+
+  it("keeps labels when a cached labeled summary is reused", async () => {
+    const summarize = vi.fn(async () => "Unused summary.");
+    const embeddings = vi.fn(async texts => texts.map(() => [1, 0]));
+    const selected = await nlp({
+      supportsInference: () => true,
+      summarize,
+      embeddings
+    }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, {
+      summarySource: "local",
+      summaryLabels: true,
+      summaryLabelConfigV2: `[method]\ndescription = "Explains how the study was carried out."\n\n[result]\ndescription = "Reports evidence or outcomes."`,
+      cachedSummary: "1. [method] We measure alpha carefully.\n2. [result] Alpha improves the outcome."
+    });
+    expect(summarize).not.toHaveBeenCalled();
+    expect(selected.every(item => typeof item.tag === "string" && item.tag.length > 0)).toBe(true);
+    expect(selected.every(item => !item._paperSummary.includes("["))).toBe(true);
+  });
+
+  it("reuses shortlist embeddings for tag classification", async () => {
+    const calls = [];
+    const embeddings = vi.fn(async texts => {
+      calls.push(texts.slice());
+      return texts.map((_, index) => [index + 1, 1]);
+    });
+    await nlp({
+      supportsInference: () => true,
+      summarize: async () => "1. [method] We measure alpha carefully.\n2. [result] Alpha improves the outcome.",
+      embeddings
+    }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 2, {
+      summarySource: "local",
+      localRelevance: true,
+      summaryLabels: true,
+      summaryLabelConfigV2: `[method]\ndescription = "Explains how the study was carried out."\n\n[result]\ndescription = "Reports evidence or outcomes."`
+    });
+    const relevanceCall = calls.find(texts => texts.some(text => text === prose[0]));
+    expect(relevanceCall).toBeTruthy();
+    const tagCall = calls.at(-1);
+    expect(tagCall).toHaveLength(2);
+    expect(tagCall.every(text => !prose.includes(text))).toBe(true);
+    expect(tagCall.every(text => /carried out|evidence or outcomes/.test(text))).toBe(true);
+  });
+
   it("assigns labels from the matched summary sentence when enabled", async () => {
     const embeddings = vi.fn(async texts => texts.map(text => {
       if (String(text).includes("method")) return [10, 0];
@@ -414,14 +473,14 @@ describe("FastKeySentenceNLP", () => {
       callback?.({ stage: "inference", progress: 100 });
       return texts.map(() => [1, 0]);
     });
-    const input = Array.from({ length: 40 }, (_, order) =>
+    const input = Array.from({ length: 200 }, (_, order) =>
       sentence(`Sentence number ${order} contains enough words for testing.`, order)
     );
     await nlp({
       supportsInference: () => true,
       summarize: async () => "First summary sentence. Second summary sentence.",
       embeddings
-    }).analyzeAsync(input, 2, {
+    }).analyzeAsync(input, 40, {
       summarySource: "local",
       localRelevance: true,
       onModelProgress: event => events.push(event)

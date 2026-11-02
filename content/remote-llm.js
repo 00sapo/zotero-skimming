@@ -11,6 +11,7 @@ var FastKeySentenceRemote = (() => {
   const MAP_PROMPT_TOKEN_RESERVE = 512;
   const MAX_REDUCE_ROUNDS = 16;
   const MAX_RETRIES = 2;
+  const MAP_CONCURRENCY = 3;
   const SUMMARY_SENTENCES_PER_ANNOTATION = 1.5;
 
   function errorDetail(error) {
@@ -179,6 +180,19 @@ var FastKeySentenceRemote = (() => {
     };
   }
 
+  async function mapWithConcurrency(items, limit, worker) {
+    const results = new Array(items.length);
+    let next = 0;
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next++;
+        results[index] = await worker(items[index], index);
+      }
+    });
+    await Promise.all(runners);
+    return results;
+  }
+
   async function summarizeMapReduce(paperText, documentTitle, targetSentences, targetTokens, config, onProgress, labels = []) {
     const budget = mapBudget(config.mapInputTokens);
     const inputLimit = budget.input;
@@ -190,16 +204,18 @@ var FastKeySentenceRemote = (() => {
       const total = chunks.length;
       const prompt = `${labelsBlock(labels)}${summaryPrompt(targetSentences, labels)}`;
       const outputTokens = Math.min(targetTokens, budget.output);
-      const summaries = [];
-      for (let index = 0; index < chunks.length; index++) {
-        onProgress?.({ stage: "mapping", model: config.model, round: round + 1, completed: index, total, progress: 100 * index / total });
-        summaries.push(await requestSummary(config, SYSTEM_PROMPT, chunks[index] + "\n\n" + prompt, outputTokens, onProgress, {
+      let completed = 0;
+      onProgress?.({ stage: "mapping", model: config.model, round: round + 1, completed: 0, total, progress: 0 });
+      const summaries = await mapWithConcurrency(chunks, MAP_CONCURRENCY, async (chunk, index) => {
+        const summary = await requestSummary(config, SYSTEM_PROMPT, chunk + "\n\n" + prompt, outputTokens, onProgress, {
           round: round + 1,
           chunk: index + 1,
           total
-        }));
-        onProgress?.({ stage: "mapping", model: config.model, round: round + 1, completed: index + 1, total, progress: 100 * (index + 1) / total });
-      }
+        });
+        completed++;
+        onProgress?.({ stage: "mapping", model: config.model, round: round + 1, completed, total, progress: 100 * completed / total });
+        return summary;
+      });
       if (total === 1) return summaries[0];
       chunks = splitByTokenLimit(summaries.join("\n\n"), inputLimit);
       round++;
