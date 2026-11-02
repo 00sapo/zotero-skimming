@@ -1,5 +1,7 @@
 # Zotero Skimming
 
+Get familiar with the paper's content by reading its sentences in its spacial context, because a generated summary loses detail and an abstract omits evidence.
+
 > [!WARNING]
 > Use this add-on for a fast first pass over a paper only. Skimming is a quick read that finds the main ideas. Automated selection can miss important sentences or favor some topics. Do not use this add-on for a detailed study of a paper.
 
