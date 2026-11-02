@@ -1,154 +1,183 @@
 # Zotero Skimming
 
 > [!WARNING]
-> Use the add-on for a fast first pass only. Automated sentence selection can miss important sentences or introduce bias. Do not use the add-on for a detailed study of a paper.
+> Use this add-on for a fast first pass over a paper only. Skimming is a quick read that finds the main ideas. Automated selection can miss important sentences or favor some topics. Do not use this add-on for a detailed study of a paper.
 
-Zotero Skimming selects important sentences in a PDF and saves them as native Zotero highlights. It does not change the PDF.
+<img src="assets/screenshot.png" alt="Zotero reader with Zotero Skimming highlights" width="600" />
 
-Skimming is a fast first pass over a paper. It is also called orientation reading.
+## Features
 
-Highlights stay temporary until you save them. Generate a preview, adjust the threshold, then save the sentences that you want in your library. The reader panel does not open dialogs.
+- 🧩 Works inside Zotero 9 and Zotero 10. The add-on is one package.
+- 💻 Works on an offline consumer computer. The base ranker needs no downloads and no network.
+- 🏠 Uses two default models in local mode. The models need about 4 GB of disk space.
+- 🧠 Uses character geometry. The extractor follows columns and removes repeated headers, page numbers, and references.
+- 📐 Handles two-column papers and multi-page documents. The extractor keeps reading order and sentence positions.
+- 🎯 Ranks sentences with a score from 0 to 1. The score weights are in `scoring-config.json`.
+- 🧭 Aligns the highlights with the paper summary. The selected sentences explain the summary in the same order.
+- 🏷️ Adds a category to the selected highlights. Colored labels on both page edges show the category at a glance.
+- 👁️ Shows temporary highlights before any write. The PDF and the library stay unchanged until you save.
+- 💾 Saves highlights to your Zotero library. Each saved item keeps a correct text position.
+- 🔁 Skips duplicate saves. A second save adds only new sentences.
+- ⚡ Updates the temporary highlights without a new analysis. The filter acts on stored scores.
+- 🔒 Keeps text on the computer by default. Remote mode is optional and explicit.
 
-<img src="assets/screenshot.png" alt="Screenshot of a paper with Zotero Skimming highlights" width="400" />
-
-## Requirements
-
-- Zotero 9 or 10.
-- Optional: Ollama. Ollama runs the local summary and embedding models.
-- Optional: an OpenAI-compatible API endpoint and API key. The add-on uses the endpoint for remote summaries and embeddings.
-
-If local summarization fails, the add-on falls back to a built-in TF-IDF (word frequency) ranker. `Remote API` needs a working endpoint and API key.
+The text layer is the selectable text inside the PDF. The add-on reads this text and scores the sentences. A highlight is a colored mark over text. A preview is a set of temporary highlights. The Zotero library holds your references and files. You review the preview and save useful sentences to your Zotero library.
 
 ## Installation
 
-1. Download the latest `.xpi` file from the [GitHub releases](https://github.com/00sapo/zotero-skimming/releases).
-2. Open `Tools → Add-ons` in Zotero.
-3. Open the gear menu and choose `Install Add-on From File…`.
-4. Select the `.xpi` file. Restart Zotero if Zotero asks.
-5. Open `Settings → Zotero Skimming` and choose a summary source.
-6. Optional: install Ollama from https://ollama.com/download.
+### Requirements
 
-Ollama runs the models on your computer. If your computer cannot run the models, use a remote API. For Google or Anthropic, use a local LiteLLM gateway. LiteLLM provides an OpenAI-compatible API.
+A model is a trained program that processes text. An endpoint is a web address that accepts requests.
+
+- Zotero 9 or Zotero 10.
+- Ollama for local summaries and local meaning comparisons.
+- About 4 GB of free disk space for the two default models in local mode.
+- An OpenAI-compatible endpoint, an API key, and a model name for remote mode.
+- Bash, Node.js, Yarn, `zip`, and `git` only to build from source.
+
+The add-on works without Ollama. In local mode, the base ranker then scores the sentences, and the status line reports the missing summary.
+
+### Install the add-on
+
+1. Download the latest `.xpi` file from the [releases page](https://github.com/00sapo/zotero-skimming/releases). The `.xpi` file is the add-on package.
+2. Open `Tools → Add-ons` in Zotero.
+3. Open the gear menu.
+4. Choose `Install Add-on From File…`.
+5. Select the `.xpi` file.
+6. If Zotero asks for a restart, restart Zotero.
+7. Open `Settings → Zotero Skimming`.
+8. Choose `Local Ollama` or `Remote API`.
+
+### Set up local models
+
+1. Install Ollama from [ollama.com/download](https://ollama.com/download).
+2. Open `Settings → Zotero Skimming`.
+3. Enter the full path of the Ollama command, for example `/usr/bin/ollama`.
+4. Press `Test Ollama`.
+
+The button starts Ollama and downloads the two models when needed. It reports progress and errors on the same page. The first model download needs an internet connection and about 4 GB of free disk space.
+
+### Set up remote mode
+
+1. Choose `Remote API` as the summary source.
+2. Enter the endpoint, the API key, and the model names.
+3. Press `Test Ollama`. The button makes sure that the fields are valid and sends no paper.
+
+Remote mode sends paper text to the endpoint. If a provider does not offer an OpenAI-compatible endpoint, use a gateway such as LiteLLM.
+
+### Build from source
+
+This method is for code changes only. You need Bash, Node.js, Yarn, `zip`, and `git`.
+
+```sh
+git clone https://github.com/00sapo/zotero-skimming.git
+cd zotero-skimming
+yarn install
+./scripts/release.sh --only-build
+yarn test
+```
+
+The build command writes `zotero-skimming.xpi` to the repository root. Install the file with the steps above.
 
 ## Usage
 
+A Zotero annotation is a saved highlight in the library. A tag is a category name. A candidate is a sentence that the add-on can select. The threshold is the lowest score that a candidate needs. An embedding is a list of numbers that represents meaning.
+
 1. Open the PDF in the Zotero reader.
 2. Open the `Paper skim` section in the right pane.
-3. Choose the steps in the `Steps` box. `Semantic embeddings` ranks sentences by meaning. When it is off, the add-on uses the TF-IDF ranker instead. `Tagging` assigns a category to each highlight. The paper summary always runs.
-4. Click `Generate highlights`. The status line shows extraction, ranking, and model progress. The progress bar follows separate summary, embedding, and classification steps. It animates while a long request runs.
-5. Move the `Highlight threshold` slider to filter eligible sentences by normalized importance. Zero shows all eligible sentences. 100 hides all eligible sentences. The preview updates without another model run.
-6. Click `Save as Zotero annotations…` to keep the visible highlights in your library. Click `Clear` to remove the preview.
+3. Select the optional steps in the `Steps` box.
+4. Press `Generate highlights`.
+5. Watch the status line and the progress bar.
+6. Move the `Highlight threshold` slider to filter the preview.
+7. Press `Save as Zotero annotations…` to keep the visible highlights.
+8. Press `Clear` to remove the preview.
 
-The add-on keeps the extracted text and the paper summary in memory for the current session. Generate again on the same PDF reuses both. A changed summary source, model, map-reduce setting, label configuration, or compression ratio generates a new summary.
+`Semantic embeddings` compares sentence meaning with the summary. `Tagging` assigns a category to the selected highlights. The paper summary is always part of the pass. Changes to the steps apply when you press `Generate highlights` again. The `Paper summary` box shows the generated summary.
 
-The `Steps` checkboxes also work from `Settings → Zotero Skimming`. Other settings live only in that pane:
+The threshold range is 0 to 100. Zero shows all candidates. One hundred hides all candidates. The default value is 75. A threshold change updates the preview without another analysis.
 
-- The summary source. Choose `Local Ollama` or `Remote API`.
-- The compression ratio controls how many diverse candidates receive priority.
-- The highlight threshold. Zero shows all eligible sentences. 100 hides all eligible sentences. The default is 75%.
-- The TOML label definitions for `Tagging`.
-- The endpoint, API key, and model names for remote use.
-- The Ollama command, map-reduce, and the number of sentences per chunk.
+The add-on keeps the extracted text and the paper summary in memory for the session. Press `Generate highlights` again on the same PDF to reuse both. The compression ratio sets the number of selected sentences. A value of 10 selects one sentence for every ten candidates. A changed source, model, label configuration, long-paper split setting, or compression ratio starts a new summary.
 
-The `Test Ollama` button reports its result on the settings page. In remote mode the button checks the endpoint and key fields and does not send a paper.
+Tagged highlights show a small colored label on the left and right page edges. Each label sits at the height of its highlight and shows the tag name. The label color comes from the tag definition.
+
+A second save skips sentences that already have an annotation. Press `Remove saved annotations` twice to delete the annotations that the add-on created.
+
+The settings page holds the other controls. It holds the summary source, the compression ratio, the default threshold, and the TOML tag definitions. It also holds the endpoint, the model fields, the Ollama command, and the long-paper split settings. The reader pane holds no settings forms and opens no dialogs.
 
 ## How it works
 
-### Summary
+The add-on uses the text layer of the PDF. The source file stays unchanged.
 
-Every run starts with a paper summary. The add-on uses the selected summary source. `Local Ollama` runs the model on your computer. `Remote API` sends the text to the configured endpoint.
+### Text extraction
 
-The summary feeds the ranker, the semantic relevance step, and the tag classifier. The panel also shows it under `Paper summary`. If local summarization fails, the add-on falls back to the TF-IDF ranker and reports the failure in the status line.
+The Zotero reader exposes the position of each character. The extractor groups characters into lines and columns. It reads the columns in order and keeps paragraph boundaries.
 
-### Map-reduce
+Page furniture is content outside the body text. The extractor removes page furniture. Running headers, page numbers, footnotes, captions, table cells, and reference entries are page furniture. It also removes titles, authors, headings, and abstract text.
 
-Map-reduce (split, summarize, then combine) is optional. The add-on splits long text into chunks and summarizes each chunk. It then summarizes the partial summaries. Local chunks contain N sentences. Remote map-reduce uses a 4096-token context window. The settings pane shows the control in local mode. The setting also applies to remote summaries. Use map-reduce for long papers or small models.
+The add-on divides each block into sentences. Each sentence keeps the position of its printed text. A scanned PDF needs an OCR text layer. OCR turns a picture of text into text. The add-on does not perform OCR.
 
-### Extraction
+A PDF extraction corpus in the repository measures this behavior. It contains downloaded templates, 16 layout variants, and independent expected text. The test suite tracks the score against a recorded baseline.
 
-The add-on reads the character geometry that the Zotero reader already has. It groups characters into visual lines and separates wide gaps into columns, cells, and labels.
+### Paper summary
 
-The extractor removes material that is not body prose. It removes printed line numbers, running headers and footers, page numbers, bullet markers, superscripts, footnotes, captions, table cells, and run-in list labels. It also removes titles, authors, headings, abstract text, and reference entries.
+Every pass starts with a paper summary. The summary guides the ranking and the tagging. `Local Ollama` operates a small model on your computer. `Remote API` sends the text to the configured endpoint. If local summarization fails, the add-on reports the failure and uses the TF-IDF ranker. TF-IDF is a word-frequency score.
 
-Column regions are read in order. Paragraph blocks keep their boundaries, so sentences do not join across columns, captions, or tables. Short sentences remain when they are complete prose. List items remain only when they form complete sentences. Small capitals inside logotypes, such as the LaTeX mark, stay in the text.
+Map-reduce splits long text, summarizes the parts, and combines the results. A token is a small text unit for a model. Local parts hold the number of sentences from the settings page. Remote parts use a 4096-token window. Use map-reduce for long papers or small models.
 
-The sentence segmenter then divides each block, so each highlight rectangle matches the printed text. The committed corpus in `test/fixtures/pdf-extraction` measures this behavior.
+### Sentence ranking
 
-### Ranking and highlights
+Every candidate receives an initial score from 0 to 1. The score combines summary similarity and sentence length. TF-IDF compares words. Embeddings compare meaning.
 
-The ranker scores all eligible sentences from 0 to 1. It gives priority to diverse candidates from its shortlist. The threshold then hides sentences below its value.
+The selection step follows the summary order when the summary has more than one sentence. MMR is the fallback. MMR is a diversity rule that avoids repeated content. The selection step also spreads highlights across the paper and penalizes repeated sections. Selected sentences receive a score of 1. Other candidates receive at most 0.5.
 
-Highlights follow the summary sentence order. A position weight keeps the selected sentences spread across the paper. The highlight sequence then explains the same concepts in the same order as the summary. Selected sentences score 1. Other candidates score up to 0.5, so the default threshold shows only the aligned sequence.
+The threshold hides sentences below its value.
 
-`Semantic embeddings` uses embeddings, which are number lists that represent meaning. This option needs model inference. `Tagging` also needs the summary and model inference. With `Local Ollama` selected and both steps off, the add-on ranks highlights with the TF-IDF ranker and still shows the summary.
+`Semantic embeddings` needs a model. With this step off, the TF-IDF baseline ranks the sentences. The baseline needs no model and no network.
 
-The add-on paints the selected sentences as temporary overlays. Nothing is written to the library until you click `Save as Zotero annotations…`. A second save skips sentences that already have an annotation, so repeated clicks do not create duplicates. Each saved highlight receives the `autoskim-key-sentence` tag.
+### Tagging
 
-With `Tagging`, the add-on asks the summary model to label the selected highlights in one batch. The prompt includes the category definitions and the labeled summary sentences as examples. The embedding classifier tags the remaining candidates and serves as a fallback. The add-on assigns the label color. The add-on also paints a small colored label with the tag name on the left and right edges of the page. Each label sits at the height of its highlight.
+Tagging needs the summary and a local or remote model. The model labels up to 30 selected highlights in one batch. The prompt is the text that the model receives. The prompt includes the category definitions and labeled summary sentences as examples. The embedding classifier tags the candidates and serves as a fallback.
 
-`scoring-config.json` contains the score weights. `model-identifiers.json` contains the default model names.
+Each tag has a color from the configuration file. The preview paints the tag name on both page edges. Saved annotations keep the tag as a native Zotero tag.
 
-## Models
+### Saving annotations
+
+The add-on paints temporary highlights over the page. It writes nothing to the library until you press `Save as Zotero annotations…`. Each saved item is a native Zotero highlight annotation.
+
+The add-on uses `Zotero.Annotations.saveFromJSON()` and keeps a valid position for each highlight. It adds the `autoskim-key-sentence` tag. It also adds the category tag when tagging is on. A second save skips text that already has an annotation.
+
+### Models
 
 | Stage | Default model |
 |---|---|
 | Summarization | `hf.co/unsloth/Qwen3.5-2B-GGUF:Q8_0` |
 | Semantic relevance | `hf.co/PeterAM4/Qwen3-Embedding-0.6B-GGUF:Q8_0` |
 
-`Test Ollama` pulls these models through the Ollama API. Ollama downloads the files from Hugging Face. Enter another model name in `Summary model` or `Embedding model` to use a different model.
+`Test Ollama` downloads these models through the Ollama API. Ollama downloads the files from Hugging Face. Set another model name on the settings page to use a different model.
 
-## Similar plugins
+### Quality tests
 
-SkimRead ([repository](https://github.com/adellife/zotero-skimread)) provides document-wide skimming for Zotero PDFs. A model selects the sentences. This add-on now follows its settings-pane, temporary-highlight, and explicit-save workflow.
+Start the unit tests with `yarn test`. Start the end-to-end test against Zotero and Ollama with `yarn smoke`. Before you start the smoke test, set `SMOKE_PDF` to a PDF path. If Ollama is not at `/usr/bin/ollama`, set `SMOKE_OLLAMA_COMMAND`. The smoke test uses a temporary profile and does not touch your library.
 
-Nodus ([repository](https://github.com/Drakonis96/nodus)) is a research workspace for Zotero. It includes search, cited answers, and sentence highlighting.
+## Credits
 
-## Build and test
+Zotero Skimming is maintained by [00sapo](https://github.com/00sapo). The license is the GNU GPL v3. See [LICENSE](LICENSE).
 
-Requirements: Bash, Node.js, Yarn, `zip`, and `git`.
+The add-on uses these projects and services:
 
-```sh
-yarn install
-./scripts/release.sh --only-build
-yarn test
-node --check bootstrap.js
-node --check content/annotator.js
-node --check content/extractor.js
-node --check content/nlp.js
-node --check content/model-manager.js
-node --check content/remote-llm.js
-git diff --check
-```
+- [Zotero](https://www.zotero.org/) provides the reader, the annotation API, and the item library.
+- [PDF.js](https://mozilla.github.io/pdf.js/) provides the page text geometry inside the Zotero reader.
+- [Ollama](https://ollama.com/) operates the local models.
+- [Hugging Face](https://huggingface.co/) hosts the model files.
+- The Qwen model family provides the base summary and embedding models.
+- [SkimRead](https://github.com/adellife/zotero-skimread) and [Nodus](https://github.com/Drakonis96/nodus) are related Zotero projects.
 
-`./scripts/release.sh --only-build` builds `zotero-skimming.xpi` in the repository root. It reads the version from `manifest.json` and includes the JSON configuration files, the icon asset, and the locale files.
+The design follows studies of skimming and reading behavior:
 
-Without `--only-build`, the script updates the version, updates `updates.json`, commits, tags, and can create a GitHub release.
+- K. Rayner, E. R. Schotter, M. E. J. Masson, M. C. Potter, and R. Treiman, "So Much to Read, So Little Time," *Psychol Sci Public Interest*, vol. 17, no. 1, pp. 4-34, Jan. 2016, doi: [10.1177/1529100615623267](https://doi.org/10.1177/1529100615623267).
+- R. Fok et al., "Scim: Intelligent Skimming Support for Scientific Papers," *Proceedings of the 28th International Conference on Intelligent User Interfaces*, ACM, pp. 476-490, Mar. 2023, doi: [10.1145/3581641.3584034](https://doi.org/10.1145/3581641.3584034).
+- G. B. Duggan and S. J. Payne, "Text skimming: The process and effectiveness of foraging through text under time pressure," *Journal of Experimental Psychology: Applied*, vol. 15, no. 3, pp. 228-242, 2009, doi: [10.1037/a0016995](https://doi.org/10.1037/a0016995).
 
-Run the end-to-end smoke test against a real Zotero 10 installation and Ollama:
+This README follows Simplified Technical English. No tool guarantees ASD-STE100 compliance. The official dictionary is free at [asd-ste100.org](https://asd-ste100.org/).
 
-```sh
-SMOKE_PDF="/path/to/paper.pdf" \
-SMOKE_OLLAMA_COMMAND="mise exec -- ollama" \
-yarn smoke
-```
-
-The smoke test runs the working tree in Zotero with a temporary profile. It checks summaries, embeddings, and highlights. It needs Ollama with the two models. See `AGENTS.md` for the options.
-
-The [PDF extraction corpus](test/fixtures/pdf-extraction/README.md) contains downloaded templates, 16 controlled layout variants, and independent expected text. The test suite tracks extraction quality against a recorded baseline.
-
-For a separate quality report, use Node.js from the repository root.
-
-```sh
-node scripts/evaluate-extraction.mjs --baseline test/fixtures/pdf-extraction/baseline.json
-```
-
-
-## References
-
-- K. Rayner, E. R. Schotter, M. E. J. Masson, M. C. Potter, and R. Treiman, “So Much to Read, So Little Time,” Psychol Sci Public Interest, vol. 17, no. 1, pp. 4–34, Jan. 2016, doi: [10.1177/1529100615623267](https://doi.org/10.1177/1529100615623267).
-- R. Fok et al., “Scim: Intelligent Skimming Support for Scientific Papers,” Proceedings of the 28th International Conference on Intelligent User Interfaces. ACM, pp. 476–490, Mar. 27, 2023. doi: [10.1145/3581641.3584034](https://doi.org/10.1145/3581641.3584034).
-- G. B. Duggan and S. J. Payne, “Text skimming: The process and effectiveness of foraging through text under time pressure.,” Journal of Experimental Psychology: Applied, vol. 15, no. 3, pp. 228–242, 2009, doi: [10.1037/a0016995](https://doi.org/10.1037/a0016995).
-
-## Repository
-
-https://github.com/00sapo/zotero-skimming
+The source code is at [github.com/00sapo/zotero-skimming](https://github.com/00sapo/zotero-skimming).
