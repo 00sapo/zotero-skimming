@@ -50,16 +50,17 @@
 
     <checkbox
       id="zotero-skimming-pref-localRelevance"
-      label="Semantic relevance from the paper summary"
+      label="Semantic embeddings"
     />
     <description style="max-width: 560px; font-size: 12px; opacity: 0.8">
       Uses embeddings to compare sentences with the generated summary. When
       this is off, the add-on uses the fast TF-IDF and TextRank baseline.
+      The reader sidebar has the same control.
     </description>
 
     <checkbox
       id="zotero-skimming-pref-summaryLabels"
-      label="Classify highlights from a labeled summary"
+      label="Tagging (classify highlights from the summary)"
     />
     <html:label
       for="zotero-skimming-pref-summaryLabelConfigV2"

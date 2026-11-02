@@ -34,17 +34,17 @@ Ollama runs the models on your computer. If your computer cannot run the models,
 
 1. Open the PDF in the Zotero reader.
 2. Open the `Paper skim` section in the right pane.
-3. Click `Generate highlights`. The status line shows extraction, ranking, and model progress. The progress bar follows separate summary, embedding, and classification steps. It animates while a long request runs.
-4. Move the `Highlight threshold` slider to filter eligible sentences by normalized importance. Zero shows all eligible sentences. 100 hides all eligible sentences. The preview updates without another model run.
-5. Click `Save as Zotero annotations…` to keep the visible highlights in your library. Click `Clear` to remove the preview.
+3. Choose the steps in the `Steps` box. `Semantic embeddings` ranks sentences by meaning. When it is off, the add-on uses the TF-IDF ranker instead. `Tagging` assigns a category to each highlight. The paper summary always runs.
+4. Click `Generate highlights`. The status line shows extraction, ranking, and model progress. The progress bar follows separate summary, embedding, and classification steps. It animates while a long request runs.
+5. Move the `Highlight threshold` slider to filter eligible sentences by normalized importance. Zero shows all eligible sentences. 100 hides all eligible sentences. The preview updates without another model run.
+6. Click `Save as Zotero annotations…` to keep the visible highlights in your library. Click `Clear` to remove the preview.
 
-All other settings live in `Settings → Zotero Skimming`:
+The `Steps` checkboxes also work from `Settings → Zotero Skimming`. Other settings live only in that pane:
 
 - The summary source. Choose `Local Ollama` or `Remote API`.
 - The compression ratio controls how many diverse candidates receive priority.
 - The highlight threshold. Zero shows all eligible sentences. 100 hides all eligible sentences. The default is 75%.
-- `Semantic relevance`. The add-on then ranks sentences by meaning.
-- `Classify highlights from labeled summary` and the TOML label definitions.
+- The TOML label definitions for `Tagging`.
 - The endpoint, API key, and model names for remote use.
 - The Ollama command, map-reduce, and the number of sentences per chunk.
 
@@ -54,9 +54,9 @@ The `Test Ollama` button reports its result on the settings page. In remote mode
 
 ### Summary
 
-The add-on uses a local, model-free ranker by default. It does not start Ollama or send text to a remote service for this step.
+Every run starts with a paper summary. The add-on uses the selected summary source. `Local Ollama` runs the model on your computer. `Remote API` sends the text to the configured endpoint.
 
-When you enable `Semantic relevance` or labeled highlights, the add-on uses the selected summary source. The add-on also uses a remote source when you select `Remote API`.
+The summary feeds the ranker, the semantic relevance step, and the tag classifier. The panel also shows it under `Paper summary`. If local summarization fails, the add-on falls back to the TF-IDF ranker and reports the failure in the status line.
 
 ### Map-reduce
 
@@ -78,11 +78,11 @@ The ranker scores all eligible sentences from 0 to 1. It gives priority to diver
 
 Highlights follow the summary sentence order. A position weight keeps the selected sentences spread across the paper. The highlight sequence then explains the same concepts in the same order as the summary. Selected sentences score 1. Other candidates score up to 0.5, so the default threshold shows only the aligned sequence.
 
-`Semantic relevance` uses embeddings, which are number lists that represent meaning. This option needs a summary and model inference. Labeled highlights also need a summary. With `Local Ollama` selected and both options off, the add-on selects highlights without models.
+`Semantic embeddings` uses embeddings, which are number lists that represent meaning. This option needs model inference. `Tagging` also needs the summary and model inference. With `Local Ollama` selected and both steps off, the add-on ranks highlights with the TF-IDF ranker and still shows the summary.
 
 The add-on paints the selected sentences as temporary overlays. Nothing is written to the library until you click `Save as Zotero annotations…`. A second save skips sentences that already have an annotation, so repeated clicks do not create duplicates. Each saved highlight receives the `autoskim-key-sentence` tag.
 
-With `Classify highlights from labeled summary`, the add-on asks the summary model to label the selected highlights in one batch. The prompt includes the category definitions and the labeled summary sentences as examples. The embedding classifier tags the remaining candidates and serves as a fallback. The add-on assigns the label color.
+With `Tagging`, the add-on asks the summary model to label the selected highlights in one batch. The prompt includes the category definitions and the labeled summary sentences as examples. The embedding classifier tags the remaining candidates and serves as a fallback. The add-on assigns the label color.
 
 `scoring-config.json` contains the score weights. `model-identifiers.json` contains the default model names.
 

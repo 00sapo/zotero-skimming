@@ -250,6 +250,16 @@ describe("FastOfflineKeySentenceAnnotator sidebar", () => {
     expect(text).toContain("Save as Zotero annotations…");
     expect(text).toContain("Highlight threshold");
     expect(text).not.toContain("Paper skim");
+    const refs = api.panelRefs.get(body);
+    expect(refs.embeddingsToggle.checked).toBe(false);
+    expect(refs.taggingToggle.checked).toBe(false);
+    refs.embeddingsToggle.checked = true;
+    refs.embeddingsToggle.dispatch("change");
+    refs.taggingToggle.checked = true;
+    refs.taggingToggle.dispatch("change");
+    expect(api.__prefs.get("extensions.zotero-skimming.localRelevance")).toBe(true);
+    expect(api.__prefs.get("extensions.zotero-skimming.zeroShotLabels")).toBe(true);
+    expect(api.getConfiguredSettings()).toMatchObject({ localRelevance: true, summaryLabels: true });
     await section.onAsyncRender({ body, item: null, tabType: "reader" });
     expect(body.children[0].children[0].textContent).toContain("Select a PDF");
   });

@@ -442,6 +442,30 @@ FastOfflineKeySentenceAnnotator = {
     const progress = create("progress", { max: "100", value: "0", hidden: true, style: "width:100%;height:8px" });
     wrap.appendChild(progress);
 
+    const settings = this.getConfiguredSettings();
+    const stepsBox = create("fieldset", { style: "margin:0;padding:4px 8px 6px;border:1px solid color-mix(in srgb, CanvasText 22%, transparent);border-radius:5px" });
+    stepsBox.appendChild(create("legend", { style: "padding:0 4px" }, "Steps"));
+    const embeddingsToggle = create("input", {
+      id: "zotero-skimming-step-embeddings",
+      type: "checkbox",
+      checked: settings.localRelevance
+    });
+    const embeddingsLabel = create("label", { htmlFor: "zotero-skimming-step-embeddings" }, "Semantic embeddings");
+    const taggingToggle = create("input", {
+      id: "zotero-skimming-step-tagging",
+      type: "checkbox",
+      checked: settings.summaryLabels
+    });
+    const taggingLabel = create("label", { htmlFor: "zotero-skimming-step-tagging" }, "Tagging");
+    for (const row of [[embeddingsToggle, embeddingsLabel], [taggingToggle, taggingLabel]]) {
+      const line = create("div", { style: "display:flex;align-items:center;gap:6px" });
+      line.append(...row);
+      stepsBox.appendChild(line);
+    }
+    stepsBox.appendChild(create("div", { style: "opacity:0.68;font-size:11px;margin-top:2px" },
+      "The paper summary always runs. Without semantic embeddings, the TF-IDF ranker ranks the sentences. Changes apply to the next Generate."));
+    wrap.appendChild(stepsBox);
+
     const buttonStyle = "min-height:28px;padding:3px 10px;border:1px solid color-mix(in srgb, CanvasText 28%, transparent);border-radius:5px;background:ButtonFace;color:ButtonText;font:inherit";
     const actionRow = create("div", { style: "display:flex;gap:6px;flex-wrap:wrap" });
     const generate = create("button", { type: "button", style: buttonStyle + ";background:AccentColor;color:AccentColorText;border-color:AccentColor" }, "Generate highlights");
@@ -485,8 +509,17 @@ FastOfflineKeySentenceAnnotator = {
 
     body.appendChild(wrap);
 
-    const refs = { status, progress, generate, clear, save, remove, threshold, thresholdValue, summaryBox, summaryText, count: null };
+    const refs = { status, progress, generate, clear, save, remove, threshold, thresholdValue, summaryBox, summaryText, embeddingsToggle, taggingToggle, count: null };
     this.panelRefs.set(body, refs);
+
+    const saveSteps = () => {
+      Zotero.Prefs.set(this.prefBranch + "localRelevance", embeddingsToggle.checked === true, true);
+      Zotero.Prefs.set(this.prefBranch + "zeroShotLabels", taggingToggle.checked === true, true);
+    };
+    embeddingsToggle.addEventListener("change", saveSteps);
+    embeddingsToggle.addEventListener("command", saveSteps);
+    taggingToggle.addEventListener("change", saveSteps);
+    taggingToggle.addEventListener("command", saveSteps);
 
     generate.addEventListener("click", () => void this.generateForItem(item, body));
     clear.addEventListener("click", () => {
@@ -511,6 +544,9 @@ FastOfflineKeySentenceAnnotator = {
   async restorePreviewState(body, item) {
     const refs = this.panelRefs.get(body);
     if (!refs) return;
+    const settings = this.getConfiguredSettings();
+    refs.embeddingsToggle.checked = settings.localRelevance;
+    refs.taggingToggle.checked = settings.summaryLabels;
     const attachment = await this.resolvePDFAttachment(item);
     if (!attachment) {
       this.setPanelStatus(body, "Select a PDF attachment.");

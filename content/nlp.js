@@ -556,7 +556,9 @@ var FastKeySentenceNLP = (() => {
 
     const labelsEnabled = options.summaryLabels === true;
     const useLocalRelevance = options.localRelevance === true;
-    const useLocalSummary = options.summarySource !== "remote" && (useLocalRelevance || labelsEnabled);
+    // The paper summary is a required step for every run. It feeds the sparse
+    // ranker, the semantic ranker, and the tag classifier, and the panel shows it.
+    const useLocalSummary = options.summarySource !== "remote";
     const useRemoteSummary = options.summarySource === "remote";
     const useLocalModels = useLocalSummary || useLocalRelevance || labelsEnabled;
     if (useLocalModels && typeof FastKeySentenceModels === "undefined") {

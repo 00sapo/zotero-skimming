@@ -221,7 +221,7 @@ describe("FastKeySentenceNLP", () => {
   });
 
   it("keeps section coverage when the candidate list exceeds the shortlist", async () => {
-    const api = nlp();
+    const api = nlp({ supportsInference: () => true, summarize: async () => "A paper synopsis." });
     const input = Array.from({ length: 120 }, (_, order) => {
       const section = order < 100 ? "methods" : order < 110 ? "results" : "discussion";
       return sentence(`We present a detailed approach for concept${order} that improves analysis across several practical research settings.`, order, section);
@@ -264,7 +264,7 @@ describe("FastKeySentenceNLP", () => {
     await expect(api.analyzeAsync([], 2)).resolves.toEqual([]);
   });
 
-  it("uses the model-free baseline when model features are disabled", async () => {
+  it("uses the model-free baseline when the semantic steps are disabled", async () => {
     const summarize = vi.fn(async () => "A paper synopsis.");
     const embeddings = vi.fn(async texts => texts.map(() => [1, 0]));
     const selected = await nlp({
@@ -273,9 +273,9 @@ describe("FastKeySentenceNLP", () => {
       embeddings
     }).analyzeAsync(prose.map((text, order) => sentence(text, order)), 3, { summarySource: "local" });
     expect(selected).toHaveLength(prose.length);
-    expect(summarize).not.toHaveBeenCalled();
+    expect(summarize).toHaveBeenCalledOnce();
     expect(embeddings).not.toHaveBeenCalled();
-    expect(selected.every(item => item.tag === undefined && item._paperSummary === "")).toBe(true);
+    expect(selected.every(item => item.tag === undefined && item._paperSummary === "A paper synopsis.")).toBe(true);
     expect(selected.every(item => item.importance >= 0 && item.importance <= 1)).toBe(true);
   });
 
